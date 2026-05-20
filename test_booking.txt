@@ -1,0 +1,9 @@
+EVENT: Corporate Gala
+CLIENT: Sarah M
+DATE: 2026-06-15
+TIME: 18:00
+LOCATION: Johannesburg Convention Centre
+GUESTS: 200
+STAFF_REQUIRED: 5
+SERVICES: Waiters, Baristas, Security
+NOTES: VIP section needed, red carpet setup
