@@ -1,16 +1,19 @@
 {
   "name": "fresh-people-event-ops",
   "version": "1.0.0",
-  "description": "Standalone Event Ops system for Fresh People - WhatsApp booking processor",
-  "main": "server.js",
+  "description": "Standalone WhatsApp Bot for Fresh People Event Ops - Baileys based, no Chrome needed",
+  "main": "whatsapp-bot.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node whatsapp-bot.js",
+    "bot": "node whatsapp-bot.js"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.2",
+    "@hapi/boom": "^10.0.1",
     "express": "^4.18.2",
     "express-validator": "^7.0.1"
   },
-  "keywords": ["fresh-people", "event-ops", "whatsapp", "booking"],
+  "keywords": ["fresh-people", "event-ops", "whatsapp", "booking", "standalone", "baileys"],
   "author": "Yassin Ali",
   "license": "MIT"
 }
