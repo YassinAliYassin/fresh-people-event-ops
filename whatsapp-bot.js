@@ -7,6 +7,7 @@ const path = require('path');
 const EVENT_PROCESSOR = '/home/yassin/fresh-people-event-ops/event_processor.py';
 const CALENDAR_DIR = '/home/yassin/fresh-people-event-ops/calendar-events';
 const AUTH_FOLDER = '/home/yassin/fresh-people-event-ops/auth';
+const PAIRING_PHONE = '27672961272'; // SA number with country code (27)
 
 // Store pending bookings and staff confirmations
 const pendingBookings = new Map();
@@ -35,19 +36,23 @@ async function connectToWhatsApp() {
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: true,
+        pairingPhone: PAIRING_PHONE, // This triggers pairing code instead of QR
     });
     
     sock.ev.on('credentials.update', saveCreds);
     
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
+        const { connection, lastDisconnect, qr, pairingCode } = update;
+        
+        // Pairing code method (no QR scanning needed!)
+        if (pairingCode) {
+            console.log('📱 PAIRING CODE:', pairingCode);
+            console.log('📱 Type this code in WhatsApp: Settings → Linked Devices → Link a Device → Link with phone number');
+            fs.writeFileSync('/tmp/whatsapp-pairing-code.txt', pairingCode);
+        }
         
         if (qr) {
-            console.log('📱 QR Code received!');
-            // Save QR data for display server
-            fs.writeFileSync('/tmp/whatsapp-qr.txt', qr);
-            console.log('QR saved to /tmp/whatsapp-qr.txt');
+            console.log('📱 QR Code received (ignored, using pairing code method)');
         }
         
         if (connection === 'close') {
@@ -199,33 +204,25 @@ function parseEventOutput(output) {
 
 async function sendStaffConfirmationRequests(bookingData, sock) {
     const staffList = bookingData.staffList || [];
+    const logPath = '/home/yassin/fresh-people-event-ops/staff-confirmations.log';
     
-    for (const staff of staffList) {
-        const staffPhone = STAFF_PHONES[staff];
-        if (!staffPhone) {
-            console.log(`No phone for ${staff}, skipping`);
-            continue;
-        }
-        
-        const msg = `📋 *Staff Booking Confirmation*
-
+    const logEntry = `
+=== STAFF ALLOCATION ${new Date().toISOString()} ===
+Event ID: ${bookingData.eventId}
 Event: ${bookingData.booking.event}
 Date: ${bookingData.booking.date}
 Time: ${bookingData.booking.time}
 Location: ${bookingData.booking.location}
-
-You are allocated: *${staff}*
-
-Reply *YES* to confirm or *NO* to decline.`;
-        
-        const sent = await sock.sendMessage(`${staffPhone}@s.whatsapp.net`, { text: msg });
-        if (sent?.key?.id) {
-            staffConfirmations.set(sent.key.id, {
-                bookingId: bookingData.eventId,
-                staffName: staff
-            });
-        }
-    }
+Staff: ${staffList.join(', ')}
+Team Leader: ${staffList[0] || 'None'}
+================================
+`;
+    
+    fs.appendFileSync(logPath, logEntry);
+    console.log(`Staff allocation logged to ${logPath}`);
+    
+    // TODO: Add staff phone numbers later to enable WhatsApp confirmations
+    // Current numbers in STAFF_PHONES are placeholders
 }
 
 async function handleStaffConfirmation(bookingId, staffName, sock, from) {

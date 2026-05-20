@@ -35,7 +35,7 @@ app.get('/', (req, res) => {
         `);
     }
     
-    const qrData = fs.readFileSync(qrPath, 'utf8');
+    const qrData = fs.readFileSync(qrPath, 'utf8').trim();
     
     res.send(`
 <!DOCTYPE html>
@@ -48,7 +48,7 @@ app.get('/', (req, res) => {
         .container { background: white; padding: 30px; border-radius: 10px; max-width: 500px; margin: 0 auto; }
         h1 { color: #A4C71D; margin-bottom: 10px; }
         .subtitle { color: #666; margin-bottom: 30px; }
-        #qrcode { margin: 20px auto; padding: 20px; background: white; display: inline-block; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        #qrcode { margin: 20px auto; padding: 20px; background: white; display: block; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         .steps { text-align: left; background: #e8f5e9; padding: 15px; border-radius: 5px; margin: 20px 0; }
         .steps h3 { margin-top: 0; color: #A4C71D; }
         .steps li { margin: 8px 0; }
@@ -61,7 +61,7 @@ app.get('/', (req, res) => {
         <h1>📱 Scan QR Code</h1>
         <p class="subtitle">Fresh People Event Ops Bot</p>
         
-        <div id="qrcode"></div>
+        <canvas id="qrcode"></canvas>
         
         <div class="steps">
             <h3>📋 Steps:</h3>
@@ -77,13 +77,22 @@ app.get('/', (req, res) => {
     </div>
     
     <script>
-        const qrData = ${JSON.stringify(qrData)};
-        QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
-            width: 250,
-            margin: 2
-        }, function (error) {
-            if (error) console.error(error);
-        });
+        try {
+            const qrData = ${JSON.stringify(qrData)};
+            QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
+                width: 250,
+                margin: 2,
+                colorDark: "#000000",
+                colorLight: "#ffffff"
+            }, function (error) {
+                if (error) {
+                    console.error('QR Error:', error);
+                    document.getElementById('qrcode').innerHTML = '<p style="color:red">QR generation failed. Check console.</p>';
+                }
+            });
+        } catch(e) {
+            console.error('Script error:', e);
+        }
     </script>
 </body>
 </html>

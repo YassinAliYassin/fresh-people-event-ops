@@ -1,0 +1,66 @@
+{
+  "info": {
+    "name": "Fresh People Event Ops",
+    "description": "API collection for Fresh People Event Operations - WhatsApp booking processor",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5555"
+    }
+  ],
+  "item": [
+    {
+      "name": "Process Booking",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"message\": \"EVENT: Corporate Gala\\nCLIENT: Sarah M\\nDATE: 2026-06-15\\nTIME: 18:00\\nLOCATION: Johannesburg Convention Centre\\nGUESTS: 200\\nSTAFF_REQUIRED: 5\\nSERVICES: Waiters, Baristas\\nNOTES: VIP section needed\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/process-booking",
+          "host": ["{{base_url}}"],
+          "path": ["process-booking"]
+        },
+        "description": "Process a WhatsApp booking message and generate all outputs (Event ID, Staff List, Calendar, Deploy Message)"
+      },
+      "response": []
+    },
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": ["{{base_url}}"],
+          "path": ["health"]
+        },
+        "description": "Check if the server is running"
+      },
+      "response": []
+    },
+    {
+      "name": "Web Form (GET)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/",
+          "host": ["{{base_url}}"],
+          "path": ["/"]
+        },
+        "description": "Access the web form interface"
+      },
+      "response": []
+    }
+  ]
+}
