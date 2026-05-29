@@ -44,7 +44,13 @@ def parse_booking_input(text: str) -> Dict:
 
 def allocate_staff(num_required: int, staff_pool: List[str] = DEFAULT_STAFF) -> Dict:
     """Allocate staff and select team leader"""
-    num_required = int(num_required) if num_required else 1
+    # Handle string input like "3 Waiters" - extract just the number
+    if isinstance(num_required, str):
+        import re
+        match = re.search(r'(\d+)', num_required)
+        num_required = int(match.group(1)) if match else 1
+    else:
+        num_required = int(num_required) if num_required else 1
     num_required = min(num_required, len(staff_pool))
     
     # Shuffle but keep Mike (index 0) as likely leader

@@ -1,0 +1,15 @@
+{
+  "id": "FP-20260522-001",
+  "event": "Test Gala",
+  "date": "2026-05-22",
+  "time": "18:00",
+  "location": "Sandton",
+  "client": "Test Corp",
+  "services": "10 Waiters",
+  "staff": [
+    "Mike",
+    "Alex",
+    "John"
+  ],
+  "notes": "Auto-generated test"
+}

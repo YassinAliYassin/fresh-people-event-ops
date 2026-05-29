@@ -1,10 +1,11 @@
 const axios = require('axios');
 const { exec } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
 // CONFIG — Fill these after getting token
-const ACCESS_TOKEN = 'EAAW5l0R09ZCkBRtnTRodFTZAUZACZCct6XY91O1oAmOYMaoFhmrAp1ROJOiSnGwEKCMSFTHXNoULbBw3CuKb60oZCVA8d5dTNGKD5oiW89NfjTAAQmE9ysbMsod6RS4V8mUwzYm0DZBSQ1rYhVk8fXG9yoAD57BK2JzO7PC3qNM8Md2lM1Rz1Va8DRKTHqbqIZD';
-const PHONE_NUMBER_ID = '106073502372079'; // From Meta Dashboard > WhatsApp > API Setup
+const ACCESS_TOKEN = 'EAAvYl97Mh2QBRu6ZBrhFzaxUmjTmSqazv7RskpKvdar5GLy7v0ZAHtuOnwjPf9irD7zhYF2Du4EbdIheD7pUx7lUnZAZCI5iuOmQZAd0nR6HZBoZAifKvCkxBwzQFpbnyJ1OeLZBmsLylYQqz4R1gUdr5LJVMPMlihTW2u8v06Hb9zXMZC8RSauZCZARpQ4fgnuQE0etQZDZD';
+const PHONE_NUMBER_ID = '1190600000792870'; // From send-whatsapp.sh (WORKING)
 // Display Phone Number: +27 67 296 1272 (Fresh People Business Number)
 const VERIFY_TOKEN = 'fresh_people_webhook_verify_2026';
 
@@ -61,7 +62,6 @@ async function handleBookingMessage(text, from) {
     }
     
     // Process with Python
-    const { exec } = require('child_process');
     const proc = exec(`echo "${text.replace(/"/g, '\\"')}" | python3 ${EVENT_PROCESSOR}`, 
         (error, stdout, stderr) => {
             if (error) {
@@ -105,6 +105,19 @@ async function sendMessage(to, message) {
         console.error('❌ Send error:', error.response?.data || error.message);
     }
 }
+
+// Web form booking processor
+app.post('/process-booking-whatsapp', express.json(), (req, res) => {
+  const { message } = req.body;
+  if (!message) return res.status(400).json({ success: false, error: 'No booking message' });
+  
+  const script = path.join(__dirname, 'whatsapp-workflow-v2.sh');
+  
+  exec(`bash "${script}" "${message.replace(/"/g, '\\"')}"`, { cwd: __dirname }, (err, stdout, stderr) => {
+    if (err) return res.status(500).json({ success: false, error: stderr });
+    res.json({ success: true, result: stdout });
+  });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 WhatsApp API Bot running on port ${PORT}`);

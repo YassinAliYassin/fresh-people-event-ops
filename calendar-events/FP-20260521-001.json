@@ -1,0 +1,15 @@
+{
+  "event_id": "FP-20260521-001",
+  "event": "Waiters",
+  "client": "N/A",
+  "date": "21 May 2026",
+  "time": "14:00",
+  "location": "Sandton",
+  "guests": "N/A",
+  "staff_required": 19,
+  "services": "19 Waiters",
+  "notes": "Dress Code: All Black, Arrival Time: 13:00, Requires 19 staff (only 8 available in default pool)",
+  "created_at": "2026-05-20T23:45:00+02:00",
+  "assigned_staff": ["Mike", "Alex", "John", "Sipho", "Ben", "David", "Thabo", "Kevin"],
+  "team_leader": "Mike"
+}

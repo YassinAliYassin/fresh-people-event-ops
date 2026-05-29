@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Fresh People Event Ops v4</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Mobile optimizations */
+        @media (max-width: 640px) {
+            input, select, textarea, button { font-size: 16px; }
+            .container { padding-left: 8px; padding-right: 8px; }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-3xl font-bold">🎉 Fresh People Event Ops</h1>
+                <p class="text-gray-400">SQLite-powered event management v4.0</p>
+            </div>
+            <div class="text-right">
+                <a href="/blog.html" class="text-sm text-blue-400 hover:underline mb-2 block">Blog</a>
+                <div class="text-sm text-gray-400">System</div>
+                <div class="flex items-center gap-2">
+                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span class="text-green-400 text-sm">Online (SQLite)</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div class="text-gray-400 text-sm">Total Events</div>
+                <div class="text-3xl font-bold" id="totalEvents">0</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div class="text-gray-400 text-sm">Active Staff</div>
+                <div class="text-3xl font-bold" id="totalStaff">0</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div class="text-gray-400 text-sm">Staff Shortages</div>
+                <div class="text-3xl font-bold text-yellow-400" id="shortageCount">0</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <div class="text-gray-400 text-sm">Next Event</div>
+                <div class="text-lg font-bold" id="nextEvent">None</div>
+            </div>
+        </div>
+
+        <!-- Main Content: 3-Col Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Col1: Create Event -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-xl font-bold mb-4">📅 Create Event</h2>
+                
+                <!-- Template Selector -->
+                <div class="mb-4">
+                    <label class="block text-sm text-gray-400 mb-1">Quick Template</label>
+                    <select id="templateSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="">-- Select a template --</option>
+                    </select>
+                    <p class="text-xs text-gray-400 mt-1">Auto-fills event defaults</p>
+                </div>
+                
+                <form id="eventForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Event Name</label>
+                        <input type="text" id="eventName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Date</label>
+                        <input type="date" id="eventDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Time</label>
+                        <input type="time" id="eventTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Location</label>
+                        <input type="text" id="eventLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Client</label>
+                        <input type="text" id="eventClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Services</label>
+                        <input type="text" id="eventServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Staff (comma-separated)</label>
+                        <input type="text" id="eventStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Mike,Alex,John" value="Mike,Alex,John,Sipho,Ben,David,Thabo,Kevin">
+                        <p class="text-xs text-yellow-400 mt-1" id="staffWarning"></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Notes</label>
+                        <textarea id="eventNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Create Event</button>
+                </form>
+            </div>
+
+            <!-- Col2: Events List -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-xl font-bold mb-4">📋 Events</h2>
+                <div id="eventsList" class="space-y-4 max-h-96 overflow-y-auto"></div>
+            </div>
+
+            <!-- Col3: Calendar + Staff -->
+            <div class="space-y-6">
+                <!-- Mini Calendar -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h2 class="text-xl font-bold mb-4">📅 Calendar</h2>
+                    <div id="miniCalendar" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                </div>
+                <!-- Staff -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h2 class="text-xl font-bold mb-4">👥 Staff</h2>
+                    <div id="staffList" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Event Modal -->
+    <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <h3 class="text-xl font-bold mb-4">Edit Event</h3>
+            <form id="editForm" class="space-y-4">
+                <input type="hidden" id="editId">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Event Name</label>
+                    <input type="text" id="editName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Date</label>
+                    <input type="date" id="editDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Time</label>
+                    <input type="time" id="editTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Location</label>
+                    <input type="text" id="editLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Notes</label>
+                    <textarea id="editNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Save</button>
+                    <button type="button" onclick="closeEditModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API = 'http://localhost:3004/api';
+        let allEvents = [];
+        let allStaff = [];
+        let activeStaffCount = 8;
+        let templates = [];
+
+        // Load all data
+        async function loadData() {
+            const [eventsRes, staffRes, calendarRes, templatesRes] = await Promise.all([
+                fetch(`${API}/events`),
+                fetch(`${API}/staff`),
+                fetch(`${API}/calendar`),
+                fetch(`${API}/templates`)
+            ]);
+            allEvents = await eventsRes.json();
+            allStaff = await staffRes.json();
+            const calendar = await calendarRes.json();
+            templates = await templatesRes.json();
+            activeStaffCount = allStaff.length;
+            updateStats();
+            renderEvents();
+            renderStaff();
+            renderCalendar(calendar);
+            populateTemplates();
+        }
+
+        // Populate template dropdown
+        function populateTemplates() {
+            const select = document.getElementById('templateSelect');
+            select.innerHTML = '<option value="">-- Select a template --</option>';
+            templates.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name;
+                select.appendChild(opt);
+            });
+        }
+
+        // Handle template selection
+        document.getElementById('templateSelect').addEventListener('change', function() {
+            const templateId = this.value;
+            if (!templateId) return;
+            
+            const template = templates.find(t => t.id == templateId);
+            if (!template) return;
+
+            // Auto-fill form
+            if (template.default_services) {
+                document.getElementById('eventServices').value = template.default_services;
+            }
+            
+            // Show template info
+            alert(`Template: ${template.name}\nDuration: ${template.default_duration_hours}h\nPre-arrival: ${template.pre_arrival_hours}h\nDress: ${template.dress_code}`);
+        });
+
+        // Update stats
+        function updateStats() {
+            document.getElementById('totalEvents').textContent = allEvents.length;
+            document.getElementById('totalStaff').textContent = allStaff.length;
+            // Count events with warnings
+            const shortageEvents = allEvents.filter(e => e.notes && e.notes.includes('Staff shortage'));
+            document.getElementById('shortageCount').textContent = shortageEvents.length;
+            // Next event
+            const now = new Date();
+            const next = allEvents.filter(e => new Date(e.date) >= now).sort((a,b) => new Date(a.date) - new Date(b.date))[0];
+            document.getElementById('nextEvent').textContent = next ? `${next.event} (${next.date})` : 'None';
+        }
+
+        // Render calendar view
+        function renderCalendar(calendar) {
+            const container = document.getElementById('miniCalendar');
+            // Group by date
+            const byDate = {};
+            calendar.forEach(e => {
+                if (!byDate[e.date]) byDate[e.date] = [];
+                byDate[e.date].push(e);
+            });
+            container.innerHTML = Object.entries(byDate).sort((a,b) => a[0] < b[0] ? -1 : 1).map(([date, events]) => `
+                <div class="bg-gray-700 rounded p-2 border border-gray-600">
+                    <div class="text-sm font-bold text-blue-400">${date}</div>
+                    ${events.map(e => `<div class="text-xs text-gray-300">${e.time} - ${e.event}</div>`).join('')}
+                </div>
+            `).join('') || '<p class="text-gray-400 text-sm">No events</p>';
+        }
+
+        // Render events list
+        function renderEvents() {
+            const container = document.getElementById('eventsList');
+            container.innerHTML = allEvents.map(e => {
+                const hasWarning = e.notes && e.notes.includes('Staff shortage');
+                return `
+                    <div class="bg-gray-700 rounded p-4 border border-gray-600 ${hasWarning ? 'border-yellow-500' : ''}">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h4 class="font-bold">${e.event}</h4>
+                                <p class="text-sm text-gray-400">${e.date} ${e.time}</p>
+                                <p class="text-sm text-gray-400">${e.location}</p>
+                                ${hasWarning ? '<p class="text-xs text-yellow-400 mt-1">⚠️ Staff shortage</p>' : ''}
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="openEditModal('${e.id}')" class="text-blue-400 hover:text-blue-300 text-sm">Edit</button>
+                                <button onclick="deleteEvent('${e.id}')" class="text-red-400 hover:text-red-300 text-sm">Delete</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Render staff
+        function renderStaff() {
+            const container = document.getElementById('staffList');
+            container.innerHTML = allStaff.map(s => `
+                <div class="flex items-center justify-between bg-gray-700 rounded p-3 border border-gray-600">
+                    <span class="text-sm">${s.name}</span>
+                    <div class="w-2 h-2 rounded-full ${s.active ? 'bg-green-500' : 'bg-gray-500'}"></div>
+                </div>
+            `).join('');
+        }
+
+        // Create event
+        document.getElementById('eventForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const staff = document.getElementById('eventStaff').value.split(',').map(s => s.trim());
+            const body = {
+                event: document.getElementById('eventName').value,
+                date: document.getElementById('eventDate').value,
+                time: document.getElementById('eventTime').value,
+                location: document.getElementById('eventLocation').value,
+                client: document.getElementById('eventClient').value,
+                services: document.getElementById('eventServices').value,
+                staff: staff,
+                notes: document.getElementById('eventNotes').value
+            };
+            const res = await fetch(`${API}/events`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.warnings) alert('Warning: ' + data.warnings.join('\n'));
+            e.target.reset();
+            loadData();
+        });
+
+        // Edit event
+        function openEditModal(id) {
+            const event = allEvents.find(e => e.id === id);
+            if (!event) return;
+            document.getElementById('editId').value = id;
+            document.getElementById('editName').value = event.event;
+            document.getElementById('editDate').value = event.date;
+            document.getElementById('editTime').value = event.time;
+            document.getElementById('editLocation').value = event.location;
+            document.getElementById('editNotes').value = event.notes || '';
+            document.getElementById('editModal').classList.remove('hidden');
+            document.getElementById('editModal').classList.add('flex');
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').classList.add('hidden');
+            document.getElementById('editModal').classList.remove('flex');
+        }
+
+        document.getElementById('editForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editId').value;
+            const body = {
+                event: document.getElementById('editName').value,
+                date: document.getElementById('editDate').value,
+                time: document.getElementById('editTime').value,
+                location: document.getElementById('editLocation').value,
+                client: '',
+                services: '',
+                staff: JSON.parse(allEvents.find(e => e.id === id).staff || '[]'),
+                notes: document.getElementById('editNotes').value
+            };
+            await fetch(`${API}/events/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            closeEditModal();
+            loadData();
+        });
+
+        // Delete event
+        async function deleteEvent(id) {
+            if (!confirm('Delete this event?')) return;
+            await fetch(`${API}/events/${id}`, { method: 'DELETE' });
+            loadData();
+        }
+
+        // Initial load
+        loadData();
+        setInterval(loadData, 30000);
+    </script>
+</body>
+</html>

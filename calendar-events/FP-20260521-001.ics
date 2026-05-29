@@ -1,0 +1,12 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Fresh People//Event Booking//EN
+BEGIN:VEVENT
+UID:FP-20260521-001@fresh-people.co.za
+DTSTAMP:20260520T234500Z
+DTSTART:20260521T140000
+SUMMARY:Waiters – N/A – 19 Staff Required
+DESCRIPTION:Client: N/A\nEvent: Waiters\nLocation: Sandton\nServices: 19 Waiters\nStaff Assigned: Mike (Leader), Alex, John, Sipho, Ben, David, Thabo, Kevin\nNote: Only 8 staff available in pool\nDress Code: All Black\nArrival: 13:00
+LOCATION:Sandton
+END:VEVENT
+END:VCALENDAR
