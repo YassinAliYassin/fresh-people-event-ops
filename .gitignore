@@ -1,0 +1,6 @@
+*.log
+events.db
+backups/
+calendar-events/
+node_modules/
+.pm2/

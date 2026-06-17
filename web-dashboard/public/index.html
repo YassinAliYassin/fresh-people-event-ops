@@ -8,11 +8,17 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
-        /* Mobile optimizations */
         @media (max-width: 640px) {
             input, select, textarea, button { font-size: 16px; }
             .container { padding-left: 8px; padding-right: 8px; }
         }
+        .alert-critical { border-left: 4px solid #ef4444; }
+        .alert-warning { border-left: 4px solid #f59e0b; }
+        .alert-info { border-left: 4px solid #3b82f6; }
+        .status-confirmed { background: #065f46; color: #d1fae5; }
+        .status-pending { background: #92400e; color: #fef3c7; }
+        .status-cancelled { background: #991b1b; color: #fee2e2; }
+        .status-completed { background: #1e3a5f; color: #dbeafe; }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
@@ -21,10 +27,9 @@
         <div class="flex items-center justify-between mb-8">
             <div>
                 <h1 class="text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400">SQLite-powered event management v4.0</p>
+                <p class="text-gray-400">SQLite-powered event management v4.1</p>
             </div>
             <div class="text-right">
-                <a href="/blog.html" class="text-sm text-blue-400 hover:underline mb-2 block">Blog</a>
                 <div class="text-sm text-gray-400">System</div>
                 <div class="flex items-center gap-2">
                     <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
@@ -34,23 +39,36 @@
         </div>
 
         <!-- Stats -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div class="text-gray-400 text-sm">Total Events</div>
-                <div class="text-3xl font-bold" id="totalEvents">0</div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Total Events</div>
+                <div class="text-2xl font-bold" id="totalEvents">0</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div class="text-gray-400 text-sm">Active Staff</div>
-                <div class="text-3xl font-bold" id="totalStaff">0</div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Active Staff</div>
+                <div class="text-2xl font-bold" id="totalStaff">0</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div class="text-gray-400 text-sm">Staff Shortages</div>
-                <div class="text-3xl font-bold text-yellow-400" id="shortageCount">0</div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Staff Shortages</div>
+                <div class="text-2xl font-bold text-yellow-400" id="shortageCount">0</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div class="text-gray-400 text-sm">Conflicts</div>
-                <div class="text-3xl font-bold text-red-400" id="conflictCount">0</div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Conflicts</div>
+                <div class="text-2xl font-bold text-red-400" id="conflictCount">0</div>
             </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Alerts</div>
+                <div class="text-2xl font-bold text-orange-400" id="alertCount">0</div>
+            </div>
+        </div>
+
+        <!-- Alerts Panel -->
+        <div id="alertsPanel" class="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-8 hidden">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold">🚨 Alerts & Notifications</h2>
+                <button onclick="loadData()" class="text-sm text-blue-400 hover:underline">Refresh</button>
+            </div>
+            <div id="alertsList" class="space-y-3 max-h-64 overflow-y-auto"></div>
         </div>
 
         <!-- Main Content: 3-Col Layout -->
@@ -108,21 +126,42 @@
 
             <!-- Col2: Events List -->
             <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h2 class="text-xl font-bold mb-4">📋 Events</h2>
-                <div id="eventsList" class="space-y-4 max-h-96 overflow-y-auto"></div>
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold">📋 Events</h2>
+                    <select id="eventFilter" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white" onchange="renderEvents()">
+                        <option value="all">All</option>
+                        <option value="pending">Pending</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="cancelled">Cancelled</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+                <div id="eventsList" class="space-y-4 max-h-[500px] overflow-y-auto"></div>
             </div>
 
-            <!-- Col3: Calendar + Staff -->
+            <!-- Col3: Calendar + Staff + Backups -->
             <div class="space-y-6">
                 <!-- Mini Calendar -->
                 <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
                     <h2 class="text-xl font-bold mb-4">📅 Calendar</h2>
                     <div id="miniCalendar" class="space-y-2 max-h-48 overflow-y-auto"></div>
                 </div>
-                <!-- Staff -->
+                <!-- Staff Management -->
                 <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                    <h2 class="text-xl font-bold mb-4">👥 Staff</h2>
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-bold">👥 Staff</h2>
+                        <button onclick="openAddStaffModal()" class="text-sm bg-green-600 hover:bg-green-700 px-3 py-1 rounded">+ Add</button>
+                    </div>
                     <div id="staffList" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                </div>
+                <!-- Backup Status -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-xl font-bold">💾 Backups</h2>
+                        <button onclick="triggerBackup()" class="text-sm bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">Backup Now</button>
+                    </div>
+                    <div id="backupStatus" class="text-sm text-gray-400"></div>
+                    <div id="backupList" class="space-y-1 max-h-32 overflow-y-auto mt-2"></div>
                 </div>
             </div>
         </div>
@@ -130,7 +169,7 @@
 
     <!-- Edit Event Modal -->
     <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700 max-h-[90vh] overflow-y-auto">
             <h3 class="text-xl font-bold mb-4">Edit Event</h3>
             <form id="editForm" class="space-y-4">
                 <input type="hidden" id="editId">
@@ -151,6 +190,15 @@
                     <input type="text" id="editLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
                 </div>
                 <div>
+                    <label class="block text-sm text-gray-400 mb-1">Status</label>
+                    <select id="editStatus" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="pending">Pending</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="cancelled">Cancelled</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+                <div>
                     <label class="block text-sm text-gray-400 mb-1">Notes</label>
                     <textarea id="editNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
                 </div>
@@ -162,34 +210,109 @@
         </div>
     </div>
 
+    <!-- Add Staff Modal -->
+    <div id="addStaffModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <h3 class="text-xl font-bold mb-4">Add Staff Member</h3>
+            <form id="addStaffForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Name</label>
+                    <input type="text" id="staffName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Phone</label>
+                    <input type="tel" id="staffPhone" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="+27...">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Role</label>
+                    <select id="staffRole" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="staff">Staff</option>
+                        <option value="leader">Team Leader</option>
+                        <option value="coordinator">Coordinator</option>
+                        <option value="chef">Chef</option>
+                        <option value="barista">Barista</option>
+                        <option value="security">Security</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold">Add Staff</button>
+                    <button type="button" onclick="closeAddStaffModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Staff Modal -->
+    <div id="editStaffModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <h3 class="text-xl font-bold mb-4">Edit Staff Member</h3>
+            <form id="editStaffForm" class="space-y-4">
+                <input type="hidden" id="editStaffId">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Name</label>
+                    <input type="text" id="editStaffName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Phone</label>
+                    <input type="tel" id="editStaffPhone" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="+27...">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Role</label>
+                    <select id="editStaffRole" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="staff">Staff</option>
+                        <option value="leader">Team Leader</option>
+                        <option value="coordinator">Coordinator</option>
+                        <option value="chef">Chef</option>
+                        <option value="barista">Barista</option>
+                        <option value="security">Security</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="editStaffActive" class="w-4 h-4" checked>
+                    <label for="editStaffActive" class="text-sm text-gray-400">Active</label>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Save</button>
+                    <button type="button" onclick="closeEditStaffModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
         const API = '/api';
         let allEvents = [];
         let allStaff = [];
-        let activeStaffCount = 8;
         let templates = [];
 
         // Load all data
         async function loadData() {
-            const [eventsRes, staffRes, calendarRes, templatesRes, conflictsRes] = await Promise.all([
-                fetch(`${API}/events`),
-                fetch(`${API}/staff`),
-                fetch(`${API}/calendar`),
-                fetch(`${API}/templates`),
-                fetch(`${API}/conflicts`)
-            ]);
-            allEvents = await eventsRes.json();
-            allStaff = await staffRes.json();
-            const calendar = await calendarRes.json();
-            templates = await templatesRes.json();
-            const conflictsData = await conflictsRes.json();
-            activeStaffCount = allStaff.length;
-            updateStats(conflictsData);
-            renderEvents();
-            renderStaff();
-            renderCalendar(calendar);
-            renderConflicts(conflictsData);
-            populateTemplates();
+            try {
+                const [eventsRes, staffRes, calendarRes, templatesRes, alertsRes, backupsRes] = await Promise.all([
+                    fetch(`${API}/events`),
+                    fetch(`${API}/staff`),
+                    fetch(`${API}/calendar`),
+                    fetch(`${API}/templates`),
+                    fetch(`${API}/alerts`),
+                    fetch(`${API}/backups`)
+                ]);
+                allEvents = await eventsRes.json();
+                allStaff = await staffRes.json();
+                const calendar = await calendarRes.json();
+                templates = await templatesRes.json();
+                const alertsData = await alertsRes.json();
+                const backups = await backupsRes.json();
+                
+                updateStats(alertsData);
+                renderEvents();
+                renderStaff();
+                renderCalendar(calendar);
+                renderAlerts(alertsData);
+                renderBackups(backups);
+                populateTemplates();
+            } catch (err) {
+                console.error('Failed to load data:', err);
+            }
         }
 
         // Populate template dropdown
@@ -212,38 +335,53 @@
             const template = templates.find(t => t.id == templateId);
             if (!template) return;
 
-            // Auto-fill form
             if (template.default_services) {
                 document.getElementById('eventServices').value = template.default_services;
             }
-            
-            // Show template info
-            alert(`Template: ${template.name}\nDuration: ${template.default_duration_hours}h\nPre-arrival: ${template.pre_arrival_hours}h\nDress: ${template.dress_code}`);
+            if (template.default_staff_count) {
+                const defaultStaff = allStaff.slice(0, template.default_staff_count).map(s => s.name).join(',');
+                document.getElementById('eventStaff').value = defaultStaff;
+            }
         });
 
         // Update stats
-        function updateStats(conflictsData) {
+        function updateStats(alertsData) {
             document.getElementById('totalEvents').textContent = allEvents.length;
-            document.getElementById('totalStaff').textContent = allStaff.length;
-            // Count events with warnings
+            document.getElementById('totalStaff').textContent = allStaff.filter(s => s.active).length;
             const shortageEvents = allEvents.filter(e => e.notes && e.notes.includes('Staff shortage'));
             document.getElementById('shortageCount').textContent = shortageEvents.length;
-            // Conflicts
-            document.getElementById('conflictCount').textContent = conflictsData ? conflictsData.conflicts.length : 0;
+            const conflictEvents = allEvents.filter(e => e.notes && e.notes.includes('Conflict'));
+            document.getElementById('conflictCount').textContent = conflictEvents.length;
+            document.getElementById('alertCount').textContent = alertsData ? alertsData.total : 0;
         }
 
-        // Render conflicts
-        function renderConflicts(conflictsData) {
-            // Could expand this to show a conflicts panel
-            if (conflictsData && conflictsData.hasConflicts) {
-                console.warn('Booking conflicts detected:', conflictsData.conflicts);
+        // Render alerts panel
+        function renderAlerts(alertsData) {
+            const panel = document.getElementById('alertsPanel');
+            const container = document.getElementById('alertsList');
+            
+            if (!alertsData || alertsData.total === 0) {
+                panel.classList.add('hidden');
+                return;
             }
+            
+            panel.classList.remove('hidden');
+            container.innerHTML = alertsData.alerts.map(a => `
+                <div class="bg-gray-700 rounded p-3 ${'alert-' + a.severity}">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-xs font-bold uppercase ${a.severity === 'critical' ? 'text-red-400' : a.severity === 'warning' ? 'text-yellow-400' : 'text-blue-400'}">${a.type}</span>
+                            <p class="text-sm mt-1">${a.message}</p>
+                        </div>
+                        ${a.eventId ? `<button onclick="openEditModal('${a.eventId}')" class="text-xs text-blue-400 hover:underline ml-2">View</button>` : ''}
+                    </div>
+                </div>
+            `).join('');
         }
 
         // Render calendar view
         function renderCalendar(calendar) {
             const container = document.getElementById('miniCalendar');
-            // Group by date
             const byDate = {};
             calendar.forEach(e => {
                 if (!byDate[e.date]) byDate[e.date] = [];
@@ -252,33 +390,64 @@
             container.innerHTML = Object.entries(byDate).sort((a,b) => a[0] < b[0] ? -1 : 1).map(([date, events]) => `
                 <div class="bg-gray-700 rounded p-2 border border-gray-600">
                     <div class="text-sm font-bold text-blue-400">${date}</div>
-                    ${events.map(e => `<div class="text-xs text-gray-300">${e.time} - ${e.event}</div>`).join('')}
+                    ${events.map(e => {
+                        const statusColor = e.status === 'confirmed' ? 'text-green-400' : e.status === 'cancelled' ? 'text-red-400' : e.status === 'completed' ? 'text-blue-400' : 'text-gray-300';
+                        return `<div class="text-xs ${statusColor}">${e.time} - ${e.event}</div>`;
+                    }).join('')}
                 </div>
             `).join('') || '<p class="text-gray-400 text-sm">No events</p>';
+        }
+
+        // Get status badge HTML
+        function getStatusBadge(status) {
+            const s = status || 'pending';
+            const labels = { pending: '⏳ Pending', confirmed: '✅ Confirmed', cancelled: '❌ Cancelled', completed: '✔️ Completed' };
+            return `<span class="text-xs px-2 py-0.5 rounded status-${s}">${labels[s] || s}</span>`;
         }
 
         // Render events list
         function renderEvents() {
             const container = document.getElementById('eventsList');
-            container.innerHTML = allEvents.map(e => {
+            const filter = document.getElementById('eventFilter').value;
+            const filtered = filter === 'all' ? allEvents : allEvents.filter(e => (e.status || 'pending') === filter);
+            
+            container.innerHTML = filtered.map(e => {
                 const hasWarning = e.notes && e.notes.includes('Staff shortage');
+                const status = e.status || 'pending';
                 return `
                     <div class="bg-gray-700 rounded p-4 border border-gray-600 ${hasWarning ? 'border-yellow-500' : ''}">
                         <div class="flex justify-between items-start">
-                            <div>
-                                <h4 class="font-bold">${e.event}</h4>
-                                <p class="text-sm text-gray-400">${e.date} ${e.time}</p>
-                                <p class="text-sm text-gray-400">${e.location}</p>
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <h4 class="font-bold">${e.event}</h4>
+                                    ${getStatusBadge(status)}
+                                </div>
+                                <p class="text-sm text-gray-400">${e.date} at ${e.time}</p>
+                                <p class="text-sm text-gray-400">📍 ${e.location}</p>
+                                ${e.client ? `<p class="text-xs text-gray-500">Client: ${e.client}</p>` : ''}
                                 ${hasWarning ? '<p class="text-xs text-yellow-400 mt-1">⚠️ Staff shortage</p>' : ''}
                             </div>
-                            <div class="flex gap-2">
-                                <button onclick="openEditModal('${e.id}')" class="text-blue-400 hover:text-blue-300 text-sm">Edit</button>
-                                <button onclick="deleteEvent('${e.id}')" class="text-red-400 hover:text-red-300 text-sm">Delete</button>
+                            <div class="flex flex-col gap-1 ml-2">
+                                <button onclick="openEditModal('${e.id}')" class="text-blue-400 hover:text-blue-300 text-xs bg-gray-600 px-2 py-1 rounded">Edit</button>
+                                ${status === 'pending' ? `<button onclick="updateStatus('${e.id}','confirmed')" class="text-green-400 hover:text-green-300 text-xs bg-gray-600 px-2 py-1 rounded">Confirm</button>` : ''}
+                                ${status !== 'cancelled' && status !== 'completed' ? `<button onclick="updateStatus('${e.id}','cancelled')" class="text-red-400 hover:text-red-300 text-xs bg-gray-600 px-2 py-1 rounded">Cancel</button>` : ''}
+                                ${status === 'confirmed' ? `<button onclick="updateStatus('${e.id}','completed')" class="text-blue-400 hover:text-blue-300 text-xs bg-gray-600 px-2 py-1 rounded">Complete</button>` : ''}
+                                <button onclick="deleteEvent('${e.id}')" class="text-red-400 hover:text-red-300 text-xs bg-gray-600 px-2 py-1 rounded">Delete</button>
                             </div>
                         </div>
                     </div>
                 `;
-            }).join('');
+            }).join('') || '<p class="text-gray-400 text-sm">No events found</p>';
+        }
+
+        // Update event status
+        async function updateStatus(id, status) {
+            await fetch(`${API}/events/${id}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
+            loadData();
         }
 
         // Render staff
@@ -286,10 +455,50 @@
             const container = document.getElementById('staffList');
             container.innerHTML = allStaff.map(s => `
                 <div class="flex items-center justify-between bg-gray-700 rounded p-3 border border-gray-600">
-                    <span class="text-sm">${s.name}</span>
-                    <div class="w-2 h-2 rounded-full ${s.active ? 'bg-green-500' : 'bg-gray-500'}"></div>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-medium">${s.name}</span>
+                            <span class="text-xs text-gray-400">(${s.role})</span>
+                        </div>
+                        <div class="text-xs text-gray-400">${s.phone || 'No phone'}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full ${s.active ? 'bg-green-500' : 'bg-gray-500'}" title="${s.active ? 'Active' : 'Inactive'}"></div>
+                        <button onclick="openEditStaffModal(${s.id})" class="text-blue-400 hover:text-blue-300 text-xs">Edit</button>
+                    </div>
                 </div>
-            `).join('');
+            `).join('') || '<p class="text-gray-400 text-sm">No staff</p>';
+        }
+
+        // Render backups
+        function renderBackups(backups) {
+            const statusEl = document.getElementById('backupStatus');
+            const listEl = document.getElementById('backupList');
+            
+            if (backups.length > 0) {
+                const latest = backups[0];
+                const sizeKB = (latest.size / 1024).toFixed(1);
+                statusEl.innerHTML = `Latest: ${latest.file} (${sizeKB}KB) - ${new Date(latest.created).toLocaleString()}`;
+            } else {
+                statusEl.innerHTML = 'No backups yet';
+            }
+            
+            listEl.innerHTML = backups.slice(0, 5).map(b => {
+                const sizeKB = (b.size / 1024).toFixed(1);
+                return `<div class="text-xs text-gray-400 flex justify-between"><span>${b.file}</span><span>${sizeKB}KB</span></div>`;
+            }).join('');
+        }
+
+        // Trigger backup
+        async function triggerBackup() {
+            const res = await fetch(`${API}/backup`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                alert('Backup created: ' + data.path);
+                loadData();
+            } else {
+                alert('Backup failed: ' + data.error);
+            }
         }
 
         // Create event
@@ -317,7 +526,7 @@
             loadData();
         });
 
-        // Edit event
+        // Edit event modal
         function openEditModal(id) {
             const event = allEvents.find(e => e.id === id);
             if (!event) return;
@@ -327,6 +536,7 @@
             document.getElementById('editTime').value = event.time;
             document.getElementById('editLocation').value = event.location;
             document.getElementById('editNotes').value = event.notes || '';
+            document.getElementById('editStatus').value = event.status || 'pending';
             document.getElementById('editModal').classList.remove('hidden');
             document.getElementById('editModal').classList.add('flex');
         }
@@ -349,12 +559,87 @@
                 staff: JSON.parse(allEvents.find(e => e.id === id).staff || '[]'),
                 notes: document.getElementById('editNotes').value
             };
+            // Update basic info
             await fetch(`${API}/events/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
+            // Update status separately
+            const newStatus = document.getElementById('editStatus').value;
+            const currentStatus = allEvents.find(e => e.id === id).status || 'pending';
+            if (newStatus !== currentStatus) {
+                await fetch(`${API}/events/${id}/status`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ status: newStatus })
+                });
+            }
             closeEditModal();
+            loadData();
+        });
+
+        // Add staff modal
+        function openAddStaffModal() {
+            document.getElementById('addStaffModal').classList.remove('hidden');
+            document.getElementById('addStaffModal').classList.add('flex');
+        }
+
+        function closeAddStaffModal() {
+            document.getElementById('addStaffModal').classList.add('hidden');
+            document.getElementById('addStaffModal').classList.remove('flex');
+            document.getElementById('addStaffForm').reset();
+        }
+
+        document.getElementById('addStaffForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const body = {
+                name: document.getElementById('staffName').value,
+                phone: document.getElementById('staffPhone').value,
+                role: document.getElementById('staffRole').value
+            };
+            await fetch(`${API}/staff`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            closeAddStaffModal();
+            loadData();
+        });
+
+        // Edit staff modal
+        function openEditStaffModal(id) {
+            const staff = allStaff.find(s => s.id === id);
+            if (!staff) return;
+            document.getElementById('editStaffId').value = id;
+            document.getElementById('editStaffName').value = staff.name;
+            document.getElementById('editStaffPhone').value = staff.phone || '';
+            document.getElementById('editStaffRole').value = staff.role;
+            document.getElementById('editStaffActive').checked = staff.active == 1;
+            document.getElementById('editStaffModal').classList.remove('hidden');
+            document.getElementById('editStaffModal').classList.add('flex');
+        }
+
+        function closeEditStaffModal() {
+            document.getElementById('editStaffModal').classList.add('hidden');
+            document.getElementById('editStaffModal').classList.remove('flex');
+        }
+
+        document.getElementById('editStaffForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editStaffId').value;
+            const body = {
+                name: document.getElementById('editStaffName').value,
+                phone: document.getElementById('editStaffPhone').value,
+                role: document.getElementById('editStaffRole').value,
+                active: document.getElementById('editStaffActive').checked
+            };
+            await fetch(`${API}/staff/${id}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            closeEditStaffModal();
             loadData();
         });
 
