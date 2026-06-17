@@ -153,6 +153,63 @@ app.get('/api/calendar', (req, res) => {
   });
 });
 
+// GET /api/templates - list all event templates
+app.get('/api/templates', (req, res) => {
+  db.all(`SELECT * FROM event_templates ORDER BY name`, [], (err, rows) => {
+    if (err) return res.status(500).json({error: err.message});
+    res.json(rows);
+  });
+});
+
+// GET /api/templates/:id - get single template
+app.get('/api/templates/:id', (req, res) => {
+  db.get(`SELECT * FROM event_templates WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({error: err.message});
+    if (!row) return res.status(404).json({error: 'Template not found'});
+    res.json(row);
+  });
+});
+
+// GET /api/conflicts - check for booking conflicts
+app.get('/api/conflicts', (req, res) => {
+  db.all(`SELECT id, event, date, time, location, staff, status FROM events WHERE status != 'cancelled' OR status IS NULL`, [], (err, rows) => {
+    if (err) return res.status(500).json({error: err.message});
+    const eventsByDate = {};
+    const conflicts = [];
+    rows.forEach(r => {
+      const staffList = JSON.parse(r.staff || '[]');
+      if (!eventsByDate[r.date]) eventsByDate[r.date] = [];
+      eventsByDate[r.date].push({ id: r.id, event: r.event, time: r.time, location: r.location, staff: staffList });
+    });
+    Object.entries(eventsByDate).forEach(([date, events]) => {
+      if (events.length > 1) {
+        const staffCounts = {};
+        events.forEach(e => e.staff.forEach(s => { staffCounts[s] = (staffCounts[s] || 0) + 1; }));
+        const doubleBooked = Object.entries(staffCounts).filter(([_, c]) => c > 1);
+        if (doubleBooked.length > 0) {
+          conflicts.push({ date, events, doubleBooked: Object.fromEntries(doubleBooked) });
+        }
+      }
+    });
+    res.json({ conflicts, hasConflicts: conflicts.length > 0 });
+  });
+});
+
+// POST /api/staff - add new staff member
+app.post('/api/staff', (req, res) => {
+  const { name, phone, role } = req.body;
+  if (!name) return res.status(400).json({error: 'Name is required'});
+  db.run(`INSERT INTO staff (name, phone, role, active) VALUES (?, ?, ?, 1)`, [name, phone || null, role || 'staff'], function(err) {
+    if (err) return res.status(500).json({error: err.message});
+    res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', active: 1 });
+  });
+});
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.0.0', timestamp: new Date().toISOString() });
+});
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Fresh People Event Ops v4.0 running on http://0.0.0.0:${PORT}`);

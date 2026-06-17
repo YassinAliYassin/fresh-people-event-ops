@@ -48,8 +48,8 @@
                 <div class="text-3xl font-bold text-yellow-400" id="shortageCount">0</div>
             </div>
             <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <div class="text-gray-400 text-sm">Next Event</div>
-                <div class="text-lg font-bold" id="nextEvent">None</div>
+                <div class="text-gray-400 text-sm">Conflicts</div>
+                <div class="text-3xl font-bold text-red-400" id="conflictCount">0</div>
             </div>
         </div>
 
@@ -163,7 +163,7 @@
     </div>
 
     <script>
-        const API = 'http://localhost:3004/api';
+        const API = '/api';
         let allEvents = [];
         let allStaff = [];
         let activeStaffCount = 8;
@@ -171,21 +171,24 @@
 
         // Load all data
         async function loadData() {
-            const [eventsRes, staffRes, calendarRes, templatesRes] = await Promise.all([
+            const [eventsRes, staffRes, calendarRes, templatesRes, conflictsRes] = await Promise.all([
                 fetch(`${API}/events`),
                 fetch(`${API}/staff`),
                 fetch(`${API}/calendar`),
-                fetch(`${API}/templates`)
+                fetch(`${API}/templates`),
+                fetch(`${API}/conflicts`)
             ]);
             allEvents = await eventsRes.json();
             allStaff = await staffRes.json();
             const calendar = await calendarRes.json();
             templates = await templatesRes.json();
+            const conflictsData = await conflictsRes.json();
             activeStaffCount = allStaff.length;
-            updateStats();
+            updateStats(conflictsData);
             renderEvents();
             renderStaff();
             renderCalendar(calendar);
+            renderConflicts(conflictsData);
             populateTemplates();
         }
 
@@ -219,16 +222,22 @@
         });
 
         // Update stats
-        function updateStats() {
+        function updateStats(conflictsData) {
             document.getElementById('totalEvents').textContent = allEvents.length;
             document.getElementById('totalStaff').textContent = allStaff.length;
             // Count events with warnings
             const shortageEvents = allEvents.filter(e => e.notes && e.notes.includes('Staff shortage'));
             document.getElementById('shortageCount').textContent = shortageEvents.length;
-            // Next event
-            const now = new Date();
-            const next = allEvents.filter(e => new Date(e.date) >= now).sort((a,b) => new Date(a.date) - new Date(b.date))[0];
-            document.getElementById('nextEvent').textContent = next ? `${next.event} (${next.date})` : 'None';
+            // Conflicts
+            document.getElementById('conflictCount').textContent = conflictsData ? conflictsData.conflicts.length : 0;
+        }
+
+        // Render conflicts
+        function renderConflicts(conflictsData) {
+            // Could expand this to show a conflicts panel
+            if (conflictsData && conflictsData.hasConflicts) {
+                console.warn('Booking conflicts detected:', conflictsData.conflicts);
+            }
         }
 
         // Render calendar view
