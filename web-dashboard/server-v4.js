@@ -11,7 +11,7 @@ const CALENDAR_DIR = path.join(__dirname, '..', 'calendar-events');
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 
 app.use(bodyParser.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Initialize DB
 const db = new sqlite3.Database(DB_PATH, (err) => {
@@ -447,9 +447,72 @@ app.delete('/api/templates/:id', (req, res) => {
   });
 });
 
+// GET /api/export/csv - Export events as CSV
+app.get('/api/export/csv', (req, res) => {
+  const { status, from, to } = req.query;
+  let query = `SELECT * FROM events WHERE 1=1`;
+  const params = [];
+  if (status && status !== 'all') { query += ` AND (status = ? OR (status IS NULL AND ? = 'pending'))`; params.push(status, status); }
+  if (from) { query += ` AND date >= ?`; params.push(from); }
+  if (to) { query += ` AND date <= ?`; params.push(to); }
+  query += ` ORDER BY date, time`;
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const headers = ['ID', 'Event', 'Date', 'Time', 'Location', 'Client', 'Services', 'Staff', 'Status', 'Notes'];
+    const csvRows = [headers.join(',')];
+    rows.forEach(r => {
+      const staffList = JSON.parse(r.staff || '[]').join('; ');
+      const cols = [
+        r.id,
+        `"${(r.event || '').replace(/"/g, '""')}"`,
+        r.date,
+        r.time,
+        `"${(r.location || '').replace(/"/g, '""')}"`,
+        `"${(r.client || '').replace(/"/g, '""')}"`,
+        `"${(r.services || '').replace(/"/g, '""')}"`,
+        `"${staffList.replace(/"/g, '""')}"`,
+        r.status || 'pending',
+        `"${(r.notes || '').replace(/"/g, '""').replace(/\n/g, ' ')}"`
+      ];
+      csvRows.push(cols.join(','));
+    });
+    const csv = csvRows.join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="fresh-people-events-${new Date().toISOString().slice(0,10)}.csv"`);
+    res.send(csv);
+  });
+});
+
+// GET /api/staff-timeline - Staff allocation timeline
+app.get('/api/staff-timeline', (req, res) => {
+  db.all(`SELECT id, event, date, time, location, staff, status FROM events WHERE status != 'cancelled' ORDER BY date, time`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const staffMap = {};
+    rows.forEach(r => {
+      const staffList = JSON.parse(r.staff || '[]');
+      staffList.forEach(name => {
+        if (!staffMap[name]) staffMap[name] = [];
+        staffMap[name].push({
+          eventId: r.id,
+          event: r.event,
+          date: r.date,
+          time: r.time,
+          location: r.location,
+          status: r.status || 'pending'
+        });
+      });
+    });
+    // Sort each staff's events by date/time
+    Object.keys(staffMap).forEach(name => {
+      staffMap[name].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time));
+    });
+    res.json(staffMap);
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.2.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.3.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
