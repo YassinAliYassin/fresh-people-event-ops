@@ -3,7 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fresh People Event Ops v4.7</title>
+    <meta name="theme-color" content="#1f2937">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="FP Event Ops">
+    <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <title>Fresh People Event Ops v4.8</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -46,7 +53,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.7</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.8</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
@@ -65,6 +72,7 @@
             <button onclick="switchTab('timeline')" id="tab-timeline" class="pb-2 font-semibold tab-inactive">📆 Staff Timeline</button>
             <button onclick="switchTab('autoassign')" id="tab-autoassign" class="pb-2 font-semibold tab-inactive">⚡ Auto-Assign</button>
             <button onclick="switchTab('availability')" id="tab-availability" class="pb-2 font-semibold tab-inactive">📋 Availability</button>
+            <button onclick="switchTab('budget')" id="tab-budget" class="pb-2 font-semibold tab-inactive">💰 Budget</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -144,6 +152,16 @@
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Services</label>
                             <input type="text" id="eventServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Est. Cost (ZAR)</label>
+                                <input type="number" id="eventEstCost" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="0.00">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Budget (ZAR)</label>
+                                <input type="number" id="eventBudget" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="0.00">
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Staff Assignment</label>
@@ -493,6 +511,93 @@
         </div>
     </div>
 
+    <!-- ==================== BUDGET TAB ==================== -->
+    <div id="view-budget" class="hidden">
+        <div class="max-w-4xl mx-auto">
+            <!-- Budget Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Total Estimated</div>
+                    <div class="text-xl font-bold text-green-400" id="b-total-est">R 0.00</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Total Actual</div>
+                    <div class="text-xl font-bold text-blue-400" id="b-total-act">R 0.00</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Variance</div>
+                    <div class="text-xl font-bold" id="b-variance">R 0.00</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Avg/Event</div>
+                    <div class="text-xl font-bold text-purple-400" id="b-avg">R 0.00</div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">📊 Estimated vs Actual by Month</h3>
+                    <canvas id="chartBudgetMonthly"></canvas>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">🏢 Cost by Client</h3>
+                    <canvas id="chartBudgetClient"></canvas>
+                </div>
+            </div>
+
+            <!-- Budget Management -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Create Budget -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">💰 Create Budget</h3>
+                    <form id="budgetForm" class="space-y-3">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Budget Name</label>
+                            <input type="text" id="budgetName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="e.g., Q3 Events Budget" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Amount (ZAR)</label>
+                                <input type="number" id="budgetAmount" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="50000" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Period</label>
+                                <select id="budgetPeriod" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly" selected>Monthly</option>
+                                    <option value="quarterly">Quarterly</option>
+                                    <option value="annual">Annual</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Category</label>
+                            <input type="text" id="budgetCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="e.g., catering, staffing, general">
+                        </div>
+                        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold">Create Budget</button>
+                    </form>
+                </div>
+
+                <!-- Budget List -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">📋 Active Budgets</h3>
+                    <div id="budgetList" class="space-y-2 max-h-64 overflow-y-auto">
+                        <p class="text-gray-500 text-sm">No budgets created yet.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Spending Clients Table -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h3 class="text-lg font-bold mb-4">📈 Client Spending Breakdown</h3>
+                <div id="budgetClientTable" class="space-y-2">
+                    <p class="text-gray-500 text-sm">No cost data yet. Add estimated/actual costs to events.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Event Detail Modal -->
     <div id="eventDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
@@ -536,6 +641,16 @@
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Services</label>
                     <input type="text" id="editServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Est. Cost (ZAR)</label>
+                        <input type="number" id="editEstCost" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="0.00">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Actual Cost (ZAR)</label>
+                        <input type="number" id="editActCost" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="0.00">
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Status</label>
@@ -683,7 +798,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -719,6 +834,9 @@
                 document.getElementById('availFilterTo').value = end.toISOString().slice(0, 10);
                 loadAvailability();
                 renderAvailCalendar();
+            }
+            if (tab === 'budget') {
+                loadBudgetSummary();
             }
         }
 
@@ -1144,7 +1262,9 @@
                 client: document.getElementById('eventClient').value,
                 services: document.getElementById('eventServices').value,
                 staff: staff,
-                notes: document.getElementById('eventNotes').value
+                notes: document.getElementById('eventNotes').value,
+                estimated_cost: parseFloat(document.getElementById('eventEstCost').value) || 0,
+                budget: parseFloat(document.getElementById('eventBudget').value) || 0
             };
             const res = await fetch(`${API}/events`, {
                 method: 'POST',
@@ -1287,6 +1407,8 @@
             document.getElementById('editLocation').value = event.location;
             document.getElementById('editClient').value = event.client || '';
             document.getElementById('editServices').value = event.services || '';
+            document.getElementById('editEstCost').value = event.estimated_cost || '';
+            document.getElementById('editActCost').value = event.actual_cost || '';
             document.getElementById('editNotes').value = (event.notes || '').replace(/\n⚠️ WARNINGS:\n/g, '\n').replace(/⚠️ /g, '');
             document.getElementById('editStatus').value = event.status || 'pending';
 
@@ -1400,7 +1522,9 @@
                 client: document.getElementById('editClient').value,
                 services: document.getElementById('editServices').value,
                 staff: editAssignedStaffNames,
-                notes: document.getElementById('editNotes').value
+                notes: document.getElementById('editNotes').value,
+                estimated_cost: parseFloat(document.getElementById('editEstCost').value) || 0,
+                actual_cost: parseFloat(document.getElementById('editActCost').value) || 0
             };
             const res = await fetch(`${API}/events/${id}`, {
                 method: 'PUT',
@@ -1623,6 +1747,15 @@
                     ${event.services ? `<div class="bg-gray-700 rounded p-3 col-span-2">
                         <div class="text-xs text-gray-400">Services</div>
                         <div class="font-bold">${event.services}</div>
+                    </div>` : ''}
+                    ${(event.estimated_cost > 0 || event.actual_cost > 0) ? `
+                    <div class="bg-gray-700 rounded p-3">
+                        <div class="text-xs text-gray-400">Est. Cost</div>
+                        <div class="font-bold text-green-400">R ${parseFloat(event.estimated_cost || 0).toFixed(2)}</div>
+                    </div>
+                    <div class="bg-gray-700 rounded p-3">
+                        <div class="text-xs text-gray-400">Actual Cost</div>
+                        <div class="font-bold ${event.actual_cost > event.estimated_cost ? 'text-red-400' : 'text-blue-400'}">R ${parseFloat(event.actual_cost || 0).toFixed(2)}</div>
                     </div>` : ''}
                 </div>
                 <div class="bg-gray-700 rounded p-3">
@@ -2155,6 +2288,164 @@
             } catch (err) {
                 showToast('Error: ' + err.message, 'error');
             }
+        }
+
+        // ==================== BUDGET FUNCTIONS ====================
+        let budgetCharts = {};
+
+        async function loadBudgetSummary() {
+            try {
+                const res = await fetch(`${API}/budget/summary`);
+                const data = await res.json();
+
+                // Update summary cards
+                document.getElementById('b-total-est').textContent = `R ${parseFloat(data.totalEstimated).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`;
+                document.getElementById('b-total-act').textContent = `R ${parseFloat(data.totalActual).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`;
+                
+                const varianceEl = document.getElementById('b-variance');
+                varianceEl.textContent = `R ${parseFloat(data.variance).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`;
+                varianceEl.className = `text-xl font-bold ${parseFloat(data.variance) > 0 ? 'text-red-400' : 'text-green-400'}`;
+                
+                document.getElementById('b-avg').textContent = `R ${parseFloat(data.avgCostPerEvent).toLocaleString('en-ZA', {minimumFractionDigits: 2})}`;
+
+                // Destroy old budget charts
+                Object.values(budgetCharts).forEach(c => c.destroy());
+                budgetCharts = {};
+
+                // Monthly Estimated vs Actual Chart
+                const monthlyCtx = document.getElementById('chartBudgetMonthly').getContext('2d');
+                const monthLabels = data.byMonth.map(m => m[0]);
+                const monthEst = data.byMonth.map(m => m[1].estimated);
+                const monthAct = data.byMonth.map(m => m[1].actual);
+                budgetCharts.monthly = new Chart(monthlyCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: monthLabels,
+                        datasets: [
+                            { label: 'Estimated', data: monthEst, backgroundColor: '#10b981', borderRadius: 4 },
+                            { label: 'Actual', data: monthAct, backgroundColor: '#3b82f6', borderRadius: 4 }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: { legend: { position: 'bottom', labels: { color: '#d1d5db' } } },
+                        scales: {
+                            x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                            y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+                        }
+                    }
+                });
+
+                // Client Cost Chart
+                const clientCtx = document.getElementById('chartBudgetClient').getContext('2d');
+                const clientLabels = data.byClient.map(c => c[0]);
+                const clientActual = data.byClient.map(c => c[1].actual);
+                budgetCharts.client = new Chart(clientCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: clientLabels.length > 0 ? clientLabels : ['No data'],
+                        datasets: [{
+                            label: 'Actual Cost (ZAR)',
+                            data: clientActual.length > 0 ? clientActual : [0],
+                            backgroundColor: '#8b5cf6',
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                            y: { ticks: { color: '#9ca3af' }, grid: { display: false } }
+                        }
+                    }
+                });
+
+                // Client spending table
+                const tableEl = document.getElementById('budgetClientTable');
+                if (data.byClient.length > 0) {
+                    const maxCost = data.byClient[0][1].actual;
+                    tableEl.innerHTML = data.byClient.map(([name, vals]) => `
+                        <div class="flex items-center gap-3">
+                            <div class="flex-1 bg-gray-700 rounded-full h-4 overflow-hidden">
+                                <div class="bg-purple-500 h-full rounded-full" style="width: ${maxCost > 0 ? (vals.actual/maxCost)*100 : 0}%"></div>
+                            </div>
+                            <span class="text-sm w-32 truncate">${name}</span>
+                            <span class="text-sm text-gray-400 w-24 text-right">R ${vals.actual.toLocaleString('en-ZA', {minimumFractionDigits: 2})}</span>
+                            <span class="text-xs text-gray-500 w-16 text-right">${vals.count} evt</span>
+                        </div>
+                    `).join('');
+                } else {
+                    tableEl.innerHTML = '<p class="text-gray-500 text-sm">No cost data yet. Add estimated/actual costs to events.</p>';
+                }
+
+                // Budget list
+                loadBudgetList();
+            } catch (err) {
+                console.error('Failed to load budget summary:', err);
+            }
+        }
+
+        async function loadBudgetList() {
+            try {
+                const res = await fetch(`${API}/budgets`);
+                const budgets = await res.json();
+                const container = document.getElementById('budgetList');
+                if (budgets.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">No budgets created yet.</p>';
+                    return;
+                }
+                container.innerHTML = budgets.map(b => `
+                    <div class="flex items-center justify-between bg-gray-700 rounded p-3">
+                        <div>
+                            <div class="font-medium text-sm">${b.name}</div>
+                            <div class="text-xs text-gray-400">${b.period} · ${b.category || 'general'}</div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="font-bold text-green-400">R ${parseFloat(b.amount).toLocaleString('en-ZA', {minimumFractionDigits: 2})}</span>
+                            <button onclick="deleteBudget(${b.id})" class="text-red-400 hover:text-red-300 text-sm">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load budgets:', err);
+            }
+        }
+
+        document.getElementById('budgetForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const body = {
+                name: document.getElementById('budgetName').value,
+                amount: parseFloat(document.getElementById('budgetAmount').value) || 0,
+                period: document.getElementById('budgetPeriod').value,
+                category: document.getElementById('budgetCategory').value || 'general'
+            };
+            const res = await fetch(`${API}/budgets`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.id) {
+                showToast('✅ Budget created!', 'success');
+                e.target.reset();
+                loadBudgetSummary();
+            } else {
+                showToast('Failed: ' + (data.error || 'Unknown'), 'error');
+            }
+        });
+
+        async function deleteBudget(id) {
+            if (!confirm('Delete this budget?')) return;
+            await fetch(`${API}/budgets/${id}`, { method: 'DELETE' });
+            showToast('Budget deleted', 'success');
+            loadBudgetSummary();
+        }
+
+        // Service Worker registration for PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
         }
 
         // Initial load

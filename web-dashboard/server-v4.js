@@ -20,13 +20,42 @@ const authUser = process.env.DASHBOARD_USER || 'admin';
 const authPass = process.env.DASHBOARD_PASS || 'freshpeople2026';
 authUsers[authUser] = authPass;
 
+// Serve PWA public assets (manifest, service worker, icons) BEFORE auth
+app.use('/manifest.json', (req, res, next) => {
+    res.sendFile(path.join(__dirname, 'public', 'manifest.json'), {
+        headers: { 'Content-Type': 'application/manifest+json' }
+    });
+});
+app.use('/sw.js', (req, res, next) => {
+    res.sendFile(path.join(__dirname, 'public', 'sw.js'), {
+        headers: { 'Content-Type': 'application/javascript', 'Service-Worker-Allowed': '/' }
+    });
+});
+app.use('/icon.svg', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'icon.svg'), {
+        headers: { 'Content-Type': 'image/svg+xml' }
+    });
+});
+
 app.use(basicAuth({
     users: authUsers,
     challenge: true,
     realm: 'Fresh People Event Ops',
     unauthorizedResponse: () => 'Unauthorized - Invalid credentials'
 }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve static files - manifest and service worker need special handling
+app.use(express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.json') && filePath.includes('manifest')) {
+            res.setHeader('Content-Type', 'application/manifest+json');
+        }
+        if (filePath.endsWith('.js') && filePath.includes('sw')) {
+            res.setHeader('Content-Type', 'application/javascript');
+            res.setHeader('Service-Worker-Allowed', '/');
+        }
+    }
+}));
 
 // Initialize DB
 const db = new sqlite3.Database(DB_PATH, (err) => {
@@ -46,6 +75,36 @@ db.run(`CREATE TABLE IF NOT EXISTS staff_availability (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (staff_id) REFERENCES staff(id),
   UNIQUE(staff_id, date)
+)`);
+
+// Add cost columns to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN estimated_cost REAL DEFAULT 0`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN actual_cost REAL DEFAULT 0`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN currency TEXT DEFAULT 'ZAR'`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN budget REAL DEFAULT 0`, () => {});
+
+// Create budgets table for monthly/annual budget tracking
+db.run(`CREATE TABLE IF NOT EXISTS budgets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  amount REAL NOT NULL,
+  period TEXT DEFAULT 'monthly',
+  category TEXT DEFAULT 'general',
+  start_date TEXT,
+  end_date TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Create email_notifications log table
+db.run(`CREATE TABLE IF NOT EXISTS email_notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT,
+  recipient TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  sent_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
 
 // Helper: Get unavailable staff for a date
@@ -118,7 +177,7 @@ app.get('/api/events', (req, res) => {
 // POST /api/events (with staff shortage warning)
 app.post('/api/events', async (req, res) => {
   try {
-    const { event, date, time, location, client, services, staff, notes } = req.body;
+    const { event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency, budget } = req.body;
     const id = await generateEventID(date);
     const staffList = staff || [];
     const activeStaffCount = await getActiveStaffCount();
@@ -132,12 +191,17 @@ app.post('/api/events', async (req, res) => {
     const notesText = notes || `Dress Code: All Black\nArrival Time: ${parseInt(time.split(':')[0])-1}:${time.split(':')[1]}`;
     const fullNotes = warnings.length > 0 ? `${notesText}\n\n⚠️ WARNINGS:\n${warnings.join('\n')}` : notesText;
     
+    const estCost = estimated_cost || 0;
+    const actCost = actual_cost || 0;
+    const curr = currency || 'ZAR';
+    const evtBudget = budget || 0;
+    
     db.run(
-      `INSERT INTO events (id, event, date, time, location, client, services, staff, notes) VALUES (?,?,?,?,?,?,?,?,?)`,
-      [id, event, date, time, location, client, services, staffJSON, fullNotes],
+      `INSERT INTO events (id, event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency, budget) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, event, date, time, location, client, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget],
       async function(err) {
         if (err) return res.status(500).json({error: err.message});
-        const newEvent = {id, event, date, time, location, client, services, staff: staffList, notes: fullNotes, warnings};
+        const newEvent = {id, event, date, time, location, client, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget};
         const icsContent = generateICS(newEvent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(newEvent, null, 2));
@@ -153,16 +217,20 @@ app.post('/api/events', async (req, res) => {
 
 // PUT /api/events/:id
 app.put('/api/events/:id', (req, res) => {
-  const { event, date, time, location, client, services, staff, notes } = req.body;
+  const { event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency, budget } = req.body;
   const id = req.params.id;
   const staffJSON = JSON.stringify(staff || []);
+  const estCost = estimated_cost || 0;
+  const actCost = actual_cost || 0;
+  const curr = currency || 'ZAR';
+  const evtBudget = budget || 0;
   db.run(
-    `UPDATE events SET event=?, date=?, time=?, location=?, client=?, services=?, staff=?, notes=? WHERE id=?`,
-    [event, date, time, location, client, services, staffJSON, notes, id],
+    `UPDATE events SET event=?, date=?, time=?, location=?, client=?, services=?, staff=?, notes=?, estimated_cost=?, actual_cost=?, currency=?, budget=? WHERE id=?`,
+    [event, date, time, location, client, services, staffJSON, notes, estCost, actCost, curr, evtBudget, id],
     async function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
-      const updatedEvent = {id, event, date, time, location, client, services, staff: JSON.parse(staffJSON), notes};
+      const updatedEvent = {id, event, date, time, location, client, services, staff: JSON.parse(staffJSON), notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget};
       const icsContent = generateICS(updatedEvent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(updatedEvent, null, 2));
@@ -808,11 +876,14 @@ app.post('/api/events/:id/duplicate', async (req, res) => {
       const dateStr = currentDate.toISOString().slice(0, 10);
       const id = await generateEventID(dateStr);
       const staffJSON = original.staff || '[]';
+      const estCost = original.estimated_cost || 0;
+      const actCost = original.actual_cost || 0;
+      const curr = original.currency || 'ZAR';
 
       await new Promise((resolve, reject) => {
         db.run(
-          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [id, original.event, dateStr, original.time, original.location, original.client, original.services, staffJSON, original.notes || ''],
+          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id, original.event, dateStr, original.time, original.location, original.client, original.services, staffJSON, original.notes || '', estCost, actCost, curr],
           function(err) {
             if (err) return reject(err);
             createdEvents.push({
@@ -855,9 +926,143 @@ app.post('/api/events/:id/duplicate', async (req, res) => {
   }
 });
 
+// ==================== BUDGET / COST TRACKING ====================
+
+// GET /api/budgets - list all budgets
+app.get('/api/budgets', (req, res) => {
+  db.all(`SELECT * FROM budgets ORDER BY created_at DESC`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// POST /api/budgets - create a budget
+app.post('/api/budgets', (req, res) => {
+  const { name, amount, period, category, start_date, end_date } = req.body;
+  if (!name || !amount) return res.status(400).json({ error: 'Name and amount are required' });
+  db.run(
+    `INSERT INTO budgets (name, amount, period, category, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?)`,
+    [name, amount, period || 'monthly', category || 'general', start_date || null, end_date || null],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, name, amount, period: period || 'monthly', category: category || 'general', start_date, end_date });
+    }
+  );
+});
+
+// DELETE /api/budgets/:id
+app.delete('/api/budgets/:id', (req, res) => {
+  db.run(`DELETE FROM budgets WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Budget not found' });
+    res.json({ success: true, id: req.params.id });
+  });
+});
+
+// GET /api/budget/summary - budget vs actual spending summary
+app.get('/api/budget/summary', (req, res) => {
+  db.all(`SELECT * FROM events`, [], (err, events) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // Total estimated vs actual
+    let totalEstimated = 0;
+    let totalActual = 0;
+    const byMonth = {};
+    const byClient = {};
+
+    events.forEach(e => {
+      const est = parseFloat(e.estimated_cost) || 0;
+      const act = parseFloat(e.actual_cost) || 0;
+      totalEstimated += est;
+      totalActual += act;
+
+      const month = e.date.slice(0, 7);
+      if (!byMonth[month]) byMonth[month] = { estimated: 0, actual: 0, count: 0 };
+      byMonth[month].estimated += est;
+      byMonth[month].actual += act;
+      byMonth[month].count++;
+
+      const client = e.client || 'Unknown';
+      if (!byClient[client]) byClient[client] = { estimated: 0, actual: 0, count: 0 };
+      byClient[client].estimated += est;
+      byClient[client].actual += act;
+      byClient[client].count++;
+    });
+
+    // Budgets
+    db.all(`SELECT * FROM budgets`, [], (err2, budgets) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      res.json({
+        totalEstimated: totalEstimated.toFixed(2),
+        totalActual: totalActual.toFixed(2),
+        variance: (totalActual - totalEstimated).toFixed(2),
+        variancePercent: totalEstimated > 0 ? (((totalActual - totalEstimated) / totalEstimated) * 100).toFixed(1) : '0',
+        eventCount: events.length,
+        avgCostPerEvent: events.length > 0 ? (totalActual / events.length).toFixed(2) : '0',
+        byMonth: Object.entries(byMonth).sort((a, b) => a[0] < b[0] ? -1 : 1),
+        byClient: Object.entries(byClient).sort((a, b) => b[1].actual - a[1].actual).slice(0, 10),
+        budgets
+      });
+    });
+  });
+});
+
+// ==================== EMAIL NOTIFICATIONS ====================
+
+// POST /api/notifications/email - queue an email notification
+app.post('/api/notifications/email', (req, res) => {
+  const { event_id, recipient, subject, body } = req.body;
+  if (!recipient || !subject || !body) {
+    return res.status(400).json({ error: 'recipient, subject, and body are required' });
+  }
+  db.run(
+    `INSERT INTO email_notifications (event_id, recipient, subject, body, status) VALUES (?, ?, ?, ?, 'pending')`,
+    [event_id || null, recipient, subject, body],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, status: 'pending', message: 'Email notification queued' });
+    }
+  );
+});
+
+// GET /api/notifications - list notification log
+app.get('/api/notifications', (req, res) => {
+  const { status, limit } = req.query;
+  let query = `SELECT * FROM email_notifications`;
+  const params = [];
+  if (status) { query += ` WHERE status = ?`; params.push(status); }
+  query += ` ORDER BY created_at DESC`;
+  if (limit) { query += ` LIMIT ?`; params.push(parseInt(limit)); }
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// POST /api/notifications/send-pending - process pending notifications (called by cron)
+app.post('/api/notifications/send-pending', async (req, res) => {
+  db.all(`SELECT * FROM email_notifications WHERE status = 'pending' LIMIT 10`, [], async (err, pending) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    const results = [];
+    for (const n of pending) {
+      // In production, this would use nodemailer or similar
+      // For now, mark as 'sent' and log
+      await new Promise((resolve) => {
+        db.run(`UPDATE email_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = ?`, [n.id], function(err2) {
+          results.push({ id: n.id, recipient: n.recipient, subject: n.subject, status: err2 ? 'failed' : 'sent' });
+          resolve();
+        });
+      });
+    }
+    res.json({ processed: results.length, results });
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.7.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.8.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -893,8 +1098,8 @@ app.post('/api/events/recurring', async (req, res) => {
 
       await new Promise((resolve, reject) => {
         db.run(
-          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes) VALUES (?,?,?,?,?,?,?,?,?)`,
-          [id, event, dateStr, time, location, client, services, staffJSON, fullNotes],
+          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id, event, dateStr, time, location, client, services, staffJSON, fullNotes, estimated_cost || 0, actual_cost || 0, currency || 'ZAR'],
           function(err) {
             if (err) return reject(err);
             createdEvents.push({ id, event, date: dateStr, time, location, client, services, staff: staffList, notes: fullNotes });
