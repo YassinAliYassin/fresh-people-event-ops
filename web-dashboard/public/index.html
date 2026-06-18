@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.10</title>
+    <title>Fresh People Event Ops v4.11</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.10</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.11</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <button onclick="requestPushPermission()" id="pushBtn" class="text-gray-400 hover:text-blue-400 text-sm" title="Enable push notifications">🔔</button>
@@ -91,6 +91,7 @@
             <button onclick="switchTab('availability')" id="tab-availability" class="pb-2 font-semibold tab-inactive">📋 Availability</button>
             <button onclick="switchTab('budget')" id="tab-budget" class="pb-2 font-semibold tab-inactive">💰 Budget</button>
             <button onclick="switchTab('email')" id="tab-email" class="pb-2 font-semibold tab-inactive">📧 Email</button>
+            <button onclick="switchTab('users')" id="tab-users" class="pb-2 font-semibold tab-inactive">👥 Users</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -715,6 +716,77 @@
 
 
 
+    <!-- ==================== USERS TAB ==================== -->
+    <div id="view-users" class="hidden">
+        <div class="max-w-4xl mx-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">👥 User Management</h2>
+                <button onclick="openAddUserModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">➕ Add User</button>
+            </div>
+
+            <!-- Users List -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-750">
+                        <tr class="text-left text-gray-400 border-b border-gray-700">
+                            <th class="px-4 py-3">User</th>
+                            <th class="px-4 py-3">Username</th>
+                            <th class="px-4 py-3">Role</th>
+                            <th class="px-4 py-3">Status</th>
+                            <th class="px-4 py-3">Last Login</th>
+                            <th class="px-4 py-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">Loading users...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit User Modal -->
+    <div id="userModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold" id="userModalTitle">Add User</h3>
+                <button onclick="closeUserModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <form id="userForm" onsubmit="saveUser(event)" class="space-y-4">
+                <input type="hidden" id="editUserId">
+                <div>
+                    <label class="block text-gray-400 text-xs mb-1">Username *</label>
+                    <input type="text" id="userUsername" required class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600" placeholder="e.g. john.doe">
+                </div>
+                <div>
+                    <label class="block text-gray-400 text-xs mb-1">Display Name</label>
+                    <input type="text" id="userDisplayName" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600" placeholder="e.g. John Doe">
+                </div>
+                <div>
+                    <label class="block text-gray-400 text-xs mb-1">Password <span id="passwordHint" class="text-gray-500">(min 6 characters)</span></label>
+                    <input type="password" id="userPassword" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600" placeholder="Enter password">
+                </div>
+                <div>
+                    <label class="block text-gray-400 text-xs mb-1">Role</label>
+                    <select id="userRole" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                        <option value="manager">Manager</option>
+                        <option value="viewer">Viewer</option>
+                    </select>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="userActive" checked class="rounded">
+                    <label for="userActive" class="text-sm text-gray-300">Active</label>
+                </div>
+                <div class="flex gap-3 pt-2">
+                    <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold flex-1">💾 Save</button>
+                    <button type="button" onclick="closeUserModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm font-semibold">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Event Detail Modal -->
     <div id="eventDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
@@ -922,6 +994,7 @@
 
     <script>
         const API = '/api';
+        let currentUser = null;
         let allEvents = [];
         let allStaff = [];
         let templates = [];
@@ -936,6 +1009,166 @@
         function getAuthHeadersNoJSON() {
             const token = localStorage.getItem('sessionToken');
             return token ? { 'x-session-token': token } : {};
+        }
+
+        // ==================== USER MANAGEMENT ====================
+
+        let allUsers = [];
+
+        async function loadUsers() {
+            try {
+                const res = await fetch('/api/auth/users', { headers: getAuthHeaders() });
+                if (!res.ok) {
+                    if (res.status === 403) {
+                        document.getElementById('usersTableBody').innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-yellow-500">⚠️ Admin access required</td></tr>';
+                        return;
+                    }
+                    throw new Error('Failed to load users');
+                }
+                allUsers = await res.json();
+                renderUsersTable();
+            } catch (e) {
+                document.getElementById('usersTableBody').innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-red-400">Error: ${e.message}</td></tr>`;
+            }
+        }
+
+        function renderUsersTable() {
+            const tbody = document.getElementById('usersTableBody');
+            if (!allUsers.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No users found. Add the first user!</td></tr>';
+                return;
+            }
+            tbody.innerHTML = allUsers.map(u => {
+                const displayName = u.display_name || u.username;
+                const initials = displayName.charAt(0).toUpperCase();
+                const roleColors = { admin: 'bg-red-600', manager: 'bg-blue-600', user: 'bg-green-600', viewer: 'bg-gray-600' };
+                const roleColor = roleColors[u.role] || 'bg-gray-600';
+                const statusBadge = u.active
+                    ? '<span class="bg-green-600 text-green-100 text-xs px-2 py-0.5 rounded">Active</span>'
+                    : '<span class="bg-gray-600 text-gray-300 text-xs px-2 py-0.5 rounded">Inactive</span>';
+                const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never';
+                const isCurrentUser = u.username === (document.getElementById('userMenuName')?.textContent || '');
+                return `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-2">
+                                <div class="w-8 h-8 ${roleColor} rounded-full flex items-center justify-center text-xs font-bold">${initials}</div>
+                                <span class="font-medium">${escapeHtml(displayName)}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-gray-400">@${escapeHtml(u.username)}</td>
+                        <td class="px-4 py-3"><span class="${roleColor} text-white text-xs px-2 py-0.5 rounded capitalize">${u.role || 'user'}</span></td>
+                        <td class="px-4 py-3">${statusBadge}</td>
+                        <td class="px-4 py-3 text-gray-400 text-xs">${lastLogin}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex gap-2">
+                                <button onclick="editUser(${u.id})" class="text-blue-400 hover:text-blue-300 text-xs font-semibold">✏️ Edit</button>
+                                ${!isCurrentUser ? `<button onclick="deleteUser(${u.id}, '${escapeHtml(u.username)}')" class="text-red-400 hover:text-red-300 text-xs font-semibold">🗑️ Delete</button>` : '<span class="text-gray-600 text-xs">You</span>'}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function openAddUserModal() {
+            document.getElementById('userModalTitle').textContent = 'Add User';
+            document.getElementById('userForm').reset();
+            document.getElementById('editUserId').value = '';
+            document.getElementById('userUsername').required = true;
+            document.getElementById('userPassword').required = true;
+            document.getElementById('passwordHint').textContent = '(min 6 characters, required)';
+            document.getElementById('userModal').classList.remove('hidden');
+            document.getElementById('userModal').classList.add('flex');
+        }
+
+        function closeUserModal() {
+            document.getElementById('userModal').classList.add('hidden');
+            document.getElementById('userModal').classList.remove('flex');
+        }
+
+        async function editUser(id) {
+            const user = allUsers.find(u => u.id === id);
+            if (!user) return;
+            document.getElementById('userModalTitle').textContent = 'Edit User';
+            document.getElementById('editUserId').value = id;
+            document.getElementById('userUsername').value = user.username;
+            document.getElementById('userUsername').required = false;
+            document.getElementById('userDisplayName').value = user.display_name || '';
+            document.getElementById('userPassword').value = '';
+            document.getElementById('userPassword').required = false;
+            document.getElementById('passwordHint').textContent = '(min 6 characters, leave blank to keep current)';
+            document.getElementById('userRole').value = user.role || 'user';
+            document.getElementById('userActive').checked = !!user.active;
+            document.getElementById('userModal').classList.remove('hidden');
+            document.getElementById('userModal').classList.add('flex');
+        }
+
+        async function saveUser(e) {
+            e.preventDefault();
+            const id = document.getElementById('editUserId').value;
+            const username = document.getElementById('userUsername').value.trim();
+            const display_name = document.getElementById('userDisplayName').value.trim();
+            const password = document.getElementById('userPassword').value;
+            const role = document.getElementById('userRole').value;
+            const active = document.getElementById('userActive').checked;
+
+            if (!id && !password) {
+                toast('Password is required for new users', 'error');
+                return;
+            }
+            if (password && password.length < 6) {
+                toast('Password must be at least 6 characters', 'error');
+                return;
+            }
+
+            const body = { username, display_name, role, active };
+            if (password) body.password = password;
+
+            try {
+                const url = id ? `/api/auth/users/${id}` : '/api/auth/register';
+                const method = id ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method,
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.success || data.id) {
+                    toast(id ? 'User updated successfully' : 'User created successfully', 'success');
+                    closeUserModal();
+                    loadUsers();
+                } else {
+                    toast('Error: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (e) {
+                toast('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteUser(id, username) {
+            if (!confirm(`Delete user @${username}? This cannot be undone.`)) return;
+            try {
+                const res = await fetch(`/api/auth/users/${id}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast('User deleted', 'success');
+                    loadUsers();
+                } else {
+                    toast('Error: ' + (data.error || 'Cannot delete user'), 'error');
+                }
+            } catch (e) {
+                toast('Error: ' + e.message, 'error');
+            }
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
         }
 
         // Check auth on load
@@ -953,12 +1186,16 @@
                     return false;
                 }
                 const user = await res.json();
+                currentUser = user;
                 // Update UI with user info
                 const displayName = user.display_name || user.username;
                 document.getElementById('userName').textContent = displayName;
                 document.getElementById('userMenuName').textContent = displayName;
                 document.getElementById('userMenuRole').textContent = user.role;
                 document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
+                // Show/hide admin-only tabs
+                const usersTab = document.getElementById('tab-users');
+                if (usersTab) usersTab.style.display = (user.role === 'admin') ? '' : 'none';
                 return true;
             } catch {
                 window.location.href = '/login.html';
@@ -993,7 +1230,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2907,12 +3144,136 @@
             }
         }
 
+        // ==================== WEBSOCKET REAL-TIME UPDATES ====================
+
+        let ws = null;
+        let wsReconnectAttempts = 0;
+        const WS_MAX_RECONNECT = 10;
+        let liveUpdateCount = 0;
+
+        function connectWebSocket() {
+            const token = localStorage.getItem('sessionToken');
+            if (!token) return;
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log('WebSocket connected for real-time updates');
+                    wsReconnectAttempts = 0;
+                    updateLiveIndicator(true);
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleRealtimeUpdate(data);
+                    } catch (e) {
+                        console.error('WebSocket message parse error:', e);
+                    }
+                };
+
+                ws.onclose = () => {
+                    console.log('WebSocket disconnected');
+                    updateLiveIndicator(false);
+                    // Auto-reconnect with exponential backoff
+                    if (wsReconnectAttempts < WS_MAX_RECONNECT) {
+                        wsReconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 30000);
+                        setTimeout(connectWebSocket, delay);
+                    }
+                };
+
+                ws.onerror = (err) => {
+                    console.error('WebSocket error:', err);
+                };
+            } catch (e) {
+                console.error('WebSocket connection failed:', e);
+            }
+        }
+
+        function handleRealtimeUpdate(data) {
+            switch (data.type) {
+                case 'event_created':
+                    showToast(`📅 New event: ${data.event.event} on ${data.event.date}`, 'info');
+                    liveUpdateCount++;
+                    break;
+                case 'event_updated':
+                    showToast(`✏️ Event updated: ${data.event.event}`, 'info');
+                    liveUpdateCount++;
+                    break;
+                case 'events_created':
+                    showToast(`📅 ${data.events.length} recurring events created`, 'success');
+                    liveUpdateCount += data.events.length;
+                    break;
+                case 'staff_assigned':
+                    showToast(`👤 Staff assigned to ${data.event_name}`, 'info');
+                    liveUpdateCount++;
+                    break;
+                case 'event_status_changed':
+                    showToast(`📋 Event ${data.eventId} → ${data.status}`, 'info');
+                    liveUpdateCount++;
+                    break;
+                default:
+                    console.log('Unknown WS message type:', data.type);
+            }
+            // Refresh data after any real-time update
+            loadData();
+            updateLiveBadge();
+        }
+
+        function updateLiveIndicator(connected) {
+            let indicator = document.getElementById('liveIndicator');
+            if (!indicator) {
+                // Add indicator to header
+                const header = document.querySelector('.container .flex.items-center.justify-between');
+                if (header) {
+                    const statusDiv = header.querySelector('.text-right');
+                    if (statusDiv) {
+                        indicator = document.createElement('div');
+                        indicator.id = 'liveIndicator';
+                        indicator.className = 'text-xs mt-1';
+                        statusDiv.appendChild(indicator);
+                    }
+                }
+            }
+            if (indicator) {
+                if (connected) {
+                    indicator.innerHTML = '<span class="text-green-400">🟢 Live</span>';
+                } else {
+                    indicator.innerHTML = '<span class="text-gray-500">⚪ Offline</span>';
+                }
+            }
+        }
+
+        function updateLiveBadge() {
+            let badge = document.getElementById('liveUpdateBadge');
+            if (!badge) {
+                const pushBtn = document.getElementById('pushBtn');
+                if (pushBtn && pushBtn.parentElement) {
+                    badge = document.createElement('span');
+                    badge.id = 'liveUpdateBadge';
+                    badge.className = 'absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center';
+                    pushBtn.parentElement.style.position = 'relative';
+                    pushBtn.parentElement.appendChild(badge);
+                }
+            }
+            if (badge) {
+                badge.textContent = liveUpdateCount > 9 ? '9+' : liveUpdateCount;
+                badge.style.display = liveUpdateCount > 0 ? 'flex' : 'none';
+            }
+        }
+
         // Initialize auth check on page load
         (async () => {
             const authed = await checkAuth();
             if (authed) {
                 loadData();
                 setInterval(loadData, 30000);
+                connectWebSocket();
             }
         })();
 </script>

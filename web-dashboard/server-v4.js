@@ -57,7 +57,7 @@ setInterval(() => {
 // Auth middleware - checks session token or allows public paths
 function authMiddleware(req, res, next) {
   // Public paths that don't require auth
-  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup'];
+  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws'];
   if (publicPaths.includes(req.path)) return next();
   if (req.path === '/manifest.json' || req.path === '/sw.js') return next();
   if (req.path.startsWith('/icon')) return next();
@@ -376,6 +376,66 @@ app.get('/api/auth/users', (req, res) => {
   });
 });
 
+// PUT /api/auth/users/:id - update user (admin only)
+app.put('/api/auth/users/:id', (req, res) => {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  const { username, display_name, role, active, password } = req.body;
+  const userId = req.params.id;
+
+  // Build dynamic update
+  const updates = [];
+  const params = [];
+
+  if (username !== undefined) { updates.push('username = ?'); params.push(username); }
+  if (display_name !== undefined) { updates.push('display_name = ?'); params.push(display_name); }
+  if (role !== undefined) { updates.push('role = ?'); params.push(role); }
+  if (active !== undefined) { updates.push('active = ?'); params.push(active ? 1 : 0); }
+  if (password) {
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    updates.push('password_hash = ?'); params.push(bcrypt.hashSync(password, 10));
+  }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+  params.push(userId);
+  db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params, function(err) {
+    if (err) {
+      if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Username already exists' });
+      return res.status(500).json({ error: err.message });
+    }
+    if (this.changes === 0) return res.status(404).json({ error: 'User not found' });
+    res.json({ success: true, message: 'User updated' });
+  });
+});
+
+// DELETE /api/auth/users/:id - delete user (admin only, prevent self-delete)
+app.delete('/api/auth/users/:id', (req, res) => {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  const userId = req.params.id;
+
+  // Prevent self-deletion
+  db.get(`SELECT username FROM users WHERE id = ?`, [userId], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'User not found' });
+    if (row.username === req.user.username) return res.status(400).json({ error: 'Cannot delete your own account' });
+
+    // Prevent deleting the last admin
+    db.get(`SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND active = 1`, [], (err, countRow) => {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT role FROM users WHERE id = ?`, [userId], (err, userRow) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (userRow && userRow.role === 'admin' && countRow.count <= 1) {
+          return res.status(400).json({ error: 'Cannot delete the last active admin' });
+        }
+        db.run(`DELETE FROM users WHERE id = ?`, [userId], function(err) {
+          if (err) return res.status(500).json({ error: err.message });
+          res.json({ success: true, message: 'User deleted' });
+        });
+      });
+    });
+  });
+});
+
 // GET /api/auth/vapid-public-key - get VAPID public key for push subscription
 app.get('/api/auth/vapid-public-key', (req, res) => {
   res.json({ publicKey: vapidKeys.publicKey });
@@ -660,6 +720,8 @@ app.post('/api/events', async (req, res) => {
         try { await autoNotifyEvent(newEvent, staffList); } catch(e) { console.error('Auto-notify failed:', e); }
         // Send push notification
         try { sendPushNotification(`New Event: ${event}`, `${date} at ${time} - ${location}`, '/'); } catch(e) { console.error('Push notify failed:', e); }
+        // Broadcast real-time update
+        try { broadcast({ type: 'event_created', event: newEvent }); } catch(e) { console.error('Broadcast failed:', e); }
         res.json(newEvent);
       }
     );
@@ -687,6 +749,8 @@ app.put('/api/events/:id', (req, res) => {
       const icsContent = generateICS(updatedEvent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(updatedEvent, null, 2));
+      // Broadcast real-time update
+      try { broadcast({ type: 'event_updated', event: updatedEvent }); } catch(e) { console.error('Broadcast failed:', e); }
       res.json(updatedEvent);
     }
   );
@@ -703,6 +767,7 @@ app.patch('/api/events/:id/status', (req, res) => {
   db.run(`UPDATE events SET status=? WHERE id=?`, [status, id], function(err) {
     if (err) return res.status(500).json({error: err.message});
     if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
+    try { broadcast({ type: 'event_status_changed', eventId: id, status }); } catch(e) { console.error('Broadcast failed:', e); }
     res.json({ success: true, id, status });
   });
 });
@@ -1579,7 +1644,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.10.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.11.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -1644,13 +1709,76 @@ app.post('/api/events/recurring', async (req, res) => {
     // Auto-backup after batch creation
     try { await backupDatabase(); } catch (e) { console.error('Backup failed:', e); }
 
-    res.json({ success: true, count: createdEvents.length, events: createdEvents });
+    // Broadcast real-time update for batch creation
+    try { broadcast({ type: 'events_created', events: createdEvents }); } catch(e) { console.error('Broadcast failed:', e); }
+     res.json({ success: true, count: createdEvents.length, events: createdEvents });
+
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.10 running on http://0.0.0.0:${PORT}`);
+// ==================== WEBSOCKET SERVER ====================
+
+const { WebSocketServer } = require('ws');
+const http = require('http');
+
+// Create HTTP server from express app
+const server = http.createServer(app);
+
+// WebSocket server attached to HTTP server
+const wss = new WebSocketServer({ server });
+
+// Track connected clients
+const wsClients = new Set();
+
+wss.on('connection', (ws, req) => {
+  // Authenticate WebSocket connection via token query param
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const token = url.searchParams.get('token');
+
+  let authenticated = false;
+  let username = 'anonymous';
+
+  if (token && sessions.has(token)) {
+    const session = sessions.get(token);
+    if (session.expires > Date.now()) {
+      authenticated = true;
+      username = session.username;
+    }
+  }
+
+  ws.authenticated = authenticated;
+  ws.username = username;
+  wsClients.add(ws);
+  console.log(`WebSocket connected: ${username} (${authenticated ? 'auth' : 'unauth'})`);
+
+  ws.on('close', () => {
+    wsClients.delete(ws);
+    console.log(`WebSocket disconnected: ${username}`);
+  });
+
+  ws.on('error', (err) => {
+    console.error(`WebSocket error for ${username}:`, err.message);
+    wsClients.delete(ws);
+  });
+});
+
+// Broadcast to all authenticated clients
+function broadcast(data) {
+  const payload = JSON.stringify(data);
+  for (const ws of wsClients) {
+    if (ws.authenticated && ws.readyState === 1) { // WebSocket.OPEN
+      ws.send(payload);
+    }
+  }
+}
+
+// Make broadcast available via app for use in routes
+app.broadcast = broadcast;
+
+// Override server start to use HTTP server
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Fresh People Event Ops v4.11 running on http://0.0.0.0:${PORT}`);
+  console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
