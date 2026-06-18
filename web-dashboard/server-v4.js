@@ -3,6 +3,8 @@ const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs').promises;
 const path = require('path');
 const bodyParser = require('body-parser');
+const PDFDocument = require('pdfkit');
+const basicAuth = require('express-basic-auth');
 
 const app = express();
 const PORT = 3004;
@@ -11,6 +13,19 @@ const CALENDAR_DIR = path.join(__dirname, '..', 'calendar-events');
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 
 app.use(bodyParser.json());
+
+// Basic Auth for dashboard protection
+const authUsers = {};
+const authUser = process.env.DASHBOARD_USER || 'admin';
+const authPass = process.env.DASHBOARD_PASS || 'freshpeople2026';
+authUsers[authUser] = authPass;
+
+app.use(basicAuth({
+    users: authUsers,
+    challenge: true,
+    realm: 'Fresh People Event Ops',
+    unauthorizedResponse: () => 'Unauthorized - Invalid credentials'
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Initialize DB
@@ -483,6 +498,95 @@ app.get('/api/export/csv', (req, res) => {
   });
 });
 
+// GET /api/export/pdf - Export event(s) as PDF
+app.get('/api/export/pdf', (req, res) => {
+  const { id, status, from, to } = req.query;
+  let query = `SELECT * FROM events WHERE 1=1`;
+  const params = [];
+
+  if (id) { query += ` AND id = ?`; params.push(id); }
+  if (status && status !== 'all') { query += ` AND (status = ? OR (status IS NULL AND ? = 'pending'))`; params.push(status, status); }
+  if (from) { query += ` AND date >= ?`; params.push(from); }
+  if (to) { query += ` AND date <= ?`; params.push(to); }
+  query += ` ORDER BY date, time`;
+
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (rows.length === 0) return res.status(404).json({ error: 'No events found' });
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const isSingle = !!id;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${isSingle ? 'event-' + id : 'fresh-people-events'}-${new Date().toISOString().slice(0,10)}.pdf"`);
+    doc.pipe(res);
+
+    // Title
+    doc.fontSize(24).font('Helvetica-Bold').text('Fresh People Event Ops', { align: 'center' });
+    doc.fontSize(14).font('Helvetica').text(isSingle ? 'Event Details' : 'Events Report', { align: 'center' });
+    doc.fontSize(10).text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
+    doc.moveDown(2);
+
+    // Summary for multi-event
+    if (!isSingle) {
+      doc.fontSize(12).font('Helvetica-Bold').text(`Total Events: ${rows.length}`);
+      const statusCounts = { pending: 0, confirmed: 0, cancelled: 0, completed: 0 };
+      rows.forEach(r => { const s = r.status || 'pending'; if (statusCounts[s] !== undefined) statusCounts[s]++; });
+      doc.fontSize(10).font('Helvetica').text(`Pending: ${statusCounts.pending} | Confirmed: ${statusCounts.confirmed} | Cancelled: ${statusCounts.cancelled} | Completed: ${statusCounts.completed}`);
+      doc.moveDown(2);
+    }
+
+    // Events
+    rows.forEach((r, idx) => {
+      if (idx > 0) doc.addPage();
+
+      const staffList = JSON.parse(r.staff || '[]');
+      const statusLabel = (r.status || 'pending').toUpperCase();
+
+      // Event header with status color
+      doc.fontSize(16).font('Helvetica-Bold').text(`${r.event}`, { continued: false });
+      doc.fontSize(9).font('Helvetica').fillColor(statusLabel === 'CONFIRMED' ? '#10b981' : statusLabel === 'CANCELLED' ? '#ef4444' : statusLabel === 'COMPLETED' ? '#3b82f6' : '#f59e0b').text(`Status: ${statusLabel}`);
+      doc.fillColor('#000000');
+      doc.moveDown(0.5);
+
+      // Details table
+      doc.fontSize(11).font('Helvetica');
+      const details = [
+        ['Event ID', r.id],
+        ['Date', r.date],
+        ['Time', r.time],
+        ['Location', r.location],
+        ['Client', r.client || 'N/A'],
+        ['Services', r.services || 'N/A'],
+        ['Assigned Staff', staffList.join(', ') || 'None'],
+      ];
+
+      details.forEach(([label, value]) => {
+        doc.font('Helvetica-Bold').text(`${label}: `, { continued: true });
+        doc.font('Helvetica').text(String(value || 'N/A'));
+      });
+
+      if (r.notes) {
+        doc.moveDown(0.5);
+        doc.font('Helvetica-Bold').text('Notes:', { continued: true });
+        doc.font('Helvetica').text(r.notes);
+      }
+
+      // Staff list box
+      if (staffList.length > 0) {
+        doc.moveDown(1);
+        doc.fontSize(12).font('Helvetica-Bold').text('Staff Assignment');
+        doc.moveDown(0.5);
+        staffList.forEach(s => {
+          doc.fontSize(10).font('Helvetica').text(`• ${s}`);
+        });
+      }
+    });
+
+    doc.end();
+  });
+});
+
 // GET /api/staff-timeline - Staff allocation timeline
 app.get('/api/staff-timeline', (req, res) => {
   db.all(`SELECT id, event, date, time, location, staff, status FROM events WHERE status != 'cancelled' ORDER BY date, time`, [], (err, rows) => {
@@ -512,7 +616,7 @@ app.get('/api/staff-timeline', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.3.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.4.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -585,5 +689,5 @@ app.post('/api/events/recurring', async (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.2 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.4 running on http://0.0.0.0:${PORT}`);
 });

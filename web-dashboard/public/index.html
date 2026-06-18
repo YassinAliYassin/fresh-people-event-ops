@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fresh People Event Ops v4.2</title>
+    <title>Fresh People Event Ops v4.4</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -32,7 +32,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.3</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.4</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
@@ -130,8 +130,29 @@
                             <input type="text" id="eventServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
                         </div>
                         <div>
-                            <label class="block text-sm text-gray-400 mb-1">Staff (comma-separated)</label>
-                            <input type="text" id="eventStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Mike,Alex,John" value="Mike,Alex,John,Sipho,Ben,David,Thabo,Kevin">
+                            <label class="block text-sm text-gray-400 mb-1">Staff Assignment</label>
+                            <div class="flex gap-2">
+                                <div id="availableStaff" class="flex-1 bg-gray-700 border border-gray-600 rounded p-2 min-h-[80px]" 
+                                     ondragover="event.preventDefault()" ondrop="dropStaff(event, 'available')">
+                                    <div class="text-xs text-gray-400 mb-1">Available (drag to assign)</div>
+                                    <div id="availableStaffList" class="flex flex-wrap gap-1"></div>
+                                </div>
+                                <div id="assignedStaff" class="flex-1 bg-gray-700 border border-blue-500 rounded p-2 min-h-[80px]"
+                                     ondragover="event.preventDefault()" ondrop="dropStaff(event, 'assigned')">
+                                    <div class="text-xs text-blue-400 mb-1">Assigned (drag here)</div>
+                                    <div id="assignedStaffList" class="flex flex-wrap gap-1"></div>
+                                </div>
+                            </div>
+                            <input type="hidden" id="eventStaff">
+                            <div class="flex gap-1 mt-1">
+                                <span class="text-xs text-gray-400">Quick:</span>
+                                <button type="button" onclick="quickAssign(4)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">4</button>
+                                <button type="button" onclick="quickAssign(6)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">6</button>
+                                <button type="button" onclick="quickAssign(8)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">8</button>
+                                <button type="button" onclick="quickAssign(10)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">10</button>
+                                <button type="button" onclick="quickAssign(999)" class="text-xs bg-blue-600 hover:bg-blue-500 px-2 py-0.5 rounded">All</button>
+                                <button type="button" onclick="resetStaffAssignment()" class="text-xs bg-red-600 hover:bg-red-500 px-2 py-0.5 rounded">Clear</button>
+                            </div>
                             <p class="text-xs text-yellow-400 mt-1" id="staffWarning"></p>
                         </div>
                         <div>
@@ -149,6 +170,7 @@
                         <div class="flex items-center gap-2">
                             <input type="text" id="eventSearch" placeholder="Search events..." class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white w-32 md:w-48" oninput="renderEvents()">
                             <button onclick="exportCSV()" class="text-sm bg-green-600 hover:bg-green-700 px-2 py-1 rounded" title="Export CSV">📥 CSV</button>
+                            <button onclick="exportPDF()" class="text-sm bg-red-600 hover:bg-red-700 px-2 py-1 rounded" title="Export PDF">📄 PDF</button>
                             <select id="eventFilter" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white" onchange="renderEvents()">
                                 <option value="all">All</option>
                                 <option value="pending">Pending</option>
@@ -1231,6 +1253,7 @@
                 </div>` : ''}
                 <div class="flex gap-2 mt-2">
                     <button onclick="closeEventDetailModal(); openEditModal('${event.id}')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold text-sm">Edit Event</button>
+                    <button onclick="exportEventPDF('${event.id}')" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold text-sm">📄 PDF</button>
                     ${(event.status || 'pending') === 'pending' ? `<button onclick="closeEventDetailModal(); updateStatus('${event.id}','confirmed')" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold text-sm">Confirm</button>` : ''}
                 </div>
             `;
@@ -1241,6 +1264,127 @@
         function closeEventDetailModal() {
             document.getElementById('eventDetailModal').classList.add('hidden');
             document.getElementById('eventDetailModal').classList.remove('flex');
+        }
+
+        // Export PDF
+        function exportPDF() {
+            const filter = document.getElementById('eventFilter').value;
+            let url = `${API}/export/pdf`;
+            const params = [];
+            if (filter && filter !== 'all') params.push(`status=${filter}`);
+            if (params.length) url += '?' + params.join('&');
+            window.open(url, '_blank');
+        }
+
+        // Export single event PDF
+        function exportEventPDF(eventId) {
+            window.open(`${API}/export/pdf?id=${eventId}`, '_blank');
+        }
+
+        // Drag-and-drop staff assignment
+        let assignedStaffNames = [];
+        let availableStaffNames = [];
+
+        function renderStaffAssignment() {
+            const assignedEl = document.getElementById('assignedStaffList');
+            const availableEl = document.getElementById('availableStaffList');
+            
+            assignedEl.innerHTML = assignedStaffNames.map(name => `
+                <span class="bg-blue-600 text-white text-xs px-2 py-1 rounded cursor-move flex items-center gap-1"
+                      draggable="true" ondragstart="dragStaff(event, '${name}', 'assigned')" ondragend="dragEnd(event)">
+                    ${name} <span class="hover:text-blue-200" onclick="removeAssignedStaff('${name}')">&times;</span>
+                </span>
+            `).join('');
+
+            availableEl.innerHTML = availableStaffNames.map(name => `
+                <span class="bg-gray-600 text-white text-xs px-2 py-1 rounded cursor-move flex items-center gap-1"
+                      draggable="true" ondragstart="dragStart(event, '${name}')" ondragend="dragEnd(event)">
+                    ${name}
+                </span>
+            `).join('');
+
+            // Update hidden input for form submission
+            document.getElementById('eventStaff').value = assignedStaffNames.join(',');
+
+            // Check staff shortage
+            const warningEl = document.getElementById('staffWarning');
+            const activeCount = allStaff.filter(s => s.active).length;
+            if (assignedStaffNames.length > activeCount) {
+                warningEl.textContent = `⚠️ Staff shortage: ${assignedStaffNames.length} assigned but only ${activeCount} active`;
+            } else {
+                warningEl.textContent = '';
+            }
+        }
+
+        let draggedStaffName = null;
+        let draggedFrom = null;
+
+        function dragStart(event, name) {
+            draggedStaffName = name;
+            draggedFrom = 'available';
+            event.dataTransfer.effectAllowed = 'move';
+            event.target.classList.add('opacity-50');
+        }
+
+        function dragStaff(event, name, from) {
+            draggedStaffName = name;
+            draggedFrom = from;
+            event.dataTransfer.effectAllowed = 'move';
+        }
+
+        function dragEnd(event) {
+            event.target.classList.remove('opacity-50');
+        }
+
+        function dropStaff(event, target) {
+            event.preventDefault();
+            if (!draggedStaffName) return;
+
+            if (target === 'assigned' && draggedFrom !== 'assigned') {
+                // Move from available to assigned
+                assignedStaffNames.push(draggedStaffName);
+                availableStaffNames = availableStaffNames.filter(n => n !== draggedStaffName);
+            } else if (target === 'available' && draggedFrom !== 'available') {
+                // Move from assigned to available
+                availableStaffNames.push(draggedStaffName);
+                assignedStaffNames = assignedStaffNames.filter(n => n !== draggedStaffName);
+            }
+
+            draggedStaffName = null;
+            draggedFrom = null;
+            renderStaffAssignment();
+        }
+
+        function removeAssignedStaff(name) {
+            assignedStaffNames = assignedStaffNames.filter(n => n !== name);
+            availableStaffNames.push(name);
+            availableStaffNames.sort();
+            renderStaffAssignment();
+        }
+
+        // Reset staff assignment pool when data loads
+        function resetStaffAssignment() {
+            const allStaffNames = allStaff.filter(s => s.active).map(s => s.name).sort();
+            assignedStaffNames = [];
+            availableStaffNames = [...allStaffNames];
+            renderStaffAssignment();
+        }
+
+        // Override loadData to also reset staff assignment
+        const originalLoadData = loadData;
+        loadData = async function() {
+            await originalLoadData();
+            if (allStaff.length > 0) {
+                resetStaffAssignment();
+            }
+        };
+
+        // Quick-assign buttons for common counts
+        function quickAssign(count) {
+            const allStaffNames = allStaff.filter(s => s.active).map(s => s.name).sort();
+            assignedStaffNames = allStaffNames.slice(0, count);
+            availableStaffNames = allStaffNames.slice(count);
+            renderStaffAssignment();
         }
 
         // Initial load
