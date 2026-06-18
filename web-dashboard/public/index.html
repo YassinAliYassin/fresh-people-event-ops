@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fresh People Event Ops v4.5</title>
+    <title>Fresh People Event Ops v4.6</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -46,7 +46,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.5</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.6</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
@@ -63,6 +63,7 @@
             <button onclick="switchTab('reports')" id="tab-reports" class="pb-2 font-semibold tab-inactive">📈 Reports & Analytics</button>
             <button onclick="switchTab('recurring')" id="tab-recurring" class="pb-2 font-semibold tab-inactive">🔄 Recurring Events</button>
             <button onclick="switchTab('timeline')" id="tab-timeline" class="pb-2 font-semibold tab-inactive">📆 Staff Timeline</button>
+            <button onclick="switchTab('autoassign')" id="tab-autoassign" class="pb-2 font-semibold tab-inactive">⚡ Auto-Assign</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -371,6 +372,53 @@
             </div>
             <div id="staffTimelineContainer" class="space-y-4"></div>
         </div>
+
+        <!-- ==================== AUTO-ASSIGN TAB ==================== -->
+        <div id="view-autoassign" class="hidden">
+            <div class="max-w-3xl mx-auto">
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h2 class="text-xl font-bold mb-2">⚡ Auto-Assign Staff</h2>
+                    <p class="text-gray-400 text-sm mb-6">Automatically select the best staff based on required skills and availability.</p>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Number of Staff Needed</label>
+                                <input type="number" id="autoAssignCount" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" value="8" min="1" max="50">
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-2">Required Skills (select all that apply)</label>
+                                <div id="autoAssignSkills" class="flex flex-wrap gap-2">
+                                    <span class="text-gray-500 text-sm">Loading skills...</span>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Custom Skill (type to add)</label>
+                                <div class="flex gap-2">
+                                    <input type="text" id="customSkillInput" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="e.g., forklift" onkeydown="if(event.key==='Enter'){addCustomSkill();event.preventDefault();}">
+                                    <button onclick="addCustomSkill()" class="bg-gray-600 hover:bg-gray-500 px-3 py-2 rounded text-sm">+</button>
+                                </div>
+                            </div>
+                            <div id="selectedSkillsDisplay" class="flex flex-wrap gap-1 min-h-[24px]"></div>
+                            <button onclick="runAutoAssign()" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded font-semibold text-lg">⚡ Auto-Assign Now</button>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-bold mb-3">Assignment Result</h3>
+                            <div id="autoAssignResult" class="bg-gray-700 rounded-lg p-4 min-h-[200px]">
+                                <p class="text-gray-500 text-sm text-center py-8">Click "Auto-Assign Now" to generate staff assignments</p>
+                            </div>
+                            <button onclick="applyAutoAssignToForm()" id="applyAutoAssignBtn" class="w-full mt-3 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold hidden">📋 Apply to Event Form</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Staff Skills Overview -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 mt-6">
+                    <h3 class="text-lg font-bold mb-4">🏷️ Staff Skills Overview</h3>
+                    <div id="staffSkillsOverview" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Event Detail Modal -->
@@ -499,6 +547,11 @@
                         <option value="security">Security</option>
                     </select>
                 </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Skills (comma-separated)</label>
+                    <input type="text" id="staffSkills" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="bartending, setup, driving, cooking">
+                    <p class="text-xs text-gray-500 mt-1">Used for auto-assignment</p>
+                </div>
                 <div class="flex gap-2">
                     <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold">Add Staff</button>
                     <button type="button" onclick="closeAddStaffModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
@@ -532,6 +585,11 @@
                         <option value="security">Security</option>
                     </select>
                 </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Skills (comma-separated)</label>
+                    <input type="text" id="editStaffSkillsInput" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="bartending, setup, driving, cooking">
+                    <p class="text-xs text-gray-500 mt-1">Used for auto-assignment</p>
+                </div>
                 <div class="flex items-center gap-2">
                     <input type="checkbox" id="editStaffActive" class="w-4 h-4" checked>
                     <label for="editStaffActive" class="text-sm text-gray-400">Active</label>
@@ -553,7 +611,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign'].forEach(t => {
                 document.getElementById('view-' + t).classList.add('hidden');
                 const tabEl = document.getElementById('tab-' + t);
                 tabEl.classList.remove('tab-active');
@@ -569,6 +627,9 @@
             }
             if (tab === 'timeline') {
                 loadStaffTimeline();
+            }
+            if (tab === 'autoassign') {
+                initAutoAssign();
             }
         }
 
@@ -926,7 +987,13 @@
         // Render staff
         function renderStaff() {
             const container = document.getElementById('staffList');
-            container.innerHTML = allStaff.map(s => `
+            container.innerHTML = allStaff.map(s => {
+                let skillList = [];
+                try { skillList = JSON.parse(s.skills || '[]'); } catch(e) { skillList = []; }
+                const skillTags = skillList.length > 0
+                    ? `<div class="flex flex-wrap gap-1 mt-1">${skillList.map(sk => `<span class="text-xs bg-purple-800 text-purple-300 px-1.5 py-0.5 rounded">${sk}</span>`).join('')}</div>`
+                    : '';
+                return `
                 <div class="flex items-center justify-between bg-gray-700 rounded p-3 border border-gray-600">
                     <div class="flex-1">
                         <div class="flex items-center gap-2">
@@ -934,13 +1001,14 @@
                             <span class="text-xs text-gray-400">(${s.role})</span>
                         </div>
                         <div class="text-xs text-gray-400">${s.phone || 'No phone'}</div>
+                        ${skillTags}
                     </div>
                     <div class="flex items-center gap-2">
                         <div class="w-2 h-2 rounded-full ${s.active ? 'bg-green-500' : 'bg-gray-500'}" title="${s.active ? 'Active' : 'Inactive'}"></div>
                         <button onclick="openEditStaffModal(${s.id})" class="text-blue-400 hover:text-blue-300 text-xs">Edit</button>
                     </div>
                 </div>
-            `).join('') || '<p class="text-gray-400 text-sm">No staff</p>';
+            `}).join('') || '<p class="text-gray-400 text-sm">No staff</p>';
         }
 
         // Render backups
@@ -1279,14 +1347,18 @@
             document.getElementById('addStaffModal').classList.add('hidden');
             document.getElementById('addStaffModal').classList.remove('flex');
             document.getElementById('addStaffForm').reset();
-        }
+            document.getElementById('staffSkills').value = '';
+        });
 
         document.getElementById('addStaffForm').addEventListener('submit', async (e) => {
             e.preventDefault();
+            const skillsStr = document.getElementById('staffSkills').value;
+            const skills = skillsStr ? skillsStr.split(',').map(s => s.trim()).filter(s => s) : [];
             const body = {
                 name: document.getElementById('staffName').value,
                 phone: document.getElementById('staffPhone').value,
-                role: document.getElementById('staffRole').value
+                role: document.getElementById('staffRole').value,
+                skills
             };
             await fetch(`${API}/staff`, {
                 method: 'POST',
@@ -1305,6 +1377,9 @@
             document.getElementById('editStaffName').value = staff.name;
             document.getElementById('editStaffPhone').value = staff.phone || '';
             document.getElementById('editStaffRole').value = staff.role;
+            var skillsVal = '';
+            try { skillsVal = JSON.parse(staff.skills || '[]').join(', '); } catch(e) { skillsVal = ''; }
+            document.getElementById('editStaffSkillsInput').value = skillsVal;
             document.getElementById('editStaffActive').checked = staff.active == 1;
             document.getElementById('editStaffModal').classList.remove('hidden');
             document.getElementById('editStaffModal').classList.add('flex');
@@ -1318,11 +1393,14 @@
         document.getElementById('editStaffForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const id = document.getElementById('editStaffId').value;
+            const skillsStr = document.getElementById('editStaffSkillsInput').value;
+            const skills = skillsStr ? skillsStr.split(',').map(s => s.trim()).filter(s => s) : [];
             const body = {
                 name: document.getElementById('editStaffName').value,
                 phone: document.getElementById('editStaffPhone').value,
                 role: document.getElementById('editStaffRole').value,
-                active: document.getElementById('editStaffActive').checked
+                active: document.getElementById('editStaffActive').checked,
+                skills
             };
             await fetch(`${API}/staff/${id}`, {
                 method: 'PUT',
@@ -1461,7 +1539,12 @@
                 <div class="bg-gray-700 rounded p-3">
                     <div class="text-xs text-gray-400 mb-2">Assigned Staff (${staffList.length})</div>
                     <div class="flex flex-wrap gap-2">
-                        ${staffList.map(s => `<span class="bg-purple-900/50 text-purple-300 px-2 py-1 rounded text-sm">${s}</span>`).join('') || '<span class="text-gray-500 text-sm">No staff assigned</span>'}
+                        ${staffList.map(s => {
+                            const sInfo = allStaff.find(as => as.name === s);
+                            const sSkills = sInfo ? (JSON.parse(sInfo.skills || '[]')) : [];
+                            const skillTags = sSkills.length > 0 ? `<span class="text-xs text-purple-400 ml-1">(${sSkills.slice(0,3).join(', ')}${sSkills.length > 3 ? '...' : ''})</span>` : '';
+                            return `<span class="bg-purple-900/50 text-purple-300 px-2 py-1 rounded text-sm">${s}${skillTags}</span>`;
+                        }).join('') || '<span class="text-gray-500 text-sm">No staff assigned</span>'}
                     </div>
                 </div>
                 ${event.notes ? `<div class="bg-gray-700 rounded p-3">
@@ -1471,6 +1554,7 @@
                 <div class="flex gap-2 mt-2">
                     <button onclick="closeEventDetailModal(); openEditModal('${event.id}')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold text-sm">Edit Event</button>
                     <button onclick="exportEventPDF('${event.id}')" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold text-sm">📄 PDF</button>
+                    <button onclick="duplicateEvent('${event.id}')" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded font-semibold text-sm">📋 Duplicate</button>
                     ${(event.status || 'pending') === 'pending' ? `<button onclick="closeEventDetailModal(); updateStatus('${event.id}','confirmed')" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold text-sm">Confirm</button>` : ''}
                 </div>
             `;
@@ -1602,6 +1686,182 @@
             assignedStaffNames = allStaffNames.slice(0, count);
             availableStaffNames = allStaffNames.slice(count);
             renderStaffAssignment();
+        }
+
+        // ==================== AUTO-ASSIGN FUNCTIONS ====================
+        let selectedAutoSkills = [];
+        let lastAutoAssignResult = null;
+
+        function initAutoAssign() {
+            // Collect all unique skills from staff
+            const allSkills = new Set();
+            allStaff.forEach(s => {
+                try {
+                    const sSkills = JSON.parse(s.skills || '[]');
+                    sSkills.forEach(sk => allSkills.add(sk));
+                } catch(e) {}
+            });
+            
+            const skillsArr = Array.from(allSkills).sort();
+            const container = document.getElementById('autoAssignSkills');
+            if (skillsArr.length === 0) {
+                container.innerHTML = '<span class="text-gray-500 text-sm">No skills defined yet. Add skills to staff members first.</span>';
+            } else {
+                container.innerHTML = skillsArr.map(sk => 
+                    `<button type="button" onclick="toggleAutoSkill('${sk.replace(/'/g, "\\'")}')" id="skillbtn-${sk.replace(/[^a-zA-Z0-9]/g,'')}" class="text-xs bg-gray-600 hover:bg-purple-600 px-3 py-1.5 rounded-full transition-colors">${sk}</button>`
+                ).join('');
+            }
+
+            // Render staff skills overview
+            renderStaffSkillsOverview();
+        }
+
+        function renderStaffSkillsOverview() {
+            const container = document.getElementById('staffSkillsOverview');
+            const activeStaff = allStaff.filter(s => s.active);
+            container.innerHTML = activeStaff.map(s => {
+                let skillList = [];
+                try { skillList = JSON.parse(s.skills || '[]'); } catch(e) { skillList = []; }
+                return `
+                    <div class="bg-gray-700 rounded p-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-medium text-sm">${s.name}</span>
+                            <span class="text-xs text-gray-400">(${s.role})</span>
+                        </div>
+                        <div class="flex flex-wrap gap-1">
+                            ${skillList.length > 0 ? skillList.map(sk => `<span class="text-xs bg-purple-800 text-purple-300 px-2 py-0.5 rounded">${sk}</span>` : '<span class="text-xs text-gray-500">No skills</span>'}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleAutoSkill(skill) {
+            if (selectedAutoSkills.includes(skill)) {
+                selectedAutoSkills = selectedAutoSkills.filter(s => s !== skill);
+            } else {
+                selectedAutoSkills.push(skill);
+            }
+            updateSelectedSkillsDisplay();
+        }
+
+        function addCustomSkill() {
+            const input = document.getElementById('customSkillInput');
+            const skill = input.value.trim();
+            if (skill && !selectedAutoSkills.includes(skill)) {
+                selectedAutoSkills.push(skill);
+                updateSelectedSkillsDisplay();
+            }
+            input.value = '';
+        }
+
+        function removeAutoSkill(skill) {
+            selectedAutoSkills = selectedAutoSkills.filter(s => s !== skill);
+            updateSelectedSkillsDisplay();
+        }
+
+        function updateSelectedSkillsDisplay() {
+            const container = document.getElementById('selectedSkillsDisplay');
+            if (selectedAutoSkills.length === 0) {
+                container.innerHTML = '<span class="text-xs text-gray-500">No skills selected (will assign by availability)</span>';
+            } else {
+                container.innerHTML = selectedAutoSkills.map(sk => 
+                    `<span class="text-xs bg-purple-600 text-white px-2 py-1 rounded-full flex items-center gap-1">${sk} <span class="cursor-pointer hover:text-purple-200" onclick="removeAutoSkill('${sk.replace(/'/g, "\\'")}')">&times;</span></span>`
+                ).join('');
+            }
+        }
+
+        async function runAutoAssign() {
+            const count = parseInt(document.getElementById('autoAssignCount').value) || 8;
+            const resultContainer = document.getElementById('autoAssignResult');
+            resultContainer.innerHTML = '<p class="text-gray-400 text-sm text-center py-8">⏳ Assigning...</p>';
+
+            try {
+                const res = await fetch(`${API}/auto-assign`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        count: count,
+                        requiredSkills: selectedAutoSkills
+                    })
+                });
+                const data = await res.json();
+                lastAutoAssignResult = data;
+
+                let html = '';
+                if (data.assigned.length > 0) {
+                    html += `<div class="text-green-400 font-semibold mb-3">✅ ${data.message}</div>`;
+                    html += `<div class="space-y-2">`;
+                    data.assigned.forEach(name => {
+                        const staffInfo = data.matchedSkills.find(ms => ms.name === name);
+                        const hasSkillMatch = staffInfo && staffInfo.skills.length > 0;
+                        const skillBadges = hasSkillMatch
+                            ? staffInfo.skills.map(sk => `<span class="text-xs bg-purple-800 text-purple-300 px-1.5 py-0.5 rounded ml-1">${sk}</span>`).join('')
+                            : '';
+                        html += `
+                            <div class="flex items-center gap-2 bg-gray-600 rounded p-2">
+                                <div class="w-8 h-8 rounded-full ${hasSkillMatch ? 'bg-purple-600' : 'bg-gray-500'} flex items-center justify-center font-bold text-sm">${name.charAt(0)}</div>
+                                <div class="flex-1">
+                                    <span class="font-medium">${name}</span>
+                                    ${skillBadges}
+                                </div>
+                                ${hasSkillMatch ? '<span class="text-xs text-purple-400">✓</span>' : ''}
+                            </div>
+                        `;
+                    });
+                    html += `</div>`;
+                } else {
+                    html += `<div class="text-yellow-400">⚠️ No active staff available</div>`;
+                }
+
+                resultContainer.innerHTML = html;
+                document.getElementById('applyAutoAssignBtn').classList.remove('hidden');
+            } catch (err) {
+                resultContainer.innerHTML = `<p class="text-red-400 text-sm">Error: ${err.message}</p>`;
+            }
+        }
+
+        function applyAutoAssignToForm() {
+            if (!lastAutoAssignResult || lastAutoAssignResult.assigned.length === 0) return;
+            const names = lastAutoAssignResult.assigned;
+            assignedStaffNames = [...names];
+            const allActiveNames = allStaff.filter(s => s.active).map(s => s.name).sort();
+            availableStaffNames = allActiveNames.filter(n => !names.includes(n));
+            renderStaffAssignment();
+            showToast(`✅ Applied ${names.length} staff to event form`, 'success');
+            switchTab('dashboard');
+        }
+
+        // ==================== DUPLICATE EVENT ====================
+        async function duplicateEvent(id) {
+            const event = allEvents.find(e => e.id === id);
+            if (!event) return;
+            
+            const countStr = prompt(`Duplicate "${event.event}"?\n\nHow many copies? (default: 1)`, '1');
+            if (countStr === null) return; // cancelled
+            const count = parseInt(countStr) || 1;
+            
+            const dateStr = prompt(`Start date for duplicates?\n\n(YYYY-MM-DD, default: ${event.date})`, event.date);
+            if (dateStr === null) return; // cancelled
+
+            closeEventDetailModal();
+            
+            try {
+                const res = await fetch(`${API}/events/${id}/duplicate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: dateStr, count: count })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                    loadData();
+                } else {
+                    showToast('Failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error');
+            }
         }
 
         // Initial load

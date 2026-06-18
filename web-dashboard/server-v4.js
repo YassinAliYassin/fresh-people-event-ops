@@ -187,25 +187,27 @@ app.get('/api/staff', (req, res) => {
 
 // POST /api/staff - add new staff member
 app.post('/api/staff', (req, res) => {
-  const { name, phone, role } = req.body;
+  const { name, phone, role, skills } = req.body;
   if (!name) return res.status(400).json({error: 'Name is required'});
-  db.run(`INSERT INTO staff (name, phone, role, active) VALUES (?, ?, ?, 1)`, [name, phone || null, role || 'staff'], function(err) {
+  const skillsJSON = Array.isArray(skills) ? JSON.stringify(skills) : (skills || '[]');
+  db.run(`INSERT INTO staff (name, phone, role, active, skills) VALUES (?, ?, ?, 1, ?)`, [name, phone || null, role || 'staff', skillsJSON], function(err) {
     if (err) return res.status(500).json({error: err.message});
-    res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', active: 1 });
+    res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', active: 1, skills: skillsJSON });
   });
 });
 
-// PUT /api/staff/:id - update staff (including phone)
+// PUT /api/staff/:id - update staff (including phone, skills)
 app.put('/api/staff/:id', (req, res) => {
-  const { name, phone, role, active } = req.body;
+  const { name, phone, role, active, skills } = req.body;
   const id = req.params.id;
+  const skillsJSON = Array.isArray(skills) ? JSON.stringify(skills) : (skills || '[]');
   db.run(
-    `UPDATE staff SET name=?, phone=?, role=?, active=? WHERE id=?`,
-    [name, phone || null, role || 'staff', active ? 1 : 0, id],
+    `UPDATE staff SET name=?, phone=?, role=?, active=?, skills=? WHERE id=?`,
+    [name, phone || null, role || 'staff', active ? 1 : 0, skillsJSON, id],
     function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Staff not found'});
-      res.json({ success: true, id, name, phone, role, active: active ? 1 : 0 });
+      res.json({ success: true, id, name, phone, role, active: active ? 1 : 0, skills: skillsJSON });
     }
   );
 });
@@ -614,9 +616,137 @@ app.get('/api/staff-timeline', (req, res) => {
   });
 });
 
+// POST /api/auto-assign - auto-assign staff based on required skills + availability
+app.post('/api/auto-assign', (req, res) => {
+  const { count, requiredSkills, eventDate, excludeStaff } = req.body;
+  const needed = count || 8;
+  const skills = Array.isArray(requiredSkills) ? requiredSkills : [];
+  const exclude = Array.isArray(excludeStaff) ? excludeStaff : [];
+
+  db.all(`SELECT * FROM staff WHERE active = 1 ORDER BY name`, [], (err, allStaff) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // Filter out excluded staff
+    let candidates = allStaff.filter(s => !exclude.includes(s.name));
+
+    // Score each candidate based on skill match
+    const scored = candidates.map(s => {
+      let skillList = [];
+      try { skillList = JSON.parse(s.skills || '[]'); } catch(e) { skillList = []; }
+      let score = 0;
+      skills.forEach(reqSkill => {
+        if (skillList.some(cs => cs.toLowerCase() === reqSkill.toLowerCase())) {
+          score += 10; // Exact skill match
+        }
+      });
+      // Bonus for having any skills
+      if (skillList.length > 0 && skills.length === 0) score += 1;
+      return { ...s, skillList, score };
+    });
+
+    // Sort by score descending, then by name for stability
+    scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+    // If we have required skills, prioritize those with matches
+    let selected = [];
+    if (skills.length > 0) {
+      // Take all with at least one skill match first
+      const withSkills = scored.filter(s => s.score > 0);
+      const withoutSkills = scored.filter(s => s.score === 0);
+      selected = [...withSkills, ...withoutSkills].slice(0, needed);
+    } else {
+      selected = scored.slice(0, needed);
+    }
+
+    const assigned = selected.map(s => s.name);
+    const matchedSkills = selected.map(s => ({ name: s.name, skills: s.skillList }));
+
+    res.json({
+      assigned,
+      count: assigned.length,
+      matchedSkills,
+      requestedSkills: skills,
+      requestedCount: needed,
+      message: assigned.length < needed
+        ? `Only ${assigned.length} of ${needed} requested staff available`
+        : `Successfully assigned ${assigned.length} staff members`
+    });
+  });
+});
+
+// POST /api/events/:id/duplicate - duplicate an event
+app.post('/api/events/:id/duplicate', async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const { date, count } = req.body;
+
+    // Get original event
+    const original = await new Promise((resolve, reject) => {
+      db.get(`SELECT * FROM events WHERE id = ?`, [eventId], (err, row) => {
+        if (err) return reject(err);
+        if (!row) return reject(new Error('Event not found'));
+        resolve(row);
+      });
+    });
+
+    const duplicateCount = count || 1;
+    const createdEvents = [];
+    let currentDate = date ? new Date(date) : new Date(original.date);
+
+    for (let i = 0; i < duplicateCount; i++) {
+      const dateStr = currentDate.toISOString().slice(0, 10);
+      const id = await generateEventID(dateStr);
+      const staffJSON = original.staff || '[]';
+
+      await new Promise((resolve, reject) => {
+        db.run(
+          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes) VALUES (?,?,?,?,?,?,?,?,?)`,
+          [id, original.event, dateStr, original.time, original.location, original.client, original.services, staffJSON, original.notes || ''],
+          function(err) {
+            if (err) return reject(err);
+            createdEvents.push({
+              id, event: original.event, date: dateStr, time: original.time,
+              location: original.location, client: original.client,
+              services: original.services, staff: JSON.parse(staffJSON),
+              notes: original.notes
+            });
+            resolve();
+          }
+        );
+      });
+
+      // Advance date by 7 days for each subsequent duplicate
+      currentDate.setDate(currentDate.getDate() + 7);
+    }
+
+    // Create calendar files
+    for (const evt of createdEvents) {
+      try {
+        const icsContent = generateICS(evt);
+        await fs.writeFile(path.join(CALENDAR_DIR, `${evt.id}.ics`), icsContent);
+        await fs.writeFile(path.join(CALENDAR_DIR, `${evt.id}.json`), JSON.stringify(evt, null, 2));
+      } catch (e) { console.error('Calendar file error:', e); }
+    }
+
+    // Auto-backup after duplication
+    try { await backupDatabase(); } catch (e) { console.error('Backup failed:', e); }
+
+    res.json({
+      success: true,
+      originalId: eventId,
+      count: createdEvents.length,
+      events: createdEvents,
+      message: `Duplicated "${original.event}" ${createdEvents.length} time${createdEvents.length > 1 ? 's' : ''}`
+    });
+  } catch (err) {
+    if (err.message === 'Event not found') return res.status(404).json({ error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.5.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.6.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -689,5 +819,5 @@ app.post('/api/events/recurring', async (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.5 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.6 running on http://0.0.0.0:${PORT}`);
 });

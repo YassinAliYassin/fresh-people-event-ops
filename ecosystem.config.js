@@ -1,52 +1,54 @@
 module.exports = {
   apps: [
     {
-      name: "fresh-people-ops",
-      script: "web-dashboard/server-v4.js",
-      cwd: "/home/yassin/fresh-people-event-ops",
+      name: 'fresh-people-dashboard',
+      script: 'server-v4.js',
+      cwd: '/home/yassin/fresh-people-event-ops/web-dashboard',
       instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: "500M",
+      max_memory_restart: '500M',
       env: {
-        NODE_ENV: "production",
-        PORT: 3004
+        NODE_ENV: 'production',
+        PORT: 3004,
+        DASHBOARD_USER: 'admin',
+        DASHBOARD_PASS: 'freshpeople2026'
       },
-      error_file: "/home/yassin/.pm2/logs/fresh-people-ops-error.log",
-      out_file: "/home/yassin/.pm2/logs/fresh-people-ops-out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss"
+      error_file: '/home/yassin/.hermes/logs/fresh-people-dashboard-error.log',
+      out_file: '/home/yassin/.hermes/logs/fresh-people-dashboard-out.log',
+      time: true
     },
     {
-      name: "fresh-people-api",
-      script: "server.js",
-      cwd: "/home/yassin/fresh-people-event-ops",
+      name: 'fresh-people-api',
+      script: 'server.js',
+      cwd: '/home/yassin/fresh-people-event-ops',
       instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: "300M",
+      max_memory_restart: '300M',
       env: {
-        NODE_ENV: "production",
+        NODE_ENV: 'production',
         PORT: 3000
       },
-      error_file: "/home/yassin/.pm2/logs/fresh-people-api-error.log",
-      out_file: "/home/yassin/.pm2/logs/fresh-people-api-out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss"
+      error_file: '/home/yassin/.hermes/logs/fresh-people-api-error.log',
+      out_file: '/home/yassin/.hermes/logs/fresh-people-api-out.log',
+      time: true
     },
     {
-      name: "fresh-people-whatsapp",
-      script: "whatsapp-api-bot.js",
-      cwd: "/home/yassin/fresh-people-event-ops",
+      name: 'fresh-people-whatsapp',
+      script: 'whatsapp-api-bot.js',
+      cwd: '/home/yassin/fresh-people-event-ops',
       instances: 1,
       autorestart: true,
       watch: false,
-      max_memory_restart: "300M",
+      max_memory_restart: '300M',
       env: {
-        NODE_ENV: "production",
+        NODE_ENV: 'production',
         PORT: 3003
       },
-      error_file: "/home/yassin/.pm2/logs/fresh-people-whatsapp-error.log",
-      out_file: "/home/yassin/.pm2/logs/fresh-people-whatsapp-out.log",
-      log_date_format: "YYYY-MM-DD HH:mm:ss"
+      error_file: '/home/yassin/.hermes/logs/fresh-people-whatsapp-error.log',
+      out_file: '/home/yassin/.hermes/logs/fresh-people-whatsapp-out.log',
+      time: true
     }
   ]
 };
