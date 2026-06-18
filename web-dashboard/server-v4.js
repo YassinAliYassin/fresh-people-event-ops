@@ -363,12 +363,164 @@ app.get('/api/backups', async (req, res) => {
   }
 });
 
+// GET /api/analytics - comprehensive analytics
+app.get('/api/analytics', (req, res) => {
+  db.all(`SELECT * FROM events`, [], (err, events) => {
+    if (err) return res.status(500).json({error: err.message});
+
+    // Status breakdown
+    const statusCounts = { pending: 0, confirmed: 0, cancelled: 0, completed: 0 };
+    events.forEach(e => { const s = e.status || 'pending'; if (statusCounts[s] !== undefined) statusCounts[s]++; });
+
+    // Events by month
+    const byMonth = {};
+    events.forEach(e => { const m = e.date.slice(0, 7); byMonth[m] = (byMonth[m] || 0) + 1; });
+
+    // Events by week (current 12 weeks)
+    const now = new Date();
+    const weeks = {};
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i * 7);
+      const weekStart = new Date(d); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const key = weekStart.toISOString().slice(0, 10);
+      weeks[key] = 0;
+    }
+    events.forEach(e => {
+      const eDate = new Date(e.date);
+      const weekStart = new Date(eDate); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      const key = weekStart.toISOString().slice(0, 10);
+      if (weeks[key] !== undefined) weeks[key]++;
+    });
+
+    // Location frequency
+    const locationCounts = {};
+    events.forEach(e => { locationCounts[e.location] = (locationCounts[e.location] || 0) + 1; });
+    const topLocations = Object.entries(locationCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+    // Client frequency
+    const clientCounts = {};
+    events.forEach(e => { if (e.client) clientCounts[e.client] = (clientCounts[e.client] || 0) + 1; });
+    const topClients = Object.entries(clientCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+    // Staff utilization (events per staff member)
+    const staffEventCounts = {};
+    events.forEach(e => {
+      const staffList = JSON.parse(e.staff || '[]');
+      staffList.forEach(s => { staffEventCounts[s] = (staffEventCounts[s] || 0) + 1; });
+    });
+    const staffUtilization = Object.entries(staffEventCounts).sort((a, b) => b[1] - a[1]);
+
+    // Average events per week (last 4 weeks)
+    const recentWeekCounts = Object.entries(weeks).sort((a, b) => a[0] < b[0] ? 1 : -1).slice(0, 4).map(v => v[1]);
+    const avgPerWeek = recentWeekCounts.length > 0 ? (recentWeekCounts.reduce((a, b) => a + b, 0) / recentWeekCounts.length).toFixed(1) : 0;
+
+    // Upcoming count (next 7 days)
+    const today = now.toISOString().slice(0, 10);
+    const nextWeek = new Date(now); nextWeek.setDate(nextWeek.getDate() + 7);
+    const nextWeekStr = nextWeek.toISOString().slice(0, 10);
+    const upcomingCount = events.filter(e => e.date >= today && e.date <= nextWeekStr && (e.status !== 'cancelled')).length;
+
+    res.json({
+      summary: {
+        total: events.length,
+        upcoming7days: upcomingCount,
+        avgEventsPerWeek: parseFloat(avgPerWeek),
+        statusCounts,
+        topLocation: topLocations[0] ? topLocations[0][0] : 'N/A',
+        topClient: topClients[0] ? topClients[0][0] : 'N/A',
+      },
+      byMonth: Object.entries(byMonth).sort((a, b) => a[0] < b[0] ? -1 : 1),
+      byWeek: Object.entries(weeks).sort((a, b) => a[0] < b[0] ? -1 : 1),
+      topLocations,
+      topClients,
+      staffUtilization,
+    });
+  });
+});
+
+// DELETE /api/templates/:id
+app.delete('/api/templates/:id', (req, res) => {
+  db.run(`DELETE FROM event_templates WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({error: err.message});
+    if (this.changes === 0) return res.status(404).json({error: 'Template not found'});
+    res.json({ success: true, id: req.params.id });
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.1.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.2.0', timestamp: new Date().toISOString() });
+});
+
+// POST /api/events/recurring - create recurring events
+app.post('/api/events/recurring', async (req, res) => {
+  try {
+    const { event, startDate, endDate, time, location, client, services, staff, notes, frequency } = req.body;
+    if (!event || !startDate || !endDate || !time) {
+      return res.status(400).json({ error: 'Event name, startDate, endDate, and time are required' });
+    }
+
+    const validFrequencies = ['daily', 'weekly', 'biweekly', 'monthly'];
+    const freq = frequency || 'weekly';
+    if (!validFrequencies.includes(freq)) {
+      return res.status(400).json({ error: `Invalid frequency. Must be one of: ${validFrequencies.join(', ')}` });
+    }
+
+    const createdEvents = [];
+    const current = new Date(startDate);
+    const end = new Date(endDate);
+    const staffList = staff || [];
+
+    while (current <= end) {
+      const dateStr = current.toISOString().slice(0, 10);
+      const id = await generateEventID(dateStr);
+      const activeStaffCount = await getActiveStaffCount();
+      const warnings = [];
+      if (staffList.length > activeStaffCount) {
+        warnings.push(`Staff shortage: ${staffList.length} requested but only ${activeStaffCount} active`);
+      }
+      const staffJSON = JSON.stringify(staffList);
+      const notesText = notes || `Dress Code: All Black\nArrival Time: ${parseInt(time.split(':')[0]) - 1}:${time.split(':')[1]}`;
+      const fullNotes = warnings.length > 0 ? `${notesText}\n\n⚠️ WARNINGS:\n${warnings.join('\n')}` : notesText;
+
+      await new Promise((resolve, reject) => {
+        db.run(
+          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes) VALUES (?,?,?,?,?,?,?,?,?)`,
+          [id, event, dateStr, time, location, client, services, staffJSON, fullNotes],
+          function(err) {
+            if (err) return reject(err);
+            createdEvents.push({ id, event, date: dateStr, time, location, client, services, staff: staffList, notes: fullNotes });
+            resolve();
+          }
+        );
+      });
+
+      // Advance to next occurrence
+      if (freq === 'daily') current.setDate(current.getDate() + 1);
+      else if (freq === 'weekly') current.setDate(current.getDate() + 7);
+      else if (freq === 'biweekly') current.setDate(current.getDate() + 14);
+      else if (freq === 'monthly') current.setMonth(current.getMonth() + 1);
+    }
+
+    // Create calendar files for each
+    for (const evt of createdEvents) {
+      try {
+        const icsContent = generateICS(evt);
+        await fs.writeFile(path.join(CALENDAR_DIR, `${evt.id}.ics`), icsContent);
+        await fs.writeFile(path.join(CALENDAR_DIR, `${evt.id}.json`), JSON.stringify(evt, null, 2));
+      } catch (e) { console.error('Calendar file error:', e); }
+    }
+
+    // Auto-backup after batch creation
+    try { await backupDatabase(); } catch (e) { console.error('Backup failed:', e); }
+
+    res.json({ success: true, count: createdEvents.length, events: createdEvents });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.1 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.2 running on http://0.0.0.0:${PORT}`);
 });

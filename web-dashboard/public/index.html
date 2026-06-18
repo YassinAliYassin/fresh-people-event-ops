@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fresh People Event Ops v4</title>
+    <title>Fresh People Event Ops v4.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -19,149 +20,299 @@
         .status-pending { background: #92400e; color: #fef3c7; }
         .status-cancelled { background: #991b1b; color: #fee2e2; }
         .status-completed { background: #1e3a5f; color: #dbeafe; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; }
+        .tab-inactive { border-bottom: 2px solid transparent; color: #9ca3af; }
+        .tab-inactive:hover { color: #d1d5db; }
+        canvas { max-height: 300px; }
     </style>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
-    <div class="container mx-auto px-4 py-8">
+    <div class="container mx-auto px-4 py-6">
         <!-- Header -->
-        <div class="flex items-center justify-between mb-8">
+        <div class="flex items-center justify-between mb-6">
             <div>
-                <h1 class="text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400">SQLite-powered event management v4.1</p>
+                <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.2</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
                 <div class="flex items-center gap-2">
                     <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span class="text-green-400 text-sm">Online (SQLite)</span>
+                    <span class="text-green-400 text-sm">Online</span>
                 </div>
             </div>
         </div>
 
-        <!-- Stats -->
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <div class="text-gray-400 text-xs">Total Events</div>
-                <div class="text-2xl font-bold" id="totalEvents">0</div>
-            </div>
-            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <div class="text-gray-400 text-xs">Active Staff</div>
-                <div class="text-2xl font-bold" id="totalStaff">0</div>
-            </div>
-            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <div class="text-gray-400 text-xs">Staff Shortages</div>
-                <div class="text-2xl font-bold text-yellow-400" id="shortageCount">0</div>
-            </div>
-            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <div class="text-gray-400 text-xs">Conflicts</div>
-                <div class="text-2xl font-bold text-red-400" id="conflictCount">0</div>
-            </div>
-            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <div class="text-gray-400 text-xs">Alerts</div>
-                <div class="text-2xl font-bold text-orange-400" id="alertCount">0</div>
-            </div>
+        <!-- Tab Navigation -->
+        <div class="flex gap-6 mb-6 border-b border-gray-700 pb-2">
+            <button onclick="switchTab('dashboard')" id="tab-dashboard" class="pb-2 font-semibold tab-active">📊 Dashboard</button>
+            <button onclick="switchTab('reports')" id="tab-reports" class="pb-2 font-semibold tab-inactive">📈 Reports & Analytics</button>
+            <button onclick="switchTab('recurring')" id="tab-recurring" class="pb-2 font-semibold tab-inactive">🔄 Recurring Events</button>
         </div>
 
-        <!-- Alerts Panel -->
-        <div id="alertsPanel" class="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-8 hidden">
-            <div class="flex items-center justify-between mb-4">
-                <h2 class="text-xl font-bold">🚨 Alerts & Notifications</h2>
-                <button onclick="loadData()" class="text-sm text-blue-400 hover:underline">Refresh</button>
-            </div>
-            <div id="alertsList" class="space-y-3 max-h-64 overflow-y-auto"></div>
-        </div>
-
-        <!-- Main Content: 3-Col Layout -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Col1: Create Event -->
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h2 class="text-xl font-bold mb-4">📅 Create Event</h2>
-                
-                <!-- Template Selector -->
-                <div class="mb-4">
-                    <label class="block text-sm text-gray-400 mb-1">Quick Template</label>
-                    <select id="templateSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
-                        <option value="">-- Select a template --</option>
-                    </select>
-                    <p class="text-xs text-gray-400 mt-1">Auto-fills event defaults</p>
+        <!-- ==================== DASHBOARD TAB ==================== -->
+        <div id="view-dashboard">
+            <!-- Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Total Events</div>
+                    <div class="text-2xl font-bold" id="totalEvents">0</div>
                 </div>
-                
-                <form id="eventForm" class="space-y-4">
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Event Name</label>
-                        <input type="text" id="eventName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Date</label>
-                        <input type="date" id="eventDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Time</label>
-                        <input type="time" id="eventTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Location</label>
-                        <input type="text" id="eventLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Client</label>
-                        <input type="text" id="eventClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Services</label>
-                        <input type="text" id="eventServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Staff (comma-separated)</label>
-                        <input type="text" id="eventStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Mike,Alex,John" value="Mike,Alex,John,Sipho,Ben,David,Thabo,Kevin">
-                        <p class="text-xs text-yellow-400 mt-1" id="staffWarning"></p>
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-400 mb-1">Notes</label>
-                        <textarea id="eventNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
-                    </div>
-                    <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Create Event</button>
-                </form>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Active Staff</div>
+                    <div class="text-2xl font-bold" id="totalStaff">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Staff Shortages</div>
+                    <div class="text-2xl font-bold text-yellow-400" id="shortageCount">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Conflicts</div>
+                    <div class="text-2xl font-bold text-red-400" id="conflictCount">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Alerts</div>
+                    <div class="text-2xl font-bold text-orange-400" id="alertCount">0</div>
+                </div>
             </div>
 
-            <!-- Col2: Events List -->
-            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+            <!-- Alerts Panel -->
+            <div id="alertsPanel" class="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-8 hidden">
                 <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-xl font-bold">📋 Events</h2>
-                    <select id="eventFilter" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white" onchange="renderEvents()">
-                        <option value="all">All</option>
-                        <option value="pending">Pending</option>
-                        <option value="confirmed">Confirmed</option>
-                        <option value="cancelled">Cancelled</option>
-                        <option value="completed">Completed</option>
-                    </select>
+                    <h2 class="text-xl font-bold">🚨 Alerts & Notifications</h2>
+                    <button onclick="loadData()" class="text-sm text-blue-400 hover:underline">Refresh</button>
                 </div>
-                <div id="eventsList" class="space-y-4 max-h-[500px] overflow-y-auto"></div>
+                <div id="alertsList" class="space-y-3 max-h-64 overflow-y-auto"></div>
             </div>
 
-            <!-- Col3: Calendar + Staff + Backups -->
-            <div class="space-y-6">
-                <!-- Mini Calendar -->
+            <!-- Main Content: 3-Col Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Col1: Create Event -->
                 <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                    <h2 class="text-xl font-bold mb-4">📅 Calendar</h2>
-                    <div id="miniCalendar" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                    <h2 class="text-xl font-bold mb-4">📅 Create Event</h2>
+                    
+                    <!-- Template Selector -->
+                    <div class="mb-4">
+                        <label class="block text-sm text-gray-400 mb-1">Quick Template</label>
+                        <div class="flex gap-2">
+                            <select id="templateSelect" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                                <option value="">-- Select a template --</option>
+                            </select>
+                            <button onclick="deleteSelectedTemplate()" class="text-xs bg-red-700 hover:bg-red-600 px-2 py-1 rounded text-white" title="Delete selected template">🗑️</button>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-1">Auto-fills event defaults</p>
+                    </div>
+                    
+                    <form id="eventForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Event Name</label>
+                            <input type="text" id="eventName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Date</label>
+                            <input type="date" id="eventDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Time</label>
+                            <input type="time" id="eventTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Location</label>
+                            <input type="text" id="eventLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Client</label>
+                            <input type="text" id="eventClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Services</label>
+                            <input type="text" id="eventServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Staff (comma-separated)</label>
+                            <input type="text" id="eventStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Mike,Alex,John" value="Mike,Alex,John,Sipho,Ben,David,Thabo,Kevin">
+                            <p class="text-xs text-yellow-400 mt-1" id="staffWarning"></p>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Notes</label>
+                            <textarea id="eventNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
+                        </div>
+                        <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Create Event</button>
+                    </form>
                 </div>
-                <!-- Staff Management -->
+
+                <!-- Col2: Events List -->
                 <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
                     <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-xl font-bold">👥 Staff</h2>
-                        <button onclick="openAddStaffModal()" class="text-sm bg-green-600 hover:bg-green-700 px-3 py-1 rounded">+ Add</button>
+                        <h2 class="text-xl font-bold">📋 Events</h2>
+                        <select id="eventFilter" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white" onchange="renderEvents()">
+                            <option value="all">All</option>
+                            <option value="pending">Pending</option>
+                            <option value="confirmed">Confirmed</option>
+                            <option value="cancelled">Cancelled</option>
+                            <option value="completed">Completed</option>
+                        </select>
                     </div>
-                    <div id="staffList" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                    <div id="eventsList" class="space-y-4 max-h-[500px] overflow-y-auto"></div>
                 </div>
-                <!-- Backup Status -->
-                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-xl font-bold">💾 Backups</h2>
-                        <button onclick="triggerBackup()" class="text-sm bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">Backup Now</button>
+
+                <!-- Col3: Calendar + Staff + Backups -->
+                <div class="space-y-6">
+                    <!-- Mini Calendar -->
+                    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                        <h2 class="text-xl font-bold mb-4">📅 Calendar</h2>
+                        <div id="miniCalendar" class="space-y-2 max-h-48 overflow-y-auto"></div>
                     </div>
-                    <div id="backupStatus" class="text-sm text-gray-400"></div>
-                    <div id="backupList" class="space-y-1 max-h-32 overflow-y-auto mt-2"></div>
+                    <!-- Staff Management -->
+                    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold">👥 Staff</h2>
+                            <button onclick="openAddStaffModal()" class="text-sm bg-green-600 hover:bg-green-700 px-3 py-1 rounded">+ Add</button>
+                        </div>
+                        <div id="staffList" class="space-y-2 max-h-48 overflow-y-auto"></div>
+                    </div>
+                    <!-- Backup Status -->
+                    <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-xl font-bold">💾 Backups</h2>
+                            <button onclick="triggerBackup()" class="text-sm bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded">Backup Now</button>
+                        </div>
+                        <div id="backupStatus" class="text-sm text-gray-400"></div>
+                        <div id="backupList" class="space-y-1 max-h-32 overflow-y-auto mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== REPORTS TAB ==================== -->
+        <div id="view-reports" class="hidden">
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Total Events</div>
+                    <div class="text-2xl font-bold" id="r-total">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Next 7 Days</div>
+                    <div class="text-2xl font-bold text-blue-400" id="r-upcoming">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Avg/Week</div>
+                    <div class="text-2xl font-bold text-green-400" id="r-avgweek">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Top Location</div>
+                    <div class="text-lg font-bold text-purple-400 truncate" id="r-toplocation">-</div>
+                </div>
+            </div>
+
+            <!-- Charts Row 1 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Status Breakdown -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">📊 Event Status Breakdown</h3>
+                    <div class="flex justify-center">
+                        <canvas id="chartStatus"></canvas>
+                    </div>
+                </div>
+                <!-- Weekly Trend -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">📈 Weekly Event Trend (12 weeks)</h3>
+                    <canvas id="chartWeekly"></canvas>
+                </div>
+            </div>
+
+            <!-- Charts Row 2 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Monthly Trend -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">📅 Monthly Events</h3>
+                    <canvas id="chartMonthly"></canvas>
+                </div>
+                <!-- Staff Utilization -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">👥 Staff Utilization</h3>
+                    <canvas id="chartStaff"></canvas>
+                </div>
+            </div>
+
+            <!-- Tables Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Top Locations -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">📍 Top Locations</h3>
+                    <div id="r-toplocations" class="space-y-2"></div>
+                </div>
+                <!-- Top Clients -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h3 class="text-lg font-bold mb-4">🏢 Top Clients</h3>
+                    <div id="r-topclients" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== RECURRING TAB ==================== -->
+        <div id="view-recurring" class="hidden">
+            <div class="max-w-2xl mx-auto">
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h2 class="text-xl font-bold mb-2">🔄 Create Recurring Events</h2>
+                    <p class="text-gray-400 text-sm mb-6">Automatically create multiple events on a recurring schedule.</p>
+                    
+                    <form id="recurringForm" class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Event Name</label>
+                            <input type="text" id="recEventName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Weekly Team Meeting" required>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Start Date</label>
+                                <input type="date" id="recStartDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">End Date</label>
+                                <input type="date" id="recEndDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Time</label>
+                                <input type="time" id="recTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-400 mb-1">Frequency</label>
+                                <select id="recFrequency" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly" selected>Weekly</option>
+                                    <option value="biweekly">Bi-Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Location</label>
+                            <input type="text" id="recLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Client</label>
+                            <input type="text" id="recClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Services</label>
+                            <input type="text" id="recServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Staff (comma-separated)</label>
+                            <input type="text" id="recStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Mike,Alex,John" value="Mike,Alex,John,Sipho,Ben,David,Thabo,Kevin">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Notes</label>
+                            <textarea id="recNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
+                        </div>
+                        <div id="recurringPreview" class="bg-gray-700 rounded p-3 text-sm hidden">
+                            <div class="text-gray-400">Will create <span id="recCount" class="text-white font-bold">0</span> events</div>
+                        </div>
+                        <button type="submit" class="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded font-semibold text-lg">🔄 Create Recurring Events</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -284,6 +435,25 @@
         let allEvents = [];
         let allStaff = [];
         let templates = [];
+        let charts = {};
+
+        // Tab switching
+        function switchTab(tab) {
+            ['dashboard', 'reports', 'recurring'].forEach(t => {
+                document.getElementById('view-' + t).classList.add('hidden');
+                const tabEl = document.getElementById('tab-' + t);
+                tabEl.classList.remove('tab-active');
+                tabEl.classList.add('tab-inactive');
+            });
+            document.getElementById('view-' + tab).classList.remove('hidden');
+            const activeTab = document.getElementById('tab-' + tab);
+            activeTab.classList.remove('tab-inactive');
+            activeTab.classList.add('tab-active');
+
+            if (tab === 'reports') {
+                loadAnalytics();
+            }
+        }
 
         // Load all data
         async function loadData() {
@@ -315,6 +485,166 @@
             }
         }
 
+        // Load analytics
+        async function loadAnalytics() {
+            try {
+                const res = await fetch(`${API}/analytics`);
+                const data = await res.json();
+                renderAnalytics(data);
+            } catch (err) {
+                console.error('Failed to load analytics:', err);
+            }
+        }
+
+        // Render analytics
+        function renderAnalytics(data) {
+            // Summary cards
+            document.getElementById('r-total').textContent = data.summary.total;
+            document.getElementById('r-upcoming').textContent = data.summary.upcoming7days;
+            document.getElementById('r-avgweek').textContent = data.summary.avgEventsPerWeek;
+            document.getElementById('r-toplocation').textContent = data.summary.topLocation;
+
+            // Destroy old charts
+            Object.values(charts).forEach(c => c.destroy());
+            charts = {};
+
+            // Status Doughnut Chart
+            const statusCtx = document.getElementById('chartStatus').getContext('2d');
+            charts.status = new Chart(statusCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Pending', 'Confirmed', 'Cancelled', 'Completed'],
+                    datasets: [{
+                        data: [
+                            data.summary.statusCounts.pending,
+                            data.summary.statusCounts.confirmed,
+                            data.summary.statusCounts.cancelled,
+                            data.summary.statusCounts.completed
+                        ],
+                        backgroundColor: ['#f59e0b', '#10b981', '#ef4444', '#3b82f6'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#d1d5db' } }
+                    }
+                }
+            });
+
+            // Weekly Bar Chart
+            const weeklyCtx = document.getElementById('chartWeekly').getContext('2d');
+            charts.weekly = new Chart(weeklyCtx, {
+                type: 'bar',
+                data: {
+                    labels: data.byWeek.map(w => {
+                        const d = new Date(w[0]);
+                        return `${d.getMonth()+1}/${d.getDate()}`;
+                    }),
+                    datasets: [{
+                        label: 'Events',
+                        data: data.byWeek.map(w => w[1]),
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                        y: { ticks: { color: '#9ca3af', stepSize: 1 }, grid: { color: '#374151' } }
+                    }
+                }
+            });
+
+            // Monthly Line Chart
+            const monthlyCtx = document.getElementById('chartMonthly').getContext('2d');
+            charts.monthly = new Chart(monthlyCtx, {
+                type: 'line',
+                data: {
+                    labels: data.byMonth.map(m => m[0]),
+                    datasets: [{
+                        label: 'Events',
+                        data: data.byMonth.map(m => m[1]),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16,185,129,0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                        y: { ticks: { color: '#9ca3af', stepSize: 1 }, grid: { color: '#374151' } }
+                    }
+                }
+            });
+
+            // Staff Utilization Bar Chart
+            const staffCtx = document.getElementById('chartStaff').getContext('2d');
+            const staffLabels = data.staffUtilization.map(s => s[0]);
+            const staffData = data.staffUtilization.map(s => s[1]);
+            charts.staff = new Chart(staffCtx, {
+                type: 'bar',
+                data: {
+                    labels: staffLabels.length > 0 ? staffLabels : ['No data'],
+                    datasets: [{
+                        label: 'Events Assigned',
+                        data: staffData.length > 0 ? staffData : [0],
+                        backgroundColor: '#8b5cf6',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#9ca3af', stepSize: 1 }, grid: { color: '#374151' } },
+                        y: { ticks: { color: '#9ca3af' }, grid: { display: false } }
+                    }
+                }
+            });
+
+            // Top Locations table
+            const locEl = document.getElementById('r-toplocations');
+            if (data.topLocations.length > 0) {
+                const maxLoc = data.topLocations[0][1];
+                locEl.innerHTML = data.topLocations.map(([name, count]) => `
+                    <div class="flex items-center gap-3">
+                        <div class="flex-1 bg-gray-700 rounded-full h-4 overflow-hidden">
+                            <div class="bg-purple-500 h-full rounded-full" style="width: ${(count/maxLoc)*100}%"></div>
+                        </div>
+                        <span class="text-sm w-24 truncate">${name}</span>
+                        <span class="text-sm text-gray-400 w-8 text-right">${count}</span>
+                    </div>
+                `).join('');
+            } else {
+                locEl.innerHTML = '<p class="text-gray-400 text-sm">No location data yet</p>';
+            }
+
+            // Top Clients table
+            const cliEl = document.getElementById('r-topclients');
+            if (data.topClients.length > 0) {
+                const maxCli = data.topClients[0][1];
+                cliEl.innerHTML = data.topClients.map(([name, count]) => `
+                    <div class="flex items-center gap-3">
+                        <div class="flex-1 bg-gray-700 rounded-full h-4 overflow-hidden">
+                            <div class="bg-blue-500 h-full rounded-full" style="width: ${(count/maxCli)*100}%"></div>
+                        </div>
+                        <span class="text-sm w-24 truncate">${name}</span>
+                        <span class="text-sm text-gray-400 w-8 text-right">${count}</span>
+                    </div>
+                `).join('');
+            } else {
+                cliEl.innerHTML = '<p class="text-gray-400 text-sm">No client data yet</p>';
+            }
+        }
+
         // Populate template dropdown
         function populateTemplates() {
             const select = document.getElementById('templateSelect');
@@ -325,6 +655,22 @@
                 opt.textContent = t.name;
                 select.appendChild(opt);
             });
+        }
+
+        // Delete selected template
+        async function deleteSelectedTemplate() {
+            const select = document.getElementById('templateSelect');
+            const id = select.value;
+            if (!id) return alert('Select a template to delete');
+            if (!confirm('Delete this template?')) return;
+            const res = await fetch(`${API}/templates/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                select.value = '';
+                loadData();
+            } else {
+                alert('Failed: ' + (data.error || 'Unknown error'));
+            }
         }
 
         // Handle template selection
@@ -526,6 +872,73 @@
             loadData();
         });
 
+        // Recurring events form
+        function countRecurringEvents() {
+            const startDate = document.getElementById('recStartDate').value;
+            const endDate = document.getElementById('recEndDate').value;
+            const freq = document.getElementById('recFrequency').value;
+            if (!startDate || !endDate) return 0;
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            if (start > end) return 0;
+            let count = 0;
+            const current = new Date(start);
+            while (current <= end) {
+                count++;
+                if (freq === 'daily') current.setDate(current.getDate() + 1);
+                else if (freq === 'weekly') current.setDate(current.getDate() + 7);
+                else if (freq === 'biweekly') current.setDate(current.getDate() + 14);
+                else if (freq === 'monthly') current.setMonth(current.getMonth() + 1);
+            }
+            return count;
+        }
+
+        ['recStartDate', 'recEndDate', 'recFrequency'].forEach(id => {
+            document.getElementById(id).addEventListener('change', function() {
+                const count = countRecurringEvents();
+                const preview = document.getElementById('recurringPreview');
+                if (count > 0) {
+                    preview.classList.remove('hidden');
+                    document.getElementById('recCount').textContent = count;
+                } else {
+                    preview.classList.add('hidden');
+                }
+            });
+        });
+
+        document.getElementById('recurringForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const staff = document.getElementById('recStaff').value.split(',').map(s => s.trim()).filter(s => s);
+            const body = {
+                event: document.getElementById('recEventName').value,
+                startDate: document.getElementById('recStartDate').value,
+                endDate: document.getElementById('recEndDate').value,
+                time: document.getElementById('recTime').value,
+                location: document.getElementById('recLocation').value,
+                client: document.getElementById('recClient').value,
+                services: document.getElementById('recServices').value,
+                staff: staff,
+                notes: document.getElementById('recNotes').value,
+                frequency: document.getElementById('recFrequency').value
+            };
+            const count = countRecurringEvents();
+            if (!confirm(`Create ${count} recurring events?`)) return;
+            const res = await fetch(`${API}/events/recurring`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(`✅ Created ${data.count} recurring events!`);
+                e.target.reset();
+                document.getElementById('recurringPreview').classList.add('hidden');
+                loadData();
+            } else {
+                alert('Failed: ' + (data.error || 'Unknown error'));
+            }
+        });
+
         // Edit event modal
         function openEditModal(id) {
             const event = allEvents.find(e => e.id === id);
@@ -559,13 +972,11 @@
                 staff: JSON.parse(allEvents.find(e => e.id === id).staff || '[]'),
                 notes: document.getElementById('editNotes').value
             };
-            // Update basic info
             await fetch(`${API}/events/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
-            // Update status separately
             const newStatus = document.getElementById('editStatus').value;
             const currentStatus = allEvents.find(e => e.id === id).status || 'pending';
             if (newStatus !== currentStatus) {
