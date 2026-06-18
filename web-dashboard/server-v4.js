@@ -616,7 +616,7 @@ app.get('/api/staff-timeline', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.4.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.5.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -689,5 +689,5 @@ app.post('/api/events/recurring', async (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.4 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.5 running on http://0.0.0.0:${PORT}`);
 });

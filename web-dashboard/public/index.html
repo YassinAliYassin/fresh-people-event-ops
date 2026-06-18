@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fresh People Event Ops v4.4</title>
+    <title>Fresh People Event Ops v4.5</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -24,7 +24,21 @@
         .tab-inactive { border-bottom: 2px solid transparent; color: #9ca3af; }
         .tab-inactive:hover { color: #d1d5db; }
         canvas { max-height: 300px; }
+
+        /* Toast notifications */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast { pointer-events: auto; min-width: 280px; max-width: 420px; padding: 14px 18px; border-radius: 10px; font-size: 14px; font-weight: 500; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: flex; align-items: center; gap: 10px; animation: toastIn 0.3s ease-out; backdrop-filter: blur(8px); }
+        .toast-success { background: rgba(6, 95, 70, 0.95); color: #d1fae5; border: 1px solid #10b981; }
+        .toast-error { background: rgba(127, 29, 29, 0.95); color: #fee2e2; border: 1px solid #ef4444; }
+        .toast-info { background: rgba(30, 58, 95, 0.95); color: #dbeafe; border: 1px solid #3b82f6; }
+        .toast-warning { background: rgba(120, 53, 15, 0.95); color: #fef3c7; border: 1px solid #f59e0b; }
+        .toast-out { animation: toastOut 0.3s ease-in forwards; }
+        @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
     </style>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
 </head>
 <body class="bg-gray-900 text-white min-h-screen">
     <div class="container mx-auto px-4 py-6">
@@ -32,7 +46,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.4</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.5</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
@@ -370,25 +384,38 @@
         </div>
     </div>
     <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700 max-h-[90vh] overflow-y-auto">
-            <h3 class="text-xl font-bold mb-4">Edit Event</h3>
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold">Edit Event</h3>
+                <button onclick="closeEditModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
             <form id="editForm" class="space-y-4">
                 <input type="hidden" id="editId">
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Event Name</label>
                     <input type="text" id="editName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
                 </div>
-                <div>
-                    <label class="block text-sm text-gray-400 mb-1">Date</label>
-                    <input type="date" id="editDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
-                </div>
-                <div>
-                    <label class="block text-sm text-gray-400 mb-1">Time</label>
-                    <input type="time" id="editTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Date</label>
+                        <input type="date" id="editDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Time</label>
+                        <input type="time" id="editTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Location</label>
                     <input type="text" id="editLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Client</label>
+                    <input type="text" id="editClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Services</label>
+                    <input type="text" id="editServices" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
                 </div>
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Status</label>
@@ -400,6 +427,31 @@
                     </select>
                 </div>
                 <div>
+                    <label class="block text-sm text-gray-400 mb-1">Staff Assignment</label>
+                    <div class="flex gap-2">
+                        <div id="editAvailableStaff" class="flex-1 bg-gray-700 border border-gray-600 rounded p-2 min-h-[60px]"
+                             ondragover="event.preventDefault()" ondrop="dropEditStaff(event, 'available')">
+                            <div class="text-xs text-gray-400 mb-1">Available</div>
+                            <div id="editAvailableStaffList" class="flex flex-wrap gap-1"></div>
+                        </div>
+                        <div id="editAssignedStaff" class="flex-1 bg-gray-700 border border-blue-500 rounded p-2 min-h-[60px]"
+                             ondragover="event.preventDefault()" ondrop="dropEditStaff(event, 'assigned')">
+                            <div class="text-xs text-blue-400 mb-1">Assigned</div>
+                            <div id="editAssignedStaffList" class="flex flex-wrap gap-1"></div>
+                        </div>
+                    </div>
+                    <input type="hidden" id="editStaff">
+                    <div class="flex gap-1 mt-1">
+                        <span class="text-xs text-gray-400">Quick:</span>
+                        <button type="button" onclick="quickEditAssign(4)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">4</button>
+                        <button type="button" onclick="quickEditAssign(6)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">6</button>
+                        <button type="button" onclick="quickEditAssign(8)" class="text-xs bg-gray-600 hover:bg-gray-500 px-2 py-0.5 rounded">8</button>
+                        <button type="button" onclick="quickEditAssign(999)" class="text-xs bg-blue-600 hover:bg-blue-500 px-2 py-0.5 rounded">All</button>
+                        <button type="button" onclick="clearEditStaff()" class="text-xs bg-red-600 hover:bg-red-500 px-2 py-0.5 rounded">Clear</button>
+                    </div>
+                    <p class="text-xs text-yellow-400 mt-1" id="editStaffWarning"></p>
+                </div>
+                <div>
                     <label class="block text-sm text-gray-400 mb-1">Notes</label>
                     <textarea id="editNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2"></textarea>
                 </div>
@@ -408,6 +460,18 @@
                     <button type="button" onclick="closeEditModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Event Created Modal (shows warnings) -->
+    <div id="eventCreatedModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold">✅ Event Created</h3>
+                <button onclick="closeEventCreatedModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div id="eventCreatedContent" class="space-y-3"></div>
+            <button onclick="closeEventCreatedModal()" class="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">OK</button>
         </div>
     </div>
 
@@ -714,15 +778,16 @@
         async function deleteSelectedTemplate() {
             const select = document.getElementById('templateSelect');
             const id = select.value;
-            if (!id) return alert('Select a template to delete');
+            if (!id) { showToast('Select a template to delete', 'warning'); return; }
             if (!confirm('Delete this template?')) return;
             const res = await fetch(`${API}/templates/${id}`, { method: 'DELETE' });
             const data = await res.json();
             if (data.success) {
                 select.value = '';
                 loadData();
+                showToast('Template deleted', 'success');
             } else {
-                alert('Failed: ' + (data.error || 'Unknown error'));
+                showToast('Failed: ' + (data.error || 'Unknown error'), 'error');
             }
         }
 
@@ -902,17 +967,18 @@
             const res = await fetch(`${API}/backup`, { method: 'POST' });
             const data = await res.json();
             if (data.success) {
-                alert('Backup created: ' + data.path);
+                showToast('✅ Backup created successfully!', 'success');
                 loadData();
             } else {
-                alert('Backup failed: ' + data.error);
+                showToast('Backup failed: ' + data.error, 'error');
             }
         }
 
         // Create event
         document.getElementById('eventForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const staff = document.getElementById('eventStaff').value.split(',').map(s => s.trim());
+            const staffVal = document.getElementById('eventStaff').value;
+            const staff = staffVal ? staffVal.split(',').map(s => s.trim()).filter(s => s) : [];
             const body = {
                 event: document.getElementById('eventName').value,
                 date: document.getElementById('eventDate').value,
@@ -929,9 +995,18 @@
                 body: JSON.stringify(body)
             });
             const data = await res.json();
-            if (data.warnings) alert('Warning: ' + data.warnings.join('\n'));
-            e.target.reset();
-            loadData();
+            if (data.error) {
+                showToast('Failed: ' + data.error, 'error');
+            } else {
+                if (data.warnings && data.warnings.length > 0) {
+                    showEventCreatedModal(data);
+                } else {
+                    showToast('Event created successfully!', 'success');
+                }
+                e.target.reset();
+                resetStaffAssignment();
+                loadData();
+            }
         });
 
         // Recurring events form
@@ -970,7 +1045,8 @@
 
         document.getElementById('recurringForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const staff = document.getElementById('recStaff').value.split(',').map(s => s.trim()).filter(s => s);
+            const staffInput = document.getElementById('recStaff').value;
+            const staff = staffInput ? staffInput.split(',').map(s => s.trim()).filter(s => s) : [];
             const body = {
                 event: document.getElementById('recEventName').value,
                 startDate: document.getElementById('recStartDate').value,
@@ -992,28 +1068,163 @@
             });
             const data = await res.json();
             if (data.success) {
-                alert(`✅ Created ${data.count} recurring events!`);
+                showToast(`✅ Created ${data.count} recurring events!`, 'success');
                 e.target.reset();
                 document.getElementById('recurringPreview').classList.add('hidden');
+                document.getElementById('recStaff').value = '';
                 loadData();
             } else {
-                alert('Failed: ' + (data.error || 'Unknown error'));
+                showToast('Failed: ' + (data.error || 'Unknown error'), 'error');
             }
         });
 
-        // Edit event modal
+        // Toast notification system
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+            toast.className = `toast toast-${type}`;
+            toast.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.classList.add('toast-out');
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // Event Created Modal (for showing warnings after creation)
+        function showEventCreatedModal(data) {
+            const content = document.getElementById('eventCreatedContent');
+            let html = `<p class="text-green-400 font-semibold">Event "${data.event}" created successfully!</p>`;
+            html += `<p class="text-sm text-gray-400">ID: ${data.id} | Date: ${data.date} at ${data.time}</p>`;
+            if (data.warnings && data.warnings.length > 0) {
+                html += `<div class="bg-yellow-900/30 border border-yellow-600 rounded p-3 mt-2">`;
+                html += `<p class="text-yellow-400 font-semibold text-sm mb-1">⚠️ Warnings:</p>`;
+                data.warnings.forEach(w => { html += `<p class="text-yellow-300 text-sm">• ${w}</p>`; });
+                html += `</div>`;
+            }
+            content.innerHTML = html;
+            document.getElementById('eventCreatedModal').classList.remove('hidden');
+            document.getElementById('eventCreatedModal').classList.add('flex');
+        }
+
+        function closeEventCreatedModal() {
+            document.getElementById('eventCreatedModal').classList.add('hidden');
+            document.getElementById('eventCreatedModal').classList.remove('flex');
+        }
+
+        let editAssignedStaffNames = [];
+        let editAvailableStaffNames = [];
+        let editDraggedName = null;
+        let editDraggedFrom = null;
+
         function openEditModal(id) {
             const event = allEvents.find(e => e.id === id);
             if (!event) return;
             document.getElementById('editId').value = id;
             document.getElementById('editName').value = event.event;
             document.getElementById('editDate').value = event.date;
-            document.getElementById('editTime').value = event.time;
+            // Handle time values that might contain ranges like "19:00-23:00"
+            const timeVal = event.time ? event.time.split('-')[0].trim() : '';
+            document.getElementById('editTime').value = timeVal;
             document.getElementById('editLocation').value = event.location;
-            document.getElementById('editNotes').value = event.notes || '';
+            document.getElementById('editClient').value = event.client || '';
+            document.getElementById('editServices').value = event.services || '';
+            document.getElementById('editNotes').value = (event.notes || '').replace(/\n⚠️ WARNINGS:\n/g, '\n').replace(/⚠️ /g, '');
             document.getElementById('editStatus').value = event.status || 'pending';
+
+            // Init staff assignment for edit
+            const currentStaff = JSON.parse(event.staff || '[]');
+            const allStaffNames = allStaff.filter(s => s.active).map(s => s.name).sort();
+            editAssignedStaffNames = [...currentStaff];
+            editAvailableStaffNames = allStaffNames.filter(n => !currentStaff.includes(n));
+            renderEditStaffAssignment();
+
             document.getElementById('editModal').classList.remove('hidden');
             document.getElementById('editModal').classList.add('flex');
+        }
+
+        function renderEditStaffAssignment() {
+            const assignedEl = document.getElementById('editAssignedStaffList');
+            const availableEl = document.getElementById('editAvailableStaffList');
+
+            if (assignedEl) {
+                assignedEl.innerHTML = editAssignedStaffNames.map(name => `
+                    <span class="bg-blue-600 text-white text-xs px-2 py-1 rounded cursor-move flex items-center gap-1"
+                          draggable="true" ondragstart="editDragStart(event, '${name}', 'assigned')" ondragend="editDragEnd(event)">
+                        ${name} <span class="hover:text-blue-200" onclick="removeEditAssignedStaff('${name}')">&times;</span>
+                    </span>
+                `).join('');
+            }
+
+            if (availableEl) {
+                availableEl.innerHTML = editAvailableStaffNames.map(name => `
+                    <span class="bg-gray-600 text-white text-xs px-2 py-1 rounded cursor-move flex items-center gap-1"
+                          draggable="true" ondragstart="editDragStart(event, '${name}', 'available')" ondragend="editDragEnd(event)">
+                        ${name}
+                    </span>
+                `).join('');
+            }
+
+            const hiddenEl = document.getElementById('editStaff');
+            if (hiddenEl) hiddenEl.value = editAssignedStaffNames.join(',');
+
+            // Check staff shortage
+            const warningEl = document.getElementById('editStaffWarning');
+            if (warningEl) {
+                const activeCount = allStaff.filter(s => s.active).length;
+                if (editAssignedStaffNames.length > activeCount) {
+                    warningEl.textContent = `⚠️ Staff shortage: ${editAssignedStaffNames.length} assigned but only ${activeCount} active`;
+                } else {
+                    warningEl.textContent = '';
+                }
+            }
+        }
+
+        function editDragStart(event, name, from) {
+            editDraggedName = name;
+            editDraggedFrom = from;
+            event.dataTransfer.effectAllowed = 'move';
+            event.target.classList.add('opacity-50');
+        }
+
+        function editDragEnd(event) {
+            event.target.classList.remove('opacity-50');
+        }
+
+        function dropEditStaff(event, target) {
+            event.preventDefault();
+            if (!editDraggedName) return;
+            if (target === 'assigned' && editDraggedFrom !== 'assigned') {
+                editAssignedStaffNames.push(editDraggedName);
+                editAvailableStaffNames = editAvailableStaffNames.filter(n => n !== editDraggedName);
+            } else if (target === 'available' && editDraggedFrom !== 'available') {
+                editAvailableStaffNames.push(editDraggedName);
+                editAssignedStaffNames = editAssignedStaffNames.filter(n => n !== editDraggedName);
+            }
+            editDraggedName = null;
+            editDraggedFrom = null;
+            renderEditStaffAssignment();
+        }
+
+        function removeEditAssignedStaff(name) {
+            editAssignedStaffNames = editAssignedStaffNames.filter(n => n !== name);
+            editAvailableStaffNames.push(name);
+            editAvailableStaffNames.sort();
+            renderEditStaffAssignment();
+        }
+
+        function clearEditStaff() {
+            editAssignedStaffNames = [];
+            editAvailableStaffNames = allStaff.filter(s => s.active).map(s => s.name).sort();
+            renderEditStaffAssignment();
+        }
+
+        function quickEditAssign(count) {
+            const allStaffNames = allStaff.filter(s => s.active).map(s => s.name).sort();
+            editAssignedStaffNames = allStaffNames.slice(0, count);
+            editAvailableStaffNames = allStaffNames.slice(count);
+            renderEditStaffAssignment();
         }
 
         function closeEditModal() {
@@ -1029,24 +1240,30 @@
                 date: document.getElementById('editDate').value,
                 time: document.getElementById('editTime').value,
                 location: document.getElementById('editLocation').value,
-                client: '',
-                services: '',
-                staff: JSON.parse(allEvents.find(e => e.id === id).staff || '[]'),
+                client: document.getElementById('editClient').value,
+                services: document.getElementById('editServices').value,
+                staff: editAssignedStaffNames,
                 notes: document.getElementById('editNotes').value
             };
-            await fetch(`${API}/events/${id}`, {
+            const res = await fetch(`${API}/events/${id}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
-            const newStatus = document.getElementById('editStatus').value;
-            const currentStatus = allEvents.find(e => e.id === id).status || 'pending';
-            if (newStatus !== currentStatus) {
-                await fetch(`${API}/events/${id}/status`, {
-                    method: 'PATCH',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ status: newStatus })
-                });
+            const data = await res.json();
+            if (data.error) {
+                showToast('Failed to save: ' + data.error, 'error');
+            } else {
+                const newStatus = document.getElementById('editStatus').value;
+                const currentStatus = allEvents.find(e => e.id === id).status || 'pending';
+                if (newStatus !== currentStatus) {
+                    await fetch(`${API}/events/${id}/status`, {
+                        method: 'PATCH',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ status: newStatus })
+                    });
+                }
+                showToast('Event updated successfully!', 'success');
             }
             closeEditModal();
             loadData();
