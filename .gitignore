@@ -2,5 +2,7 @@
 events.db
 backups/
 calendar-events/
+uploads/
 node_modules/
 .pm2/
+vapid-keys.json

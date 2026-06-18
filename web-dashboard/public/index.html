@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.9</title>
+    <title>Fresh People Event Ops v4.10</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -53,13 +53,30 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.9</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.10</p>
             </div>
-            <div class="text-right">
-                <div class="text-sm text-gray-400">System</div>
-                <div class="flex items-center gap-2">
-                    <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span class="text-green-400 text-sm">Online</span>
+            <div class="text-right flex items-center gap-3">
+                <button onclick="requestPushPermission()" id="pushBtn" class="text-gray-400 hover:text-blue-400 text-sm" title="Enable push notifications">🔔</button>
+                <div class="relative">
+                    <button onclick="toggleUserMenu()" class="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-700 transition">
+                        <div class="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold" id="userAvatar">A</div>
+                        <span class="text-sm text-gray-300" id="userName">Admin</span>
+                        <span class="text-gray-500 text-xs">▼</span>
+                    </button>
+                    <div id="userMenu" class="hidden absolute right-0 top-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 w-48">
+                        <div class="px-4 py-2 border-b border-gray-700">
+                            <div class="text-sm font-semibold" id="userMenuName">Admin</div>
+                            <div class="text-xs text-gray-400" id="userMenuRole">admin</div>
+                        </div>
+                        <button onclick="logout()" class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 rounded-b-lg">🚪 Sign Out</button>
+                    </div>
+                </div>
+                <div>
+                    <div class="text-sm text-gray-400">System</div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <span class="text-green-400 text-sm">Online</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -706,6 +723,15 @@
                 <button onclick="closeEventDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
             </div>
             <div id="detailContent" class="space-y-3"></div>
+
+            <!-- Attachments Section -->
+            <div class="mt-4 pt-4 border-t border-gray-700">
+                <div class="flex items-center justify-between mb-2">
+                    <h4 class="text-sm font-semibold text-gray-300">📎 Attachments</h4>
+                    <button onclick="uploadAttachment(window.currentDetailEventId)" class="text-xs bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-white">+ Upload</button>
+                </div>
+                <div id="attachmentsList" class="space-y-1 text-sm"></div>
+            </div>
         </div>
     </div>
     <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
@@ -901,6 +927,70 @@
         let templates = [];
         let charts = {};
 
+        // ==================== AUTH ====================
+        function getAuthHeaders() {
+            const token = localStorage.getItem('sessionToken');
+            return token ? { 'x-session-token': token, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+        }
+
+        function getAuthHeadersNoJSON() {
+            const token = localStorage.getItem('sessionToken');
+            return token ? { 'x-session-token': token } : {};
+        }
+
+        // Check auth on load
+        async function checkAuth() {
+            const token = localStorage.getItem('sessionToken');
+            if (!token) {
+                window.location.href = '/login.html';
+                return false;
+            }
+            try {
+                const res = await fetch('/api/auth/me', { headers: { 'x-session-token': token } });
+                if (!res.ok) {
+                    localStorage.removeItem('sessionToken');
+                    window.location.href = '/login.html';
+                    return false;
+                }
+                const user = await res.json();
+                // Update UI with user info
+                const displayName = user.display_name || user.username;
+                document.getElementById('userName').textContent = displayName;
+                document.getElementById('userMenuName').textContent = displayName;
+                document.getElementById('userMenuRole').textContent = user.role;
+                document.getElementById('userAvatar').textContent = displayName.charAt(0).toUpperCase();
+                return true;
+            } catch {
+                window.location.href = '/login.html';
+                return false;
+            }
+        }
+
+        function logout() {
+            const token = localStorage.getItem('sessionToken');
+            if (token) {
+                fetch('/api/auth/logout', { method: 'POST', headers: { 'x-session-token': token } });
+            }
+            localStorage.removeItem('sessionToken');
+            localStorage.removeItem('userRole');
+            localStorage.removeItem('displayName');
+            window.location.href = '/login.html';
+        }
+
+        function toggleUserMenu() {
+            const menu = document.getElementById('userMenu');
+            menu.classList.toggle('hidden');
+        }
+
+        // Close user menu on outside click
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('userMenu');
+            const btn = e.target.closest('button');
+            if (menu && !menu.classList.contains('hidden') && !menu.contains(e.target) && (!btn || !btn.onclick || !btn.onclick.toString().includes('toggleUserMenu'))) {
+                menu.classList.add('hidden');
+            }
+        });
+
         // Tab switching
         function switchTab(tab) {
             ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email'].forEach(t => {
@@ -952,13 +1042,14 @@
         // Load all data
         async function loadData() {
             try {
+                const headers = getAuthHeadersNoJSON();
                 const [eventsRes, staffRes, calendarRes, templatesRes, alertsRes, backupsRes] = await Promise.all([
-                    fetch(`${API}/events`),
-                    fetch(`${API}/staff`),
-                    fetch(`${API}/calendar`),
-                    fetch(`${API}/templates`),
-                    fetch(`${API}/alerts`),
-                    fetch(`${API}/backups`)
+                    fetch(`${API}/events`, { headers }),
+                    fetch(`${API}/staff`, { headers }),
+                    fetch(`${API}/calendar`, { headers }),
+                    fetch(`${API}/templates`, { headers }),
+                    fetch(`${API}/alerts`, { headers }),
+                    fetch(`${API}/backups`, { headers })
                 ]);
                 allEvents = await eventsRes.json();
                 allStaff = await staffRes.json();
@@ -982,7 +1073,7 @@
         // Load analytics
         async function loadAnalytics() {
             try {
-                const res = await fetch(`${API}/analytics`);
+                const res = await fetch(${API}/analytics, { headers: getAuthHeadersNoJSON() });
                 const data = await res.json();
                 renderAnalytics(data);
             } catch (err) {
@@ -1157,7 +1248,7 @@
             const id = select.value;
             if (!id) { showToast('Select a template to delete', 'warning'); return; }
             if (!confirm('Delete this template?')) return;
-            const res = await fetch(`${API}/templates/${id}`, { method: 'DELETE' });
+            const res = await fetch(`${API}/templates/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
             const data = await res.json();
             if (data.success) {
                 select.value = '';
@@ -1292,8 +1383,7 @@
 
         // Update event status
         async function updateStatus(id, status) {
-            await fetch(`${API}/events/${id}/status`, {
-                method: 'PATCH',
+            await fetch(`${API}/events/${id}/status`, { method: 'PATCH', headers: getAuthHeaders(),
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status })
             });
@@ -1348,7 +1438,7 @@
 
         // Trigger backup
         async function triggerBackup() {
-            const res = await fetch(`${API}/backup`, { method: 'POST' });
+            const res = await fetch(`${API}/backup`, { method: 'POST', headers: getAuthHeaders() });
             const data = await res.json();
             if (data.success) {
                 showToast('✅ Backup created successfully!', 'success');
@@ -1376,8 +1466,7 @@
                 estimated_cost: parseFloat(document.getElementById('eventEstCost').value) || 0,
                 budget: parseFloat(document.getElementById('eventBudget').value) || 0
             };
-            const res = await fetch(`${API}/events`, {
-                method: 'POST',
+            const res = await fetch(`${API}/events`, { method: 'POST', headers: getAuthHeaders(),
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
@@ -1448,8 +1537,7 @@
             };
             const count = countRecurringEvents();
             if (!confirm(`Create ${count} recurring events?`)) return;
-            const res = await fetch(`${API}/events/recurring`, {
-                method: 'POST',
+            const res = await fetch(`${API}/events/recurring`, { method: 'POST', headers: getAuthHeaders(),
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
@@ -1636,8 +1724,7 @@
                 estimated_cost: parseFloat(document.getElementById('editEstCost').value) || 0,
                 actual_cost: parseFloat(document.getElementById('editActCost').value) || 0
             };
-            const res = await fetch(`${API}/events/${id}`, {
-                method: 'PUT',
+            const res = await fetch(`${API}/events/${id}`, { method: 'PUT', headers: getAuthHeaders(),
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
@@ -1648,8 +1735,7 @@
                 const newStatus = document.getElementById('editStatus').value;
                 const currentStatus = allEvents.find(e => e.id === id).status || 'pending';
                 if (newStatus !== currentStatus) {
-                    await fetch(`${API}/events/${id}/status`, {
-                        method: 'PATCH',
+                    await fetch(`${API}/events/${id}/status`, { method: 'PATCH', headers: getAuthHeaders(),
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({ status: newStatus })
                     });
@@ -1684,8 +1770,7 @@
                 email: document.getElementById('staffEmail').value,
                 skills
             };
-            await fetch(`${API}/staff`, {
-                method: 'POST',
+            await fetch(`${API}/staff`, { method: 'POST', headers: getAuthHeaders(),
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
@@ -1726,8 +1811,7 @@
                 active: document.getElementById('editStaffActive').checked,
                 skills
             };
-            await fetch(`${API}/staff/${id}`, {
-                method: 'PUT',
+            await fetch(`${API}/staff/${id}`, { method: 'PUT', headers: getAuthHeaders(),
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(body)
             });
@@ -1738,7 +1822,7 @@
         // Delete event
         async function deleteEvent(id) {
             if (!confirm('Delete this event?')) return;
-            await fetch(`${API}/events/${id}`, { method: 'DELETE' });
+            await fetch(`${API}/events/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
             loadData();
         }
 
@@ -1756,7 +1840,7 @@
         let staffTimelineData = {};
         async function loadStaffTimeline() {
             try {
-                const res = await fetch(`${API}/staff-timeline`);
+                const res = await fetch(${API}/staff-timeline, { headers: getAuthHeadersNoJSON() });
                 staffTimelineData = await res.json();
                 renderStaffTimeline();
             } catch (err) {
@@ -1828,7 +1912,9 @@
             const event = allEvents.find(e => e.id === id);
             if (!event) return;
             const staffList = JSON.parse(event.staff || '[]');
+            window.currentDetailEventId = id;
             document.getElementById('detailTitle').textContent = event.event;
+            loadAttachments(id);
             document.getElementById('detailContent').innerHTML = `
                 <div class="grid grid-cols-2 gap-3">
                     <div class="bg-gray-700 rounded p-3">
@@ -2110,8 +2196,7 @@
             resultContainer.innerHTML = '<p class="text-gray-400 text-sm text-center py-8">⏳ Assigning...</p>';
 
             try {
-                const res = await fetch(`${API}/auto-assign`, {
-                    method: 'POST',
+                const res = await fetch(`${API}/auto-assign`, { method: 'POST', headers: getAuthHeaders(),
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         count: count,
@@ -2186,8 +2271,7 @@
                 return;
             }
             try {
-                const res = await fetch(`${API}/availability`, {
-                    method: 'POST',
+                const res = await fetch(`${API}/availability`, { method: 'POST', headers: getAuthHeaders(),
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ staff_id: parseInt(staffId), date, reason })
                 });
@@ -2214,11 +2298,11 @@
             }
             // Find the availability entry for this staff+date and delete it
             try {
-                const res = await fetch(`${API}/availability?staff_id=${staffId}&from=${date}&to=${date}`);
+                const res = await fetch(${API}/availability?staff_id=${staffId}&from=${date}&to=${date}, { headers: getAuthHeadersNoJSON() });
                 const entries = await res.json();
                 const entry = entries.find(e => e.staff_id == staffId && e.date === date);
                 if (entry) {
-                    await fetch(`${API}/availability/${entry.id}`, { method: 'DELETE' });
+                    await fetch(`${API}/availability/${entry.id}`, { method: 'DELETE', headers: getAuthHeaders() });
                     showToast('✅ Staff marked as available', 'success');
                     loadAvailability();
                     renderAvailCalendar();
@@ -2272,7 +2356,7 @@
 
         async function deleteAvailability(id) {
             try {
-                await fetch(`${API}/availability/${id}`, { method: 'DELETE' });
+                await fetch(`${API}/availability/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
                 showToast('✅ Record removed', 'success');
                 loadAvailability();
                 renderAvailCalendar();
@@ -2302,7 +2386,7 @@
             const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
             let availData = [];
             try {
-                const res = await fetch(`${API}/availability?from=${monthStart}&to=${monthEnd}`);
+                const res = await fetch(${API}/availability?from=${monthStart}&to=${monthEnd}, { headers: getAuthHeadersNoJSON() });
                 availData = await res.json();
             } catch (e) { /* ignore */ }
 
@@ -2384,8 +2468,7 @@
             closeEventDetailModal();
             
             try {
-                const res = await fetch(`${API}/events/${id}/duplicate`, {
-                    method: 'POST',
+                const res = await fetch(`${API}/events/${id}/duplicate`, { method: 'POST', headers: getAuthHeaders(),
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ date: dateStr, count: count })
                 });
@@ -2406,7 +2489,7 @@
 
         async function loadBudgetSummary() {
             try {
-                const res = await fetch(`${API}/budget/summary`);
+                const res = await fetch(${API}/budget/summary, { headers: getAuthHeadersNoJSON() });
                 const data = await res.json();
 
                 // Update summary cards
@@ -2500,7 +2583,7 @@
 
         async function loadBudgetList() {
             try {
-                const res = await fetch(`${API}/budgets`);
+                const res = await fetch(${API}/budgets, { headers: getAuthHeadersNoJSON() });
                 const budgets = await res.json();
                 const container = document.getElementById('budgetList');
                 if (budgets.length === 0) {
@@ -2532,8 +2615,7 @@
                 period: document.getElementById('budgetPeriod').value,
                 category: document.getElementById('budgetCategory').value || 'general'
             };
-            const res = await fetch(`${API}/budgets`, {
-                method: 'POST',
+            const res = await fetch(`${API}/budgets`, { method: 'POST', headers: getAuthHeaders(),
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
@@ -2549,7 +2631,7 @@
 
         async function deleteBudget(id) {
             if (!confirm('Delete this budget?')) return;
-            await fetch(`${API}/budgets/${id}`, { method: 'DELETE' });
+            await fetch(`${API}/budgets/${id}`, { method: 'DELETE', headers: getAuthHeaders() });
             showToast('Budget deleted', 'success');
             loadBudgetSummary();
         }
@@ -2558,7 +2640,7 @@
 
         async function loadEmailSettings() {
             try {
-                const res = await fetch(`${API}/settings/email`);
+                const res = await fetch(${API}/settings/email, { headers: getAuthHeadersNoJSON() });
                 const data = await res.json();
                 document.getElementById('smtpHost').value = data.smtp_host || '';
                 document.getElementById('smtpPort').value = data.smtp_port || 587;
@@ -2580,7 +2662,7 @@
                 const res = await fetch(url);
                 const data = await res.json();
 
-                const allRes = await fetch(`${API}/notifications?limit=200`);
+                const allRes = await fetch(${API}/notifications?limit=200, { headers: getAuthHeadersNoJSON() });
                 const all = await allRes.json();
                 document.getElementById('emailPendingCount').textContent = all.filter(n => n.status === 'pending').length;
                 document.getElementById('emailSentCount').textContent = all.filter(n => n.status === 'sent').length;
@@ -2614,7 +2696,7 @@
 
         async function sendPendingEmails() {
             try {
-                const res = await fetch(`${API}/notifications/send-pending`, { method: 'POST' });
+                const res = await fetch(`${API}/notifications/send-pending`, { method: 'POST', headers: getAuthHeaders() });
                 const data = await res.json();
                 if (data.error) {
                     showToast('⚠️ ' + data.error, 'warning');
@@ -2631,7 +2713,7 @@
 
         async function retryEmail(id) {
             try {
-                const res = await fetch(`${API}/notifications/${id}/retry`, { method: 'POST' });
+                const res = await fetch(`${API}/notifications/${id}/retry`, { method: 'POST', headers: getAuthHeaders() });
                 const data = await res.json();
                 if (data.success) {
                     showToast('✅ Email sent successfully!', 'success');
@@ -2657,8 +2739,7 @@
                 auto_notify_client: document.getElementById('autoNotifyClient').checked,
                 auto_notify_staff: document.getElementById('autoNotifyStaff').checked
             };
-            const res = await fetch(`${API}/settings/email`, {
-                method: 'PUT',
+            const res = await fetch(`${API}/settings/email`, { method: 'PUT', headers: getAuthHeaders(),
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
@@ -2674,8 +2755,7 @@
             const to = prompt('Enter test email address:');
             if (!to) return;
             try {
-                const res = await fetch(`${API}/settings/email/test`, {
-                    method: 'POST',
+                const res = await fetch(`${API}/settings/email/test`, { method: 'POST', headers: getAuthHeaders(),
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ to })
                 });
@@ -2695,9 +2775,146 @@
             navigator.serviceWorker.register('/sw.js').catch(() => {});
         }
 
-        // Initial load
-        loadData();
-        setInterval(loadData, 30000);
-    </script>
+        // Old init replaced by auth-checked init at end of file
+    
+        // ==================== PUSH NOTIFICATIONS ====================
+
+        async function requestPushPermission() {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+                toast('Push notifications not supported', 'warning');
+                return;
+            }
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                await subscribeToPush();
+                toast('Push notifications enabled!', 'success');
+                document.getElementById('pushBtn').classList.add('text-green-400');
+                document.getElementById('pushBtn').classList.remove('text-gray-400');
+            } else {
+                toast('Push notification permission denied', 'warning');
+            }
+        }
+
+        async function subscribeToPush() {
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                // Get VAPID public key
+                const keyRes = await fetch('/api/auth/vapid-public-key');
+                const { publicKey } = await keyRes.json();
+                if (!publicKey) return;
+
+                const subscription = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+
+                await fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(subscription)
+                });
+            } catch (e) {
+                console.error('Push subscription failed:', e);
+            }
+        }
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+            return outputArray;
+        }
+
+        // Service worker already registered above
+
+        // ==================== EVENT ATTACHMENTS ====================
+
+        async function loadAttachments(eventId) {
+            try {
+                const res = await fetch(`${API}/events/${eventId}/attachments`, { headers: getAuthHeadersNoJSON() });
+                const files = await res.json();
+                renderAttachments(files, eventId);
+            } catch (e) {
+                console.error('Failed to load attachments:', e);
+            }
+        }
+
+        function renderAttachments(files, eventId) {
+            const container = document.getElementById('attachmentsList');
+            if (!container) return;
+            if (!files || files.length === 0) {
+                container.innerHTML = '<div class="text-gray-500 text-sm">No files attached</div>';
+                return;
+            }
+            container.innerHTML = files.map(f => {
+                const isImage = f.mimetype && f.mimetype.startsWith('image/');
+                const icon = isImage ? '🖼️' : (f.mimetype === 'application/pdf' ? '📄' : '📎');
+                const sizeKB = f.size ? Math.round(f.size / 1024) + 'KB' : '';
+                return `<div class="flex items-center gap-2 bg-gray-700 rounded-lg px-3 py-2 text-sm">
+                    <span>${icon}</span>
+                    <a href="${f.url}" target="_blank" class="text-blue-400 hover:underline flex-1 truncate">${f.original_name}</a>
+                    <span class="text-gray-500 text-xs">${sizeKB}</span>
+                    <button onclick="deleteAttachment(${f.id}, '${eventId}')" class="text-red-400 hover:text-red-300 text-xs">✕</button>
+                </div>`;
+            }).join('');
+        }
+
+        async function uploadAttachment(eventId) {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.accept = 'image/*,.pdf,.doc,.docx';
+            input.onchange = async () => {
+                if (!input.files.length) return;
+                const formData = new FormData();
+                for (const file of input.files) formData.append('files', file);
+                try {
+                    const token = localStorage.getItem('sessionToken');
+                    const res = await fetch(`${API}/events/${eventId}/attachments`, {
+                        method: 'POST',
+                        headers: token ? { 'x-session-token': token } : {},
+                        body: formData
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        toast(`Uploaded ${data.files.length} file(s)`, 'success');
+                        loadAttachments(eventId);
+                    } else {
+                        toast('Upload failed: ' + (data.error || 'Unknown error'), 'error');
+                    }
+                } catch (e) {
+                    toast('Upload failed: ' + e.message, 'error');
+                }
+            };
+            input.click();
+        }
+
+        async function deleteAttachment(attachmentId, eventId) {
+            if (!confirm('Delete this file?')) return;
+            try {
+                const res = await fetch(`${API}/attachments/${attachmentId}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                if (res.ok) {
+                    toast('File deleted', 'success');
+                    loadAttachments(eventId);
+                }
+            } catch (e) {
+                toast('Delete failed', 'error');
+            }
+        }
+
+        // Initialize auth check on page load
+        (async () => {
+            const authed = await checkAuth();
+            if (authed) {
+                loadData();
+                setInterval(loadData, 30000);
+            }
+        })();
+</script>
 </body>
 </html>

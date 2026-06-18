@@ -1,33 +1,114 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
 const PDFDocument = require('pdfkit');
-const basicAuth = require('express-basic-auth');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
+const multer = require('multer');
+const webPush = require('web-push');
 
 const app = express();
 const PORT = 3004;
 const DB_PATH = path.join(__dirname, '..', 'events.db');
 const CALENDAR_DIR = path.join(__dirname, '..', 'calendar-events');
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
+const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+
+// Ensure upload directory exists
+fsSync.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// Multer config for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${Date.now()}-${uuidv4().slice(0, 8)}${ext}`);
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    cb(null, allowed.includes(file.mimetype) || true); // Allow all for flexibility
+  }
+});
 
 app.use(bodyParser.json());
 
-// Basic Auth for dashboard protection
-const authUsers = {};
-const authUser = process.env.DASHBOARD_USER || 'admin';
-const authPass = process.env.DASHBOARD_PASS || 'freshpeople2026';
-authUsers[authUser] = authPass;
+// ==================== USER AUTHENTICATION ====================
 
-// Serve PWA public assets (manifest, service worker, icons) BEFORE auth
-app.use('/manifest.json', (req, res, next) => {
+// In-memory session store (token -> { username, role, expires })
+const sessions = new Map();
+const SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Clean expired sessions periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of sessions) {
+    if (data.expires < now) sessions.delete(token);
+  }
+}, 60 * 60 * 1000); // Every hour
+
+// Auth middleware - checks session token or allows public paths
+function authMiddleware(req, res, next) {
+  // Public paths that don't require auth
+  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup'];
+  if (publicPaths.includes(req.path)) return next();
+  if (req.path === '/manifest.json' || req.path === '/sw.js') return next();
+  if (req.path.startsWith('/icon')) return next();
+  if (req.path.startsWith('/uploads/')) return next();
+
+  // Check session token from header or cookie
+  const token = req.headers['x-session-token'] || req.cookies?.sessionToken;
+  if (token && sessions.has(token)) {
+    const session = sessions.get(token);
+    if (session.expires > Date.now()) {
+      req.user = { username: session.username, role: session.role };
+      // Extend session on activity
+      session.expires = Date.now() + SESSION_TTL;
+      return next();
+    }
+    sessions.delete(token);
+  }
+
+  // Check basic auth header as fallback (for API clients)
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Basic ')) {
+    const decoded = Buffer.from(authHeader.split(' ')[1], 'base64').toString();
+    const [user, pass] = decoded.split(':');
+    // Allow fallback basic auth for backward compat
+    db.get(`SELECT * FROM users WHERE username = ? AND active = 1`, [user], (err, row) => {
+      if (row && bcrypt.compareSync(pass, row.password_hash)) {
+        req.user = { username: row.username, role: row.role };
+        return next();
+      }
+      res.status(401).json({ error: 'Unauthorized', loginUrl: '/login.html' });
+    });
+    return;
+  }
+
+  // For API requests, return JSON 401
+  if (req.path.startsWith('/api/')) {
+    return res.status(401).json({ error: 'Unauthorized', loginUrl: '/login.html' });
+  }
+  // For page requests, redirect to login
+  res.redirect('/login.html');
+}
+
+app.use(authMiddleware);
+
+// Serve PWA public assets
+app.use('/manifest.json', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'manifest.json'), {
         headers: { 'Content-Type': 'application/manifest+json' }
     });
 });
-app.use('/sw.js', (req, res, next) => {
+app.use('/sw.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'sw.js'), {
         headers: { 'Content-Type': 'application/javascript', 'Service-Worker-Allowed': '/' }
     });
@@ -37,13 +118,6 @@ app.use('/icon.svg', (req, res) => {
         headers: { 'Content-Type': 'image/svg+xml' }
     });
 });
-
-app.use(basicAuth({
-    users: authUsers,
-    challenge: true,
-    realm: 'Fresh People Event Ops',
-    unauthorizedResponse: () => 'Unauthorized - Invalid credentials'
-}));
 
 // Serve static files - manifest and service worker need special handling
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -64,8 +138,46 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
   else console.log('Connected to SQLite DB');
 });
 
-// Ensure backup directory exists
+// Ensure backup and upload directories exist
 fs.mkdir(BACKUP_DIR, { recursive: true }).catch(() => {});
+fs.mkdir(UPLOAD_DIR, { recursive: true }).catch(() => {});
+
+// ==================== DB MIGRATIONS ====================
+
+// Create users table for multi-user auth
+db.run(`CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  display_name TEXT DEFAULT '',
+  role TEXT DEFAULT 'user',
+  active INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_login TIMESTAMP
+)`);
+
+// Create event_attachments table
+db.run(`CREATE TABLE IF NOT EXISTS event_attachments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  mimetype TEXT DEFAULT '',
+  size INTEGER DEFAULT 0,
+  uploaded_by TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create push_subscriptions table
+db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT DEFAULT 'admin',
+  endpoint TEXT UNIQUE NOT NULL,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
 
 // Create staff_availability table if not exists
 db.run(`CREATE TABLE IF NOT EXISTS staff_availability (
@@ -132,6 +244,246 @@ db.get(`SELECT id FROM email_settings WHERE id = 1`, (err, row) => {
   if (!row) {
     db.run(`INSERT INTO email_settings (id) VALUES (1)`);
   }
+});
+
+// ==================== VAPID / PUSH NOTIFICATIONS ====================
+
+// VAPID keys storage
+let vapidKeys = { publicKey: '', privateKey: '' };
+
+// Load or generate VAPID keys
+async function initVapidKeys() {
+  try {
+    const keysData = await fs.readFile(path.join(__dirname, '..', 'vapid-keys.json'), 'utf8');
+    vapidKeys = JSON.parse(keysData);
+    console.log('Loaded existing VAPID keys');
+  } catch {
+    vapidKeys = webPush.generateVAPIDKeys();
+    await fs.writeFile(path.join(__dirname, '..', 'vapid-keys.json'), JSON.stringify(vapidKeys, null, 2));
+    console.log('Generated new VAPID keys');
+  }
+  webPush.setVapidDetails(
+    'mailto:admin@fresh-people.co.za',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+}
+initVapidKeys().catch(console.error);
+
+// ==================== AUTH API ENDPOINTS ====================
+
+// POST /api/auth/setup - create initial admin user (only works when no users exist)
+app.post('/api/auth/setup', (req, res) => {
+  const { username, password, display_name } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  db.get(`SELECT COUNT(*) as count FROM users`, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (row.count > 0) return res.status(403).json({ error: 'Setup already completed. Use login.' });
+
+    const hash = bcrypt.hashSync(password, 10);
+    db.run(
+      `INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, 'admin')`,
+      [username, hash, display_name || username],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        const token = uuidv4();
+        sessions.set(token, { username, role: 'admin', expires: Date.now() + SESSION_TTL });
+        res.json({ success: true, token, username, role: 'admin', message: 'Admin account created' });
+      }
+    );
+  });
+});
+
+// POST /api/auth/register - register new user (admin only can create users)
+app.post('/api/auth/register', (req, res) => {
+  const { username, password, display_name, role } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  // Check if any users exist - if not, allow first user as admin
+  db.get(`SELECT COUNT(*) as count FROM users`, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const isFirstUser = row.count === 0;
+    const userRole = isFirstUser ? 'admin' : (role || 'user');
+
+    const hash = bcrypt.hashSync(password, 10);
+    db.run(
+      `INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)`,
+      [username, hash, display_name || username, userRole],
+      function(err) {
+        if (err) {
+          if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Username already exists' });
+          return res.status(500).json({ error: err.message });
+        }
+        res.json({ success: true, id: this.lastID, username, role: userRole, message: 'User registered' });
+      }
+    );
+  });
+});
+
+// POST /api/auth/login
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+  db.get(`SELECT * FROM users WHERE username = ? AND active = 1`, [username], (err, user) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    const token = uuidv4();
+    sessions.set(token, { username: user.username, role: user.role, expires: Date.now() + SESSION_TTL });
+
+    // Update last login
+    db.run(`UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?`, [user.id]);
+
+    res.json({
+      success: true,
+      token,
+      username: user.username,
+      display_name: user.display_name,
+      role: user.role
+    });
+  });
+});
+
+// POST /api/auth/logout
+app.post('/api/auth/logout', (req, res) => {
+  const token = req.headers['x-session-token'];
+  if (token) sessions.delete(token);
+  res.json({ success: true, message: 'Logged out' });
+});
+
+// GET /api/auth/me - get current user info
+app.get('/api/auth/me', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  db.get(`SELECT id, username, display_name, role, created_at, last_login FROM users WHERE username = ?`, [req.user.username], (err, user) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(user);
+  });
+});
+
+// GET /api/auth/users - list users (admin only)
+app.get('/api/auth/users', (req, res) => {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+  db.all(`SELECT id, username, display_name, role, active, created_at, last_login FROM users ORDER BY created_at`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// GET /api/auth/vapid-public-key - get VAPID public key for push subscription
+app.get('/api/auth/vapid-public-key', (req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+});
+
+// ==================== PUSH NOTIFICATION API ====================
+
+// POST /api/push/subscribe - save push subscription
+app.post('/api/push/subscribe', (req, res) => {
+  const { endpoint, keys } = req.body;
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Invalid subscription data' });
+  }
+  db.run(
+    `INSERT OR REPLACE INTO push_subscriptions (username, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)`,
+    [req.user?.username || 'admin', endpoint, keys.p256dh, keys.auth],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID });
+    }
+  );
+});
+
+// POST /api/push/unsubscribe - remove push subscription
+app.post('/api/push/unsubscribe', (req, res) => {
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: 'Endpoint required' });
+  db.run(`DELETE FROM push_subscriptions WHERE endpoint = ?`, [endpoint], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// POST /api/push/send - send push notification to all subscribers
+async function sendPushNotification(title, body, url = '/') {
+  if (!vapidKeys.publicKey) return { error: 'VAPID keys not ready' };
+  db.all(`SELECT * FROM push_subscriptions`, [], async (err, subs) => {
+    if (err) return;
+    const payload = JSON.stringify({ title, body, icon: '/icon-192.png', badge: '/icon-192.png', url });
+    for (const sub of subs) {
+      try {
+        await webPush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          payload
+        );
+      } catch (e) {
+        if (e.statusCode === 410 || e.statusCode === 404) {
+          db.run(`DELETE FROM push_subscriptions WHERE id = ?`, [sub.id]);
+        }
+      }
+    }
+  });
+}
+
+// ==================== EVENT ATTACHMENTS API ====================
+
+// POST /api/events/:id/attachments - upload file(s) for an event
+app.post('/api/events/:id/attachments', upload.array('files', 10), (req, res) => {
+  const eventId = req.params.id;
+  if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+
+  const results = [];
+  let completed = 0;
+  req.files.forEach(file => {
+    db.run(
+      `INSERT INTO event_attachments (event_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)`,
+      [eventId, file.filename, file.originalname, file.mimetype, file.size, req.user?.username || 'system'],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        results.push({
+          id: this.lastID,
+          event_id: eventId,
+          filename: file.filename,
+          original_name: file.originalname,
+          mimetype: file.mimetype,
+          size: file.size,
+          url: `/uploads/${file.filename}`
+        });
+        completed++;
+        if (completed === req.files.length) res.json({ success: true, files: results });
+      }
+    );
+  });
+});
+
+// GET /api/events/:id/attachments - list attachments for an event
+app.get('/api/events/:id/attachments', (req, res) => {
+  db.all(
+    `SELECT id, event_id, filename, original_name, mimetype, size, uploaded_by, created_at FROM event_attachments WHERE event_id = ? ORDER BY created_at DESC`,
+    [req.params.id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows.map(r => ({ ...r, url: `/uploads/${r.filename}` })));
+    }
+  );
+});
+
+// DELETE /api/attachments/:id - delete an attachment
+app.delete('/api/attachments/:id', (req, res) => {
+  db.get(`SELECT * FROM event_attachments WHERE id = ?`, [req.params.id], async (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+    db.run(`DELETE FROM event_attachments WHERE id = ?`, [req.params.id], async function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      try { await fs.unlink(path.join(UPLOAD_DIR, row.filename)); } catch {}
+      res.json({ success: true, id: req.params.id });
+    });
+  });
 });
 
 // Helper: Get unavailable staff for a date
@@ -306,6 +658,8 @@ app.post('/api/events', async (req, res) => {
         try { await backupDatabase(); } catch(e) { console.error('Backup failed:', e); }
         // Auto-notify client and staff via email
         try { await autoNotifyEvent(newEvent, staffList); } catch(e) { console.error('Auto-notify failed:', e); }
+        // Send push notification
+        try { sendPushNotification(`New Event: ${event}`, `${date} at ${time} - ${location}`, '/'); } catch(e) { console.error('Push notify failed:', e); }
         res.json(newEvent);
       }
     );
@@ -1225,7 +1579,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.9.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.10.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -1298,5 +1652,5 @@ app.post('/api/events/recurring', async (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.7 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.10 running on http://0.0.0.0:${PORT}`);
 });
