@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.11</title>
+    <title>Fresh People Event Ops v4.12</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.11</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.12</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <button onclick="requestPushPermission()" id="pushBtn" class="text-gray-400 hover:text-blue-400 text-sm" title="Enable push notifications">🔔</button>
@@ -92,6 +92,7 @@
             <button onclick="switchTab('budget')" id="tab-budget" class="pb-2 font-semibold tab-inactive">💰 Budget</button>
             <button onclick="switchTab('email')" id="tab-email" class="pb-2 font-semibold tab-inactive">📧 Email</button>
             <button onclick="switchTab('users')" id="tab-users" class="pb-2 font-semibold tab-inactive">👥 Users</button>
+            <button onclick="switchTab('checkin')" id="tab-checkin" class="pb-2 font-semibold tab-inactive">✅ Check-In</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -745,7 +746,107 @@
         </div>
     </div>
 
-    <!-- Add/Edit User Modal -->
+    <!-- ==================== CHECK-IN TAB ==================== -->
+    <div id="view-checkin" class="hidden">
+        <div class="max-w-6xl mx-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">✅ Event Check-In Management</h2>
+                <button onclick="loadCheckinStats()" class="text-sm text-blue-400 hover:underline">🔄 Refresh</button>
+            </div>
+
+            <!-- Stats Row -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Total Check-Ins</div>
+                    <div class="text-2xl font-bold text-blue-400" id="ciTotalCheckins">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Events with Check-In</div>
+                    <div class="text-2xl font-bold text-green-400" id="ciEventsEnabled">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 col-span-2">
+                    <div class="text-gray-400 text-xs mb-2">Daily Check-Ins (Last 7 Days)</div>
+                    <div class="flex items-end gap-1 h-12" id="ciDailyChart">
+                        <span class="text-gray-600 text-xs">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Events with Check-In -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden mb-6">
+                <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+                    <h3 class="font-semibold">Events with Check-In Enabled</h3>
+                    <select id="ciEventFilter" onchange="filterCiEvents()" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                        <option value="all">All Events</option>
+                        <option value="enabled">Check-In Enabled</option>
+                        <option value="disabled">Check-In Disabled</option>
+                    </select>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-750">
+                            <tr class="text-left text-gray-400 border-b border-gray-700">
+                                <th class="px-4 py-3">Event</th>
+                                <th class="px-4 py-3">Date</th>
+                                <th class="px-4 py-3">Location</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3">Check-Ins</th>
+                                <th class="px-4 py-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ciEventsTable">
+                            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Recent Check-Ins -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <div class="px-4 py-3 border-b border-gray-700">
+                    <h3 class="font-semibold">Recent Check-Ins</h3>
+                </div>
+                <div class="max-h-96 overflow-y-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-750">
+                            <tr class="text-left text-gray-400 border-b border-gray-700">
+                                <th class="px-4 py-3">Person</th>
+                                <th class="px-4 py-3">Type</th>
+                                <th class="px-4 py-3">Event</th>
+                                <th class="px-4 py-3">Time</th>
+                                <th class="px-4 py-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ciRecentTable">
+                            <tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No check-ins yet</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Check-In QR Modal -->
+    <div id="qrModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">📱 Check-In QR Code</h3>
+                <button onclick="closeQrModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="text-center">
+                <p class="text-sm text-gray-400 mb-2" id="qrEventName">Event Name</p>
+                <div id="qrCodeContainer" class="bg-white rounded-xl p-4 inline-block mb-4">
+                    <div class="text-gray-400 text-sm">Loading QR code...</div>
+                </div>
+                <p class="text-xs text-gray-500 mb-4">Scan this code to check in to the event</p>
+                <div class="flex gap-2 justify-center">
+                    <button onclick="downloadQrPng()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">📥 Download PNG</button>
+                    <button onclick="copyQrUrl()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm font-semibold">🔗 Copy Link</button>
+                </div>
+                <p class="text-xs text-gray-600 mt-2 break-all" id="qrUrl"></p>
+            </div>
+        </div>
+    </div>
     <div id="userModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
             <div class="flex items-center justify-between mb-4">
@@ -1165,6 +1266,279 @@
             }
         }
 
+        // ==================== CHECK-IN SYSTEM ====================
+
+        let currentQrEventId = null;
+        let currentQrUrl = '';
+
+        async function loadCheckinStats() {
+            try {
+                const res = await fetch(`${API}/checkin-stats`, { headers: getAuthHeadersNoJSON() });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('ciTotalCheckins').textContent = data.total_checkins;
+                    document.getElementById('ciEventsEnabled').textContent = data.events_with_checkin;
+
+                    // Render daily chart bars
+                    const daily = data.daily_checkins || [];
+                    const maxCount = Math.max(...daily.map(d => d.count), 1);
+                    const dayLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+                    const today = new Date();
+                    const chartHtml = daily.map((d, i) => {
+                        const pct = Math.max(5, Math.round((d.count / maxCount) * 100));
+                        const dayDate = new Date(d.date);
+                        const dayLabel = dayLabels[dayDate.getDay()];
+                        return `<div class="flex-1 flex flex-col items-center gap-1">
+                            <div class="text-xs text-gray-400">${d.count}</div>
+                            <div class="w-full bg-blue-600 rounded-t" style="height: ${pct}%"></div>
+                            <div class="text-xs text-gray-500">${dayLabel}</div>
+                        </div>`;
+                    }).join('');
+                    document.getElementById('ciDailyChart').innerHTML = chartHtml || '<span class="text-gray-600 text-xs">No data yet</span>';
+                }
+            } catch (e) {
+                console.error('Failed to load check-in stats:', e);
+            }
+        }
+
+        let ciAllEvents = [];
+        let ciRecentCheckins = [];
+
+        async function loadCiEvents() {
+            try {
+                const res = await fetch(`${API}/events`, { headers: getAuthHeadersNoJSON() });
+                ciAllEvents = await res.json();
+                renderCiEventsTable();
+            } catch (e) {
+                console.error('Failed to load events:', e);
+            }
+        }
+
+        function filterCiEvents() {
+            renderCiEventsTable();
+        }
+
+        function renderCiEventsTable() {
+            const filter = document.getElementById('ciEventFilter').value;
+            let events = ciAllEvents || [];
+            if (filter === 'enabled') events = events.filter(e => e.check_in_enabled);
+            if (filter === 'disabled') events = events.filter(e => !e.check_in_enabled);
+
+            const tbody = document.getElementById('ciEventsTable');
+            if (!events.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No events found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = events.map(evt => {
+                const statusColors = { confirmed: 'bg-green-600', pending: 'bg-yellow-600', cancelled: 'bg-red-600', completed: 'bg-blue-600' };
+                const statusClass = statusColors[evt.status] || 'bg-gray-600';
+                const ciEnabled = !!evt.check_in_enabled;
+                const ciCount = evt.check_in_count || 0;
+                const eventId = evt.id;
+
+                return `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="px-4 py-3 font-medium">${escapeHtml(evt.event)}</td>
+                        <td class="px-4 py-3 text-gray-400">${evt.date || 'TBD'}</td>
+                        <td class="px-4 py-3 text-gray-400">${escapeHtml(evt.location || '')}</td>
+                        <td class="px-4 py-3"><span class="${statusClass} text-white text-xs px-2 py-0.5 rounded capitalize">${evt.status || 'pending'}</span></td>
+                        <td class="px-4 py-3">
+                            <span class="${ciEnabled ? 'text-green-400' : 'text-gray-600'} font-semibold">${ciEnabled ? ciCount : '—'}</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="flex gap-2 flex-wrap">
+                                ${!ciEnabled
+                                    ? `<button onclick="toggleCheckin('${eventId}', true)" class="text-green-400 hover:text-green-300 text-xs font-semibold">✅ Enable</button>`
+                                    : `<button onclick="toggleCheckin('${eventId}', false)" class="text-yellow-400 hover:text-yellow-300 text-xs font-semibold">⏸️ Disable</button>`
+                                }
+                                ${ciEnabled
+                                    ? `<button onclick="showQrCode('${eventId}')" class="text-blue-400 hover:text-blue-300 text-xs font-semibold">📱 QR Code</button><button onclick="viewCheckinList('${eventId}')" class="text-purple-400 hover:text-purple-300 text-xs font-semibold">📋 View List</button>`
+                                    : ''
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function toggleCheckin(eventId, enable) {
+            try {
+                const res = await fetch(`${API}/events/${eventId}/checkin-toggle`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({ enable })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast(enable ? 'Check-in enabled' : 'Check-in disabled', 'success');
+                    loadCiEvents();
+                    loadCheckinStats();
+                } else {
+                    toast('Error: ' + (data.error || 'Failed'), 'error');
+                }
+            } catch (e) {
+                toast('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function showQrCode(eventId) {
+            const evt = ciAllEvents.find(e => e.id === eventId);
+            if (!evt) return;
+
+            currentQrEventId = eventId;
+            document.getElementById('qrEventName').textContent = evt.event;
+            document.getElementById('qrCodeContainer').innerHTML = '<div class="text-gray-400 text-sm">Loading QR code...</div>';
+            document.getElementById('qrUrl').textContent = '';
+            document.getElementById('qrModal').classList.remove('hidden');
+            document.getElementById('qrModal').classList.add('flex');
+
+            try {
+                const res = await fetch(`${API}/events/${eventId}/checkin-code`, { headers: getAuthHeadersNoJSON() });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('qrCodeContainer').innerHTML = `<img src="${data.data_url}" alt="QR Code" class="w-64 h-64">`;
+                    currentQrUrl = data.url;
+                    document.getElementById('qrUrl').textContent = data.url;
+                } else {
+                    document.getElementById('qrCodeContainer').innerHTML = '<div class="text-red-400 text-sm">Error loading QR code</div>';
+                }
+            } catch (e) {
+                document.getElementById('qrCodeContainer').innerHTML = '<div class="text-red-400 text-sm">Network error</div>';
+            }
+        }
+
+        function closeQrModal() {
+            document.getElementById('qrModal').classList.add('hidden');
+            document.getElementById('qrModal').classList.remove('flex');
+            currentQrEventId = null;
+            currentQrUrl = '';
+        }
+
+        async function downloadQrPng() {
+            if (!currentQrEventId) return;
+            window.open(`${API}/events/${currentQrEventId}/checkin-code?format=png`, '_blank');
+        }
+
+        function copyQrUrl() {
+            if (!currentQrUrl) return;
+            navigator.clipboard.writeText(currentQrUrl).then(() => {
+                toast('Check-in URL copied!', 'success');
+            }).catch(() => {
+                toast('Failed to copy URL', 'error');
+            });
+        }
+
+        async function loadRecentCheckins() {
+            try {
+                const res = await fetch(`${API}/events`, { headers: getAuthHeadersNoJSON() });
+                const events = await res.json();
+                const enabledEvents = events.filter(e => e.check_in_enabled || (e.check_in_count > 0));
+
+                const allCheckins = [];
+                for (const evt of enabledEvents.slice(0, 10)) {
+                    const ciRes = await fetch(`${API}/events/${evt.id}/checkins`, { headers: getAuthHeadersNoJSON() });
+                    const ciData = await ciRes.json();
+                    if (ciData.check_ins) {
+                        ciData.check_ins.forEach(ci => {
+                            allCheckins.push({ ...ci, event_name: evt.event });
+                        });
+                    }
+                }
+
+                allCheckins.sort((a, b) => new Date(b.check_in_time) - new Date(a.check_in_time));
+                ciRecentCheckins = allCheckins;
+                renderRecentCheckins();
+            } catch (e) {
+                console.error('Failed to load recent check-ins:', e);
+            }
+        }
+
+        function renderRecentCheckins() {
+            const tbody = document.getElementById('ciRecentTable');
+            const checkins = ciRecentCheckins || [];
+
+            if (!checkins.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-gray-500">No check-ins recorded yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = checkins.slice(0, 50).map(ci => {
+                const typeColors = { guest: 'bg-blue-600', staff: 'bg-green-600', vip: 'bg-purple-600', media: 'bg-yellow-600', vendor: 'bg-orange-600' };
+                const typeClass = typeColors[ci.person_type] || 'bg-gray-600';
+                const timeAgo = ci.check_in_time ? new Date(ci.check_in_time).toLocaleString() : 'Unknown';
+                return `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="px-4 py-3 font-medium">${escapeHtml(ci.person_name)}</td>
+                        <td class="px-4 py-3"><span class="${typeClass} text-white text-xs px-2 py-0.5 rounded capitalize">${ci.person_type || 'guest'}</span></td>
+                        <td class="px-4 py-3 text-gray-400">${escapeHtml(ci.event_name || '')}</td>
+                        <td class="px-4 py-3 text-gray-400 text-xs">${timeAgo}</td>
+                        <td class="px-4 py-3">
+                            <button onclick="deleteCheckin(${ci.id})" class="text-red-400 hover:text-red-300 text-xs font-semibold">🗑️ Remove</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function viewCheckinList(eventId) {
+            const evt = ciAllEvents.find(e => e.id === eventId);
+            if (!evt) return;
+
+            try {
+                const res = await fetch(`${API}/events/${eventId}/checkins`, { headers: getAuthHeadersNoJSON() });
+                const data = await res.json();
+                const checkins = data.check_ins || [];
+
+                // Create a temporary modal-like display
+                const rows = checkins.map(ci => `
+                    <tr class="border-b border-gray-700">
+                        <td class="px-3 py-2">${escapeHtml(ci.person_name)}</td>
+                        <td class="px-3 py-2"><span class="bg-gray-600 text-white text-xs px-2 py-0.5 rounded capitalize">${ci.person_type || 'guest'}</span></td>
+                        <td class="px-3 py-2 text-gray-400 text-xs">${new Date(ci.check_in_time).toLocaleString()}</td>
+                        <td class="px-3 py-2 text-gray-500 text-xs">${escapeHtml(ci.notes || '')}</td>
+                        <td class="px-3 py-2"><button onclick="deleteCheckin(${ci.id})" class="text-red-400 hover:text-red-300 text-xs">🗑️</button></td>
+                    </tr>
+                `).join('');
+
+                // Use a simple approach: switch to the checkin tab and filter
+                switchTab('checkin');
+                toast(`${checkins.length} check-ins for "${evt.event}"`, 'info');
+            } catch (e) {
+                toast('Error loading check-in list: ' + e.message, 'error');
+            }
+        }
+
+        async function deleteCheckin(checkinId) {
+            if (!confirm('Remove this check-in record?')) return;
+            try {
+                const res = await fetch(`${API}/checkins/${checkinId}`, {
+                    method: 'DELETE',
+                    headers: getAuthHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    toast('Check-in removed', 'success');
+                    loadRecentCheckins();
+                    loadCheckinStats();
+                    loadCiEvents();
+                } else {
+                    toast('Error: ' + (data.error || 'Failed'), 'error');
+                }
+            } catch (e) {
+                toast('Error: ' + e.message, 'error');
+            }
+        }
+
+        // Close QR modal on outside click
+        document.addEventListener('click', (e) => {
+            const qrModal = document.getElementById('qrModal');
+            if (qrModal && !qrModal.classList.contains('hidden') && e.target === qrModal) {
+                closeQrModal();
+            }
+        });
+
         function escapeHtml(str) {
             const div = document.createElement('div');
             div.textContent = str;
@@ -1230,7 +1604,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -1273,6 +1647,11 @@
             if (tab === 'email') {
                 loadEmailSettings();
                 loadEmailLog();
+            }
+            if (tab === 'checkin') {
+                loadCheckinStats();
+                loadCiEvents();
+                loadRecentCheckins();
             }
         }
 

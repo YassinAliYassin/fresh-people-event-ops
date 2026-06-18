@@ -62,6 +62,9 @@ function authMiddleware(req, res, next) {
   if (req.path === '/manifest.json' || req.path === '/sw.js') return next();
   if (req.path.startsWith('/icon')) return next();
   if (req.path.startsWith('/uploads/')) return next();
+  // Public check-in routes (no auth required)
+  if (req.path.startsWith('/checkin/')) return next();
+  if (req.path.startsWith('/api/checkin/')) return next();
 
   // Check session token from header or cookie
   const token = req.headers['x-session-token'] || req.cookies?.sessionToken;
@@ -199,6 +202,22 @@ db.run(`ALTER TABLE events ADD COLUMN client_email TEXT DEFAULT ''`, () => {});
 
 // Add email column to staff table (migration)
 db.run(`ALTER TABLE staff ADD COLUMN email TEXT DEFAULT ''`, () => {});
+
+// Add check-in columns to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN check_in_enabled INTEGER DEFAULT 0`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN check_in_code TEXT DEFAULT ''`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN check_in_count INTEGER DEFAULT 0`, () => {});
+
+// Create event_check_ins table for tracking individual check-ins
+db.run(`CREATE TABLE IF NOT EXISTS event_check_ins (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  person_name TEXT NOT NULL,
+  person_type TEXT DEFAULT 'guest',
+  check_in_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  notes TEXT DEFAULT '',
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
 
 // Create budgets table for monthly/annual budget tracking
 db.run(`CREATE TABLE IF NOT EXISTS budgets (
@@ -1644,7 +1663,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.11.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.12.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -1718,6 +1737,214 @@ app.post('/api/events/recurring', async (req, res) => {
   }
 });
 
+// ==================== QR CODE CHECK-IN SYSTEM ====================
+
+const QRCode = require('qrcode');
+
+// POST /api/events/:id/checkin-toggle - Enable/disable check-in for an event
+app.post('/api/events/:id/checkin-toggle', (req, res) => {
+  const { id } = req.params;
+  const { enable } = req.body;
+
+  if (enable) {
+    // Generate a unique check-in code
+    const checkInCode = `CHK-${id}-${uuidv4().slice(0, 8).toUpperCase()}`;
+    db.run(
+      `UPDATE events SET check_in_enabled = 1, check_in_code = ? WHERE id = ?`,
+      [checkInCode, id],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        broadcast({ type: 'checkin_toggled', eventId: id, enabled: true });
+        res.json({ success: true, enabled: true, check_in_code: checkInCode });
+      }
+    );
+  } else {
+    db.run(
+      `UPDATE events SET check_in_enabled = 0 WHERE id = ?`,
+      [id],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        broadcast({ type: 'checkin_toggled', eventId: id, enabled: false });
+        res.json({ success: true, enabled: false });
+      }
+    );
+  }
+});
+
+// GET /api/events/:id/checkin-code - Get QR code for event
+app.get('/api/events/:id/checkin-code', async (req, res) => {
+  const { id } = req.params;
+  const { format } = req.query; // 'png' or 'dataurl'
+
+  db.get(`SELECT * FROM events WHERE id = ?`, [id], async (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (!event.check_in_enabled || !event.check_in_code) {
+      return res.status(400).json({ error: 'Check-in not enabled for this event' });
+    }
+
+    const checkInUrl = `${req.protocol}://${req.get('host')}/checkin/${event.check_in_code}`;
+
+    try {
+      if (format === 'png') {
+        const pngBuffer = await QRCode.toBuffer(checkInUrl, {
+          type: 'png',
+          width: 400,
+          margin: 2,
+          color: { dark: '#1f2937', light: '#ffffff' }
+        });
+        res.setHeader('Content-Type', 'image/png');
+        res.send(pngBuffer);
+      } else {
+        const dataUrl = await QRCode.toDataURL(checkInUrl, {
+          width: 400,
+          margin: 2,
+          color: { dark: '#1f2937', light: '#ffffff' }
+        });
+        res.json({ success: true, data_url: dataUrl, url: checkInUrl });
+      }
+    } catch (e) {
+      res.status(500).json({ error: 'QR generation failed: ' + e.message });
+    }
+  });
+});
+
+// GET /api/events/:id/checkins - List check-ins for an event
+app.get('/api/events/:id/checkins', (req, res) => {
+  const { id } = req.params;
+  db.all(
+    `SELECT * FROM event_check_ins WHERE event_id = ? ORDER BY check_in_time DESC`,
+    [id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, check_ins: rows, count: rows.length });
+    }
+  );
+});
+
+// POST /api/checkin/:checkCode - Public check-in (no auth required)
+app.post('/api/checkin/:checkCode', (req, res) => {
+  const { checkCode } = req.params;
+  const { person_name, person_type, notes } = req.body;
+
+  if (!person_name) {
+    return res.status(400).json({ error: 'Person name is required' });
+  }
+
+  // Find event by check-in code
+  db.get(`SELECT * FROM events WHERE check_in_code = ? AND check_in_enabled = 1`, [checkCode], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Invalid or expired check-in code' });
+
+    // Insert check-in record
+    db.run(
+      `INSERT INTO event_check_ins (event_id, person_name, person_type, notes) VALUES (?, ?, ?, ?)`,
+      [event.id, person_name, person_type || 'guest', notes || ''],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+
+        // Update check-in count
+        db.run(`UPDATE events SET check_in_count = check_in_count + 1 WHERE id = ?`, [event.id]);
+
+        broadcast({
+          type: 'checkin_new',
+          eventId: event.id,
+          eventName: event.event,
+          personName: person_name,
+          personType: person_type || 'guest',
+          checkInTime: new Date().toISOString()
+        });
+
+        res.json({
+          success: true,
+          id: this.lastID,
+          event: event.event,
+          event_date: event.date,
+          event_time: event.time,
+          location: event.location,
+          person_name,
+          check_in_time: new Date().toISOString()
+        });
+      }
+    );
+  });
+});
+
+// GET /api/checkin/:checkCode/event - Get event info for a check-in code (public, no auth)
+app.get('/api/checkin/:checkCode/event', (req, res) => {
+  const { checkCode } = req.params;
+  db.get(
+    `SELECT id, event, date, time, location, check_in_enabled, check_in_count FROM events WHERE check_in_code = ? AND check_in_enabled = 1`,
+    [checkCode],
+    (err, event) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!event) return res.status(404).json({ error: 'Invalid or expired check-in code' });
+      res.json({ success: true, event });
+    }
+  );
+});
+
+// DELETE /api/checkins/:id - Remove a check-in record (admin only)
+app.delete('/api/checkins/:id', (req, res) => {
+  const { id } = req.params;
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin required' });
+  }
+
+  db.get(`SELECT * FROM event_check_ins WHERE id = ?`, [id], (err, checkin) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!checkin) return res.status(404).json({ error: 'Check-in not found' });
+
+    db.run(`DELETE FROM event_check_ins WHERE id = ?`, [id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.run(`UPDATE events SET check_in_count = MAX(0, check_in_count - 1) WHERE id = ?`, [checkin.event_id]);
+      res.json({ success: true });
+    });
+  });
+});
+
+// GET /api/checkin-stats - Overall check-in statistics
+app.get('/api/checkin-stats', (req, res) => {
+  db.get(`SELECT COUNT(*) as total_checkins FROM event_check_ins`, (err, total) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.get(`SELECT COUNT(*) as events_with_checkin FROM events WHERE check_in_enabled = 1`, (err2, events) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      db.all(
+        `SELECT e.id, e.event, e.date, e.check_in_count
+         FROM events e
+         WHERE e.check_in_enabled = 1
+         ORDER BY e.date DESC
+         LIMIT 10`,
+        (err3, recent) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+          db.all(
+            `SELECT DATE(check_in_time) as date, COUNT(*) as count
+             FROM event_check_ins
+             WHERE check_in_time >= datetime('now', '-7 days')
+             GROUP BY DATE(check_in_time)
+             ORDER BY date`,
+            (err4, daily) => {
+              if (err4) return res.status(500).json({ error: err4.message });
+              res.json({
+                success: true,
+                total_checkins: total?.total_checkins || 0,
+                events_with_checkin: events?.events_with_checkin || 0,
+                recent_events: recent || [],
+                daily_checkins: daily || []
+              });
+            }
+          );
+        }
+      );
+    });
+  });
+});
+
+// Public check-in page - no auth required
+app.get('/checkin/:checkCode', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'checkin.html'));
+});
+
 // ==================== WEBSOCKET SERVER ====================
 
 const { WebSocketServer } = require('ws');
@@ -1779,6 +2006,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.11 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.12 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
