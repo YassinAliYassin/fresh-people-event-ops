@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Fresh People Event Ops v4.6</title>
+    <title>Fresh People Event Ops v4.7</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -46,7 +46,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.6</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.7</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
@@ -64,6 +64,7 @@
             <button onclick="switchTab('recurring')" id="tab-recurring" class="pb-2 font-semibold tab-inactive">🔄 Recurring Events</button>
             <button onclick="switchTab('timeline')" id="tab-timeline" class="pb-2 font-semibold tab-inactive">📆 Staff Timeline</button>
             <button onclick="switchTab('autoassign')" id="tab-autoassign" class="pb-2 font-semibold tab-inactive">⚡ Auto-Assign</button>
+            <button onclick="switchTab('availability')" id="tab-availability" class="pb-2 font-semibold tab-inactive">📋 Availability</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -421,6 +422,77 @@
         </div>
     </div>
 
+    <!-- ==================== AVAILABILITY TAB ==================== -->
+    <div id="view-availability" class="hidden">
+        <div class="max-w-4xl mx-auto">
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-xl font-bold mb-2">📋 Staff Availability</h2>
+                <p class="text-gray-400 text-sm mb-6">Mark staff as unavailable for specific dates. Unavailable staff will be excluded from auto-assign and event creation.</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Select Staff</label>
+                        <select id="availStaffSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="">-- Select Staff --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Date</label>
+                        <input type="date" id="availDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Reason (optional)</label>
+                        <input type="text" id="availReason" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="e.g., Sick leave, Personal">
+                    </div>
+                </div>
+                <div class="flex gap-3 mb-6">
+                    <button onclick="markUnavailable()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold">🚫 Mark Unavailable</button>
+                    <button onclick="markAvailable()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold">✅ Mark Available</button>
+                </div>
+
+                <!-- Date Range Filter -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Filter From</label>
+                        <input type="date" id="availFilterFrom" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Filter To</label>
+                        <input type="date" id="availFilterTo" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="loadAvailability()" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold">🔍 Search</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Availability Calendar Grid -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 mt-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold">📅 Availability Overview</h3>
+                    <div class="flex items-center gap-4 text-xs">
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-green-600 rounded"></span> Available</span>
+                        <span class="flex items-center gap-1"><span class="w-3 h-3 bg-red-600 rounded"></span> Unavailable</span>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between mb-4">
+                    <button onclick="changeAvailMonth(-1)" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">◀ Prev</button>
+                    <span id="availCalendarMonth" class="font-semibold text-lg"></span>
+                    <button onclick="changeAvailMonth(1)" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">Next ▶</button>
+                </div>
+                <div id="availCalendarGrid" class="grid grid-cols-7 gap-1"></div>
+            </div>
+
+            <!-- Unavailability List -->
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 mt-6">
+                <h3 class="text-lg font-bold mb-4">🚫 Unavailability Records</h3>
+                <div id="availabilityList" class="space-y-2 max-h-96 overflow-y-auto">
+                    <p class="text-gray-500 text-sm">No records found. Select a date range and click Search.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Event Detail Modal -->
     <div id="eventDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
@@ -611,16 +683,22 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign'].forEach(t => {
-                document.getElementById('view-' + t).classList.add('hidden');
-                const tabEl = document.getElementById('tab-' + t);
-                tabEl.classList.remove('tab-active');
-                tabEl.classList.add('tab-inactive');
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability'].forEach(t => {
+                const view = document.getElementById('view-' + t);
+                const tabBtn = document.getElementById('tab-' + t);
+                if (view) view.classList.add('hidden');
+                if (tabBtn) {
+                    tabBtn.classList.remove('tab-active');
+                    tabBtn.classList.add('tab-inactive');
+                }
             });
-            document.getElementById('view-' + tab).classList.remove('hidden');
+            const activeView = document.getElementById('view-' + tab);
             const activeTab = document.getElementById('tab-' + tab);
-            activeTab.classList.remove('tab-inactive');
-            activeTab.classList.add('tab-active');
+            if (activeView) activeView.classList.remove('hidden');
+            if (activeTab) {
+                activeTab.classList.remove('tab-inactive');
+                activeTab.classList.add('tab-active');
+            }
 
             if (tab === 'reports') {
                 loadAnalytics();
@@ -630,6 +708,17 @@
             }
             if (tab === 'autoassign') {
                 initAutoAssign();
+            }
+            if (tab === 'availability') {
+                populateAvailStaffSelect();
+                const today = new Date();
+                document.getElementById('availDate').value = today.toISOString().slice(0, 10);
+                const end = new Date();
+                end.setDate(end.getDate() + 30);
+                document.getElementById('availFilterFrom').value = today.toISOString().slice(0, 10);
+                document.getElementById('availFilterTo').value = end.toISOString().slice(0, 10);
+                loadAvailability();
+                renderAvailCalendar();
             }
         }
 
@@ -1830,6 +1919,210 @@
             renderStaffAssignment();
             showToast(`✅ Applied ${names.length} staff to event form`, 'success');
             switchTab('dashboard');
+        }
+
+        // ==================== STAFF AVAILABILITY ====================
+        let availCalendarDate = new Date();
+
+        function populateAvailStaffSelect() {
+            const sel = document.getElementById('availStaffSelect');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">-- Select Staff --</option>';
+            allStaff.filter(s => s.active).sort((a, b) => a.name.localeCompare(b.name)).forEach(s => {
+                sel.innerHTML += `<option value="${s.id}">${s.name} (${s.role || 'staff'})</option>`;
+            });
+        }
+
+        async function markUnavailable() {
+            const staffId = document.getElementById('availStaffSelect').value;
+            const date = document.getElementById('availDate').value;
+            const reason = document.getElementById('availReason').value;
+            if (!staffId || !date) {
+                showToast('Please select staff and date', 'warning');
+                return;
+            }
+            try {
+                const res = await fetch(`${API}/availability`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ staff_id: parseInt(staffId), date, reason })
+                });
+                const data = await res.json();
+                if (data.staff_id) {
+                    showToast('✅ Staff marked as unavailable', 'success');
+                    document.getElementById('availReason').value = '';
+                    loadAvailability();
+                    renderAvailCalendar();
+                } else {
+                    showToast('Failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error');
+            }
+        }
+
+        async function markAvailable() {
+            const staffId = document.getElementById('availStaffSelect').value;
+            const date = document.getElementById('availDate').value;
+            if (!staffId || !date) {
+                showToast('Please select staff and date', 'warning');
+                return;
+            }
+            // Find the availability entry for this staff+date and delete it
+            try {
+                const res = await fetch(`${API}/availability?staff_id=${staffId}&from=${date}&to=${date}`);
+                const entries = await res.json();
+                const entry = entries.find(e => e.staff_id == staffId && e.date === date);
+                if (entry) {
+                    await fetch(`${API}/availability/${entry.id}`, { method: 'DELETE' });
+                    showToast('✅ Staff marked as available', 'success');
+                    loadAvailability();
+                    renderAvailCalendar();
+                } else {
+                    showToast('No unavailability record found for this date', 'info');
+                }
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error');
+            }
+        }
+
+        async function loadAvailability() {
+            const from = document.getElementById('availFilterFrom').value;
+            const to = document.getElementById('availFilterTo').value;
+            const container = document.getElementById('availabilityList');
+            container.innerHTML = '<p class="text-gray-500 text-sm">Loading...</p>';
+
+            try {
+                let url = `${API}/availability`;
+                const params = [];
+                if (from) params.push(`from=${from}`);
+                if (to) params.push(`to=${to}`);
+                if (params.length) url += '?' + params.join('&');
+
+                const res = await fetch(url);
+                const data = await res.json();
+
+                if (data.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">No unavailability records found for the selected range.</p>';
+                    return;
+                }
+
+                let html = `<div class="text-sm text-gray-400 mb-2">${data.length} record(s) found</div>`;
+                data.forEach(entry => {
+                    html += `
+                        <div class="flex items-center justify-between bg-gray-700 rounded p-3">
+                            <div>
+                                <span class="font-semibold text-white">${entry.name}</span>
+                                <span class="text-gray-400 text-sm ml-2">${entry.date}</span>
+                                ${entry.reason ? `<span class="text-yellow-400 text-sm ml-2">(${entry.reason})</span>` : ''}
+                            </div>
+                            <button onclick="deleteAvailability(${entry.id})" class="text-red-400 hover:text-red-300 text-sm">🗑️ Remove</button>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            } catch (err) {
+                container.innerHTML = `<p class="text-red-400 text-sm">Error: ${err.message}</p>`;
+            }
+        }
+
+        async function deleteAvailability(id) {
+            try {
+                await fetch(`${API}/availability/${id}`, { method: 'DELETE' });
+                showToast('✅ Record removed', 'success');
+                loadAvailability();
+                renderAvailCalendar();
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error');
+            }
+        }
+
+        async function renderAvailCalendar() {
+            const grid = document.getElementById('availCalendarGrid');
+            const monthLabel = document.getElementById('availCalendarMonth');
+            if (!grid || !monthLabel) return;
+
+            const year = availCalendarDate.getFullYear();
+            const month = availCalendarDate.getMonth();
+            monthLabel.textContent = new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            // Get all active staff
+            const activeStaff = allStaff.filter(s => s.active).sort((a, b) => a.name.localeCompare(b.name));
+            if (activeStaff.length === 0) {
+                grid.innerHTML = '<p class="text-gray-500 text-sm col-span-7">No active staff</p>';
+                return;
+            }
+
+            // Fetch availability for this month
+            const monthStart = new Date(year, month, 1).toISOString().slice(0, 10);
+            const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
+            let availData = [];
+            try {
+                const res = await fetch(`${API}/availability?from=${monthStart}&to=${monthEnd}`);
+                availData = await res.json();
+            } catch (e) { /* ignore */ }
+
+            // Build a map: date -> count of unavailable
+            const unavailByDate = {};
+            availData.forEach(e => {
+                unavailByDate[e.date] = (unavailByDate[e.date] || 0) + 1;
+            });
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const firstDay = new Date(year, month, 1).getDay();
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+            let html = '';
+            dayNames.forEach(d => {
+                html += `<div class="text-center text-xs text-gray-500 font-semibold py-1">${d}</div>`;
+            });
+
+            // Empty cells before first day
+            for (let i = 0; i < firstDay; i++) {
+                html += `<div></div>`;
+            }
+
+            // Day cells
+            const today = new Date().toISOString().slice(0, 10);
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const unavailCount = unavailByDate[dateStr] || 0;
+                const totalStaff = activeStaff.length;
+                const isToday = dateStr === today;
+
+                let bgClass = 'bg-gray-700';
+                let textClass = 'text-gray-300';
+                if (unavailCount > 0) {
+                    const ratio = unavailCount / totalStaff;
+                    if (ratio >= 0.5) { bgClass = 'bg-red-900'; textClass = 'text-red-200'; }
+                    else if (ratio >= 0.25) { bgClass = 'bg-orange-900'; textClass = 'text-orange-200'; }
+                    else { bgClass = 'bg-yellow-900'; textClass = 'text-yellow-200'; }
+                } else if (dateStr >= today) {
+                    bgClass = 'bg-green-900';
+                    textClass = 'text-green-200';
+                }
+                if (isToday) { textClass += ' ring-2 ring-blue-500'; }
+
+                html += `
+                    <div class="${bgClass} ${textClass} rounded p-1 text-center text-xs min-h-[40px] cursor-pointer hover:opacity-80" onclick="showAvailDayDetail('${dateStr}')">
+                        <div class="font-bold">${day}</div>
+                        ${unavailCount > 0 ? `<div class="text-[10px]">${unavailCount}/${totalStaff} 🚫</div>` : '<div class="text-[10px]">✓</div>'}
+                    </div>
+                `;
+            }
+            grid.innerHTML = html;
+        }
+
+        function changeAvailMonth(delta) {
+            availCalendarDate.setMonth(availCalendarDate.getMonth() + delta);
+            renderAvailCalendar();
+        }
+
+        function showAvailDayDetail(dateStr) {
+            document.getElementById('availDate').value = dateStr;
+            document.getElementById('availFilterFrom').value = dateStr;
+            document.getElementById('availFilterTo').value = dateStr;
+            loadAvailability();
         }
 
         // ==================== DUPLICATE EVENT ====================

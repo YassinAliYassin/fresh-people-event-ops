@@ -37,6 +37,27 @@ const db = new sqlite3.Database(DB_PATH, (err) => {
 // Ensure backup directory exists
 fs.mkdir(BACKUP_DIR, { recursive: true }).catch(() => {});
 
+// Create staff_availability table if not exists
+db.run(`CREATE TABLE IF NOT EXISTS staff_availability (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  staff_id INTEGER NOT NULL,
+  date TEXT NOT NULL,
+  reason TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (staff_id) REFERENCES staff(id),
+  UNIQUE(staff_id, date)
+)`);
+
+// Helper: Get unavailable staff for a date
+async function getUnavailableStaff(dateStr) {
+  return new Promise((resolve, reject) => {
+    db.all(`SELECT sa.staff_id, s.name, sa.reason FROM staff_availability sa JOIN staff s ON s.id = sa.staff_id WHERE sa.date = ?`, [dateStr], (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows);
+    });
+  });
+}
+
 // Helper: Generate event ID
 async function generateEventID(dateStr) {
   const dateObj = new Date(dateStr);
@@ -218,6 +239,81 @@ app.delete('/api/staff/:id', (req, res) => {
     if (err) return res.status(500).json({error: err.message});
     res.json({ success: true, id: req.params.id });
   });
+});
+
+// ==================== STAFF AVAILABILITY ====================
+
+// GET /api/availability - get availability for a date range
+app.get('/api/availability', (req, res) => {
+  const { from, to, staff_id } = req.query;
+  let query = `SELECT sa.id, sa.staff_id, s.name, sa.date, sa.reason, sa.created_at 
+               FROM staff_availability sa JOIN staff s ON s.id = sa.staff_id WHERE 1=1`;
+  const params = [];
+  if (from) { query += ` AND sa.date >= ?`; params.push(from); }
+  if (to) { query += ` AND sa.date <= ?`; params.push(to); }
+  if (staff_id) { query += ` AND sa.staff_id = ?`; params.push(staff_id); }
+  query += ` ORDER BY sa.date, s.name`;
+  db.all(query, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// POST /api/availability - mark staff unavailable
+app.post('/api/availability', (req, res) => {
+  const { staff_id, date, reason } = req.body;
+  if (!staff_id || !date) return res.status(400).json({ error: 'staff_id and date are required' });
+  db.run(
+    `INSERT OR REPLACE INTO staff_availability (staff_id, date, reason) VALUES (?, ?, ?)`,
+    [staff_id, date, reason || ''],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, staff_id, date, reason: reason || '' });
+    }
+  );
+});
+
+// POST /api/availability/batch - mark staff unavailable for multiple dates
+app.post('/api/availability/batch', (req, res) => {
+  const { staff_id, dates, reason } = req.body;
+  if (!staff_id || !dates || !Array.isArray(dates) || dates.length === 0) {
+    return res.status(400).json({ error: 'staff_id and dates array are required' });
+  }
+  const results = [];
+  let completed = 0;
+  dates.forEach(date => {
+    db.run(
+      `INSERT OR REPLACE INTO staff_availability (staff_id, date, reason) VALUES (?, ?, ?)`,
+      [staff_id, date, reason || ''],
+      function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        results.push({ staff_id, date, reason: reason || '' });
+        completed++;
+        if (completed === dates.length) {
+          res.json({ success: true, count: results.length, entries: results });
+        }
+      }
+    );
+  });
+});
+
+// DELETE /api/availability/:id - remove unavailability entry
+app.delete('/api/availability/:id', (req, res) => {
+  db.run(`DELETE FROM staff_availability WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Entry not found' });
+    res.json({ success: true, id: req.params.id });
+  });
+});
+
+// GET /api/availability/check/:date - check who's unavailable on a date
+app.get('/api/availability/check/:date', async (req, res) => {
+  try {
+    const unavailable = await getUnavailableStaff(req.params.date);
+    res.json({ date: req.params.date, unavailable, count: unavailable.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /api/calendar (simple calendar view data)
@@ -623,12 +719,29 @@ app.post('/api/auto-assign', (req, res) => {
   const skills = Array.isArray(requiredSkills) ? requiredSkills : [];
   const exclude = Array.isArray(excludeStaff) ? excludeStaff : [];
 
+  // If eventDate provided, also exclude unavailable staff
+  const dateFilter = eventDate;
+
   db.all(`SELECT * FROM staff WHERE active = 1 ORDER BY name`, [], (err, allStaff) => {
     if (err) return res.status(500).json({ error: err.message });
 
     // Filter out excluded staff
     let candidates = allStaff.filter(s => !exclude.includes(s.name));
 
+    // If eventDate provided, filter out unavailable staff
+    if (dateFilter) {
+      db.all(`SELECT staff_id FROM staff_availability WHERE date = ?`, [dateFilter], (err2, unavailable) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        const unavailableIds = unavailable.map(u => u.staff_id);
+        candidates = candidates.filter(s => !unavailableIds.includes(s.id));
+        performScoring(candidates, skills, needed, dateFilter);
+      });
+    } else {
+      performScoring(candidates, skills, needed, dateFilter);
+    }
+  });
+
+  function performScoring(candidates, skills, needed, dateFilter) {
     // Score each candidate based on skill match
     const scored = candidates.map(s => {
       let skillList = [];
@@ -636,21 +749,17 @@ app.post('/api/auto-assign', (req, res) => {
       let score = 0;
       skills.forEach(reqSkill => {
         if (skillList.some(cs => cs.toLowerCase() === reqSkill.toLowerCase())) {
-          score += 10; // Exact skill match
+          score += 10;
         }
       });
-      // Bonus for having any skills
       if (skillList.length > 0 && skills.length === 0) score += 1;
       return { ...s, skillList, score };
     });
 
-    // Sort by score descending, then by name for stability
     scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
-    // If we have required skills, prioritize those with matches
     let selected = [];
     if (skills.length > 0) {
-      // Take all with at least one skill match first
       const withSkills = scored.filter(s => s.score > 0);
       const withoutSkills = scored.filter(s => s.score === 0);
       selected = [...withSkills, ...withoutSkills].slice(0, needed);
@@ -661,6 +770,7 @@ app.post('/api/auto-assign', (req, res) => {
     const assigned = selected.map(s => s.name);
     const matchedSkills = selected.map(s => ({ name: s.name, skills: s.skillList }));
 
+    const unavailableNote = dateFilter ? ' (unavailable staff excluded)' : '';
     res.json({
       assigned,
       count: assigned.length,
@@ -668,10 +778,11 @@ app.post('/api/auto-assign', (req, res) => {
       requestedSkills: skills,
       requestedCount: needed,
       message: assigned.length < needed
-        ? `Only ${assigned.length} of ${needed} requested staff available`
-        : `Successfully assigned ${assigned.length} staff members`
+        ? `Only ${assigned.length} of ${needed} requested staff available${unavailableNote}`
+        : `Successfully assigned ${assigned.length} staff members${unavailableNote}`,
+      excludedUnavailable: dateFilter ? true : false
     });
-  });
+  }
 });
 
 // POST /api/events/:id/duplicate - duplicate an event
@@ -746,7 +857,7 @@ app.post('/api/events/:id/duplicate', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.6.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.7.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -819,5 +930,5 @@ app.post('/api/events/recurring', async (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.6 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.7 running on http://0.0.0.0:${PORT}`);
 });
