@@ -5,6 +5,7 @@ const path = require('path');
 const bodyParser = require('body-parser');
 const PDFDocument = require('pdfkit');
 const basicAuth = require('express-basic-auth');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = 3004;
@@ -82,6 +83,10 @@ db.run(`ALTER TABLE events ADD COLUMN estimated_cost REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE events ADD COLUMN actual_cost REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE events ADD COLUMN currency TEXT DEFAULT 'ZAR'`, () => {});
 db.run(`ALTER TABLE events ADD COLUMN budget REAL DEFAULT 0`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN client_email TEXT DEFAULT ''`, () => {});
+
+// Add email column to staff table (migration)
+db.run(`ALTER TABLE staff ADD COLUMN email TEXT DEFAULT ''`, () => {});
 
 // Create budgets table for monthly/annual budget tracking
 db.run(`CREATE TABLE IF NOT EXISTS budgets (
@@ -106,6 +111,28 @@ db.run(`CREATE TABLE IF NOT EXISTS email_notifications (
   sent_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
+
+// Create email_settings table for SMTP configuration
+db.run(`CREATE TABLE IF NOT EXISTS email_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  smtp_host TEXT DEFAULT '',
+  smtp_port INTEGER DEFAULT 587,
+  smtp_secure INTEGER DEFAULT 0,
+  smtp_user TEXT DEFAULT '',
+  smtp_pass TEXT DEFAULT '',
+  from_name TEXT DEFAULT 'Fresh People Events',
+  from_email TEXT DEFAULT '',
+  auto_notify_client INTEGER DEFAULT 1,
+  auto_notify_staff INTEGER DEFAULT 1,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Insert default email settings if not exists
+db.get(`SELECT id FROM email_settings WHERE id = 1`, (err, row) => {
+  if (!row) {
+    db.run(`INSERT INTO email_settings (id) VALUES (1)`);
+  }
+});
 
 // Helper: Get unavailable staff for a date
 async function getUnavailableStaff(dateStr) {
@@ -166,6 +193,75 @@ async function backupDatabase() {
   return backupPath;
 }
 
+// Helper: Get email settings
+async function getEmailSettings() {
+  return new Promise((resolve, reject) => {
+    db.get(`SELECT * FROM email_settings WHERE id = 1`, (err, row) => {
+      if (err) return reject(err);
+      resolve(row || {});
+    });
+  });
+}
+
+// Helper: Create transporter from settings
+function createTransporter(settings) {
+  if (!settings.smtp_host || !settings.smtp_user) return null;
+  return nodemailer.createTransport({
+    host: settings.smtp_host,
+    port: settings.smtp_port || 587,
+    secure: !!settings.smtp_secure,
+    auth: { user: settings.smtp_user, pass: settings.smtp_pass }
+  });
+}
+
+// Helper: Send email
+async function sendEmail(to, subject, htmlBody, textBody) {
+  const settings = await getEmailSettings();
+  const transporter = createTransporter(settings);
+  if (!transporter) return { success: false, error: 'SMTP not configured' };
+  const from = `"${settings.from_name || 'Fresh People Events'}" <${settings.from_email || settings.smtp_user}>`;
+  try {
+    const info = await transporter.sendMail({ from, to, subject, html: htmlBody, text: textBody || htmlBody.replace(/<[^>]+>/g, '') });
+    return { success: true, messageId: info.messageId };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// Helper: Auto-notify on event creation
+async function autoNotifyEvent(event, staffList) {
+  const settings = await getEmailSettings();
+  const results = [];
+
+  // Notify client
+  if (settings.auto_notify_client && event.client_email) {
+    const subject = `Event Confirmation: ${event.event} on ${event.date}`;
+    const html = `<h2>Event Confirmation</h2><p>Dear ${event.client},</p><p>Your event <strong>${event.event}</strong> has been scheduled.</p><ul><li><strong>Date:</strong> ${event.date}</li><li><strong>Time:</strong> ${event.time}</li><li><strong>Location:</strong> ${event.location}</li><li><strong>Services:</strong> ${event.services}</li></ul><p>Thank you for choosing Fresh People Events!</p>`;
+    const r = await sendEmail(event.client_email, subject, html);
+    db.run(`INSERT INTO email_notifications (event_id, recipient, subject, body, status, sent_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      [event.id, event.client_email, subject, html, r.success ? 'sent' : 'failed', r.success ? new Date().toISOString() : null]);
+    results.push({ type: 'client', ...r });
+  }
+
+  // Notify staff
+  if (settings.auto_notify_staff && staffList && staffList.length > 0) {
+    const subject = `New Assignment: ${event.event} on ${event.date}`;
+    for (const staffName of staffList) {
+      db.get(`SELECT * FROM staff WHERE name = ? AND active = 1`, [staffName], (err, staffRow) => {
+        if (err || !staffRow || !staffRow.email) return;
+        const html = `<h2>New Event Assignment</h2><p>Hi ${staffName},</p><p>You've been assigned to <strong>${event.event}</strong>.</p><ul><li><strong>Date:</strong> ${event.date}</li><li><strong>Time:</strong> ${event.time}</li><li><strong>Location:</strong> ${event.location}</li></ul>`;
+        sendEmail(staffRow.email, subject, html).then(r => {
+          db.run(`INSERT INTO email_notifications (event_id, recipient, subject, body, status, sent_at) VALUES (?, ?, ?, ?, ?, ?)`,
+            [event.id, staffRow.email, subject, html, r.success ? 'sent' : 'failed', r.success ? new Date().toISOString() : null]);
+        });
+        results.push({ type: 'staff', name: staffName });
+      });
+    }
+  }
+
+  return results;
+}
+
 // GET /api/events
 app.get('/api/events', (req, res) => {
   db.all(`SELECT * FROM events ORDER BY date DESC, time DESC`, [], (err, rows) => {
@@ -177,7 +273,7 @@ app.get('/api/events', (req, res) => {
 // POST /api/events (with staff shortage warning)
 app.post('/api/events', async (req, res) => {
   try {
-    const { event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency, budget } = req.body;
+    const { event, date, time, location, client, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget } = req.body;
     const id = await generateEventID(date);
     const staffList = staff || [];
     const activeStaffCount = await getActiveStaffCount();
@@ -195,18 +291,21 @@ app.post('/api/events', async (req, res) => {
     const actCost = actual_cost || 0;
     const curr = currency || 'ZAR';
     const evtBudget = budget || 0;
+    const cliEmail = client_email || '';
     
     db.run(
-      `INSERT INTO events (id, event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency, budget) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, event, date, time, location, client, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget],
+      `INSERT INTO events (id, event, date, time, location, client, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, event, date, time, location, client, cliEmail, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget],
       async function(err) {
         if (err) return res.status(500).json({error: err.message});
-        const newEvent = {id, event, date, time, location, client, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget};
+        const newEvent = {id, event, date, time, location, client, client_email: cliEmail, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget};
         const icsContent = generateICS(newEvent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(newEvent, null, 2));
         // Auto-backup on event creation
         try { await backupDatabase(); } catch(e) { console.error('Backup failed:', e); }
+        // Auto-notify client and staff via email
+        try { await autoNotifyEvent(newEvent, staffList); } catch(e) { console.error('Auto-notify failed:', e); }
         res.json(newEvent);
       }
     );
@@ -276,27 +375,27 @@ app.get('/api/staff', (req, res) => {
 
 // POST /api/staff - add new staff member
 app.post('/api/staff', (req, res) => {
-  const { name, phone, role, skills } = req.body;
+  const { name, phone, role, email, skills } = req.body;
   if (!name) return res.status(400).json({error: 'Name is required'});
   const skillsJSON = Array.isArray(skills) ? JSON.stringify(skills) : (skills || '[]');
-  db.run(`INSERT INTO staff (name, phone, role, active, skills) VALUES (?, ?, ?, 1, ?)`, [name, phone || null, role || 'staff', skillsJSON], function(err) {
+  db.run(`INSERT INTO staff (name, phone, role, email, active, skills) VALUES (?, ?, ?, ?, 1, ?)`, [name, phone || null, role || 'staff', email || '', skillsJSON], function(err) {
     if (err) return res.status(500).json({error: err.message});
-    res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', active: 1, skills: skillsJSON });
+    res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', email: email || '', active: 1, skills: skillsJSON });
   });
 });
 
-// PUT /api/staff/:id - update staff (including phone, skills)
+// PUT /api/staff/:id - update staff (including phone, skills, email)
 app.put('/api/staff/:id', (req, res) => {
-  const { name, phone, role, active, skills } = req.body;
+  const { name, phone, role, email, active, skills } = req.body;
   const id = req.params.id;
   const skillsJSON = Array.isArray(skills) ? JSON.stringify(skills) : (skills || '[]');
   db.run(
-    `UPDATE staff SET name=?, phone=?, role=?, active=?, skills=? WHERE id=?`,
-    [name, phone || null, role || 'staff', active ? 1 : 0, skillsJSON, id],
+    `UPDATE staff SET name=?, phone=?, role=?, email=?, active=?, skills=? WHERE id=?`,
+    [name, phone || null, role || 'staff', email || '', active ? 1 : 0, skillsJSON, id],
     function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Staff not found'});
-      res.json({ success: true, id, name, phone, role, active: active ? 1 : 0, skills: skillsJSON });
+      res.json({ success: true, id, name, phone, role, email, active: active ? 1 : 0, skills: skillsJSON });
     }
   );
 });
@@ -1010,6 +1109,36 @@ app.get('/api/budget/summary', (req, res) => {
 
 // ==================== EMAIL NOTIFICATIONS ====================
 
+// GET /api/settings/email - get SMTP settings (password hidden)
+app.get('/api/settings/email', (req, res) => {
+  db.get(`SELECT id, smtp_host, smtp_port, smtp_secure, smtp_user, from_name, from_email, auto_notify_client, auto_notify_staff, updated_at FROM email_settings WHERE id = 1`, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(row || {});
+  });
+});
+
+// PUT /api/settings/email - update SMTP settings
+app.put('/api/settings/email', (req, res) => {
+  const { smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass, from_name, from_email, auto_notify_client, auto_notify_staff } = req.body;
+  db.run(
+    `UPDATE email_settings SET smtp_host=?, smtp_port=?, smtp_secure=?, smtp_user=?, smtp_pass=?, from_name=?, from_email=?, auto_notify_client=?, auto_notify_staff=?, updated_at=CURRENT_TIMESTAMP WHERE id=1`,
+    [smtp_host || '', smtp_port || 587, smtp_secure ? 1 : 0, smtp_user || '', smtp_pass || '', from_name || 'Fresh People Events', from_email || '', auto_notify_client ? 1 : 0, auto_notify_staff ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, message: 'Email settings updated' });
+    }
+  );
+});
+
+// POST /api/settings/email/test - send test email
+app.post('/api/settings/email/test', async (req, res) => {
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Recipient email required' });
+  const r = await sendEmail(to, 'Fresh People Events - Test Email', '<h2>Test Email</h2><p>This is a test email from Fresh People Event Ops. If you received this, your SMTP configuration is working correctly!</p>', 'Test email from Fresh People Event Ops. SMTP is working!');
+  if (r.success) res.json({ success: true, message: 'Test email sent successfully' });
+  else res.status(500).json({ success: false, error: r.error });
+});
+
 // POST /api/notifications/email - queue an email notification
 app.post('/api/notifications/email', (req, res) => {
   const { event_id, recipient, subject, body } = req.body;
@@ -1040,29 +1169,63 @@ app.get('/api/notifications', (req, res) => {
   });
 });
 
-// POST /api/notifications/send-pending - process pending notifications (called by cron)
+// POST /api/notifications/send-pending - actually send pending emails via SMTP
 app.post('/api/notifications/send-pending', async (req, res) => {
   db.all(`SELECT * FROM email_notifications WHERE status = 'pending' LIMIT 10`, [], async (err, pending) => {
     if (err) return res.status(500).json({ error: err.message });
-    
+
+    const settings = await getEmailSettings();
+    const transporter = createTransporter(settings);
+    if (!transporter) return res.status(400).json({ error: 'SMTP not configured. Set up email settings first.' });
+
     const results = [];
     for (const n of pending) {
-      // In production, this would use nodemailer or similar
-      // For now, mark as 'sent' and log
-      await new Promise((resolve) => {
-        db.run(`UPDATE email_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = ?`, [n.id], function(err2) {
-          results.push({ id: n.id, recipient: n.recipient, subject: n.subject, status: err2 ? 'failed' : 'sent' });
-          resolve();
+      const from = `"${settings.from_name || 'Fresh People Events'}" <${settings.from_email || settings.smtp_user}>`;
+      try {
+        const info = await transporter.sendMail({
+          from,
+          to: n.recipient,
+          subject: n.subject,
+          html: n.body,
+          text: n.body.replace(/<[^>]+>/g, '')
         });
-      });
+        db.run(`UPDATE email_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = ?`, [n.id]);
+        results.push({ id: n.id, recipient: n.recipient, subject: n.subject, status: 'sent', messageId: info.messageId });
+      } catch (e) {
+        db.run(`UPDATE email_notifications SET status = 'failed' WHERE id = ?`, [n.id]);
+        results.push({ id: n.id, recipient: n.recipient, subject: n.subject, status: 'failed', error: e.message });
+      }
     }
     res.json({ processed: results.length, results });
   });
 });
 
+// POST /api/notifications/:id/retry - retry a failed email
+app.post('/api/notifications/:id/retry', async (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM email_notifications WHERE id = ?`, [id], async (err, n) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!n) return res.status(404).json({ error: 'Notification not found' });
+
+    const settings = await getEmailSettings();
+    const transporter = createTransporter(settings);
+    if (!transporter) return res.status(400).json({ error: 'SMTP not configured' });
+
+    const from = `"${settings.from_name || 'Fresh People Events'}" <${settings.from_email || settings.smtp_user}>`;
+    try {
+      const info = await transporter.sendMail({ from, to: n.recipient, subject: n.subject, html: n.body, text: n.body.replace(/<[^>]+>/g, '') });
+      db.run(`UPDATE email_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = ?`, [id]);
+      res.json({ success: true, messageId: info.messageId });
+    } catch (e) {
+      db.run(`UPDATE email_notifications SET status = 'failed' WHERE id = ?`, [id]);
+      res.status(500).json({ success: false, error: e.message });
+    }
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.8.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.9.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events

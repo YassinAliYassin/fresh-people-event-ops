@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.8</title>
+    <title>Fresh People Event Ops v4.9</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.8</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.9</p>
             </div>
             <div class="text-right">
                 <div class="text-sm text-gray-400">System</div>
@@ -73,6 +73,7 @@
             <button onclick="switchTab('autoassign')" id="tab-autoassign" class="pb-2 font-semibold tab-inactive">⚡ Auto-Assign</button>
             <button onclick="switchTab('availability')" id="tab-availability" class="pb-2 font-semibold tab-inactive">📋 Availability</button>
             <button onclick="switchTab('budget')" id="tab-budget" class="pb-2 font-semibold tab-inactive">💰 Budget</button>
+            <button onclick="switchTab('email')" id="tab-email" class="pb-2 font-semibold tab-inactive">📧 Email</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -148,6 +149,11 @@
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Client</label>
                             <input type="text" id="eventClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Client Email</label>
+                            <input type="email" id="eventClientEmail" placeholder="client@example.com" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <p class="text-xs text-gray-500 mt-1">For auto-confirmation email</p>
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Services</label>
@@ -597,6 +603,100 @@
             </div>
         </div>
     </div>
+    <!-- ==================== EMAIL TAB ==================== -->
+    <div id="view-email" class="hidden">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-xl font-bold mb-4">📧 Email Notifications</h2>
+
+            <!-- Email Log -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold">Notification Log</h3>
+                    <div class="flex gap-2">
+                        <select id="emailLogFilter" onchange="loadEmailLog()" class="bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600">
+                            <option value="">All</option>
+                            <option value="pending">Pending</option>
+                            <option value="sent">Sent</option>
+                            <option value="failed">Failed</option>
+                        </select>
+                        <button onclick="sendPendingEmails()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-3 py-1 rounded font-semibold">📤 Send Pending</button>
+                    </div>
+                </div>
+                <div id="emailLog" class="space-y-2 max-h-64 overflow-y-auto">
+                    <p class="text-gray-500 text-sm">Loading...</p>
+                </div>
+            </div>
+
+            <!-- SMTP Settings -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                <h3 class="font-semibold mb-4">SMTP Configuration</h3>
+                <form id="emailSettingsForm" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-gray-400 text-xs mb-1">SMTP Host</label>
+                            <input type="text" id="smtpHost" placeholder="smtp.gmail.com" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-xs mb-1">SMTP Port</label>
+                            <input type="number" id="smtpPort" value="587" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-xs mb-1">SMTP Username</label>
+                            <input type="email" id="smtpUser" placeholder="your@email.com" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-xs mb-1">SMTP Password</label>
+                            <input type="password" id="smtpPass" placeholder="App password" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-xs mb-1">From Name</label>
+                            <input type="text" id="fromName" placeholder="Fresh People Events" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        </div>
+                        <div>
+                            <label class="block text-gray-400 text-xs mb-1">From Email</label>
+                            <input type="email" id="fromEmail" placeholder="events@fresh-people.co.za" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <label class="flex items-center gap-2 text-sm text-gray-400">
+                            <input type="checkbox" id="smtpSecure" class="rounded">
+                            Use TLS/SSL
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-400">
+                            <input type="checkbox" id="autoNotifyClient" checked class="rounded">
+                            Auto-notify client on event creation
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-400">
+                            <input type="checkbox" id="autoNotifyStaff" checked class="rounded">
+                            Auto-notify staff on assignment
+                        </label>
+                    </div>
+                    <div class="flex gap-3">
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold">💾 Save Settings</button>
+                        <button type="button" onclick="testEmailSettings()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">📨 Send Test Email</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Stats -->
+            <div class="grid grid-cols-3 gap-4">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Pending</div>
+                    <div class="text-xl font-bold text-yellow-400" id="emailPendingCount">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Sent</div>
+                    <div class="text-xl font-bold text-green-400" id="emailSentCount">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Failed</div>
+                    <div class="text-xl font-bold text-red-400" id="emailFailedCount">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
 
     <!-- Event Detail Modal -->
     <div id="eventDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
@@ -739,6 +839,11 @@
                     <input type="text" id="staffSkills" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="bartending, setup, driving, cooking">
                     <p class="text-xs text-gray-500 mt-1">Used for auto-assignment</p>
                 </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Email</label>
+                    <input type="email" id="staffEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="staff@fresh-people.co.za">
+                    <p class="text-xs text-gray-500 mt-1">For assignment notifications</p>
+                </div>
                 <div class="flex gap-2">
                     <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold">Add Staff</button>
                     <button type="button" onclick="closeAddStaffModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
@@ -798,7 +903,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -837,6 +942,10 @@
             }
             if (tab === 'budget') {
                 loadBudgetSummary();
+            }
+            if (tab === 'email') {
+                loadEmailSettings();
+                loadEmailLog();
             }
         }
 
@@ -1260,6 +1369,7 @@
                 time: document.getElementById('eventTime').value,
                 location: document.getElementById('eventLocation').value,
                 client: document.getElementById('eventClient').value,
+                client_email: document.getElementById('eventClientEmail').value,
                 services: document.getElementById('eventServices').value,
                 staff: staff,
                 notes: document.getElementById('eventNotes').value,
@@ -1571,6 +1681,7 @@
                 name: document.getElementById('staffName').value,
                 phone: document.getElementById('staffPhone').value,
                 role: document.getElementById('staffRole').value,
+                email: document.getElementById('staffEmail').value,
                 skills
             };
             await fetch(`${API}/staff`, {
@@ -2441,6 +2552,142 @@
             await fetch(`${API}/budgets/${id}`, { method: 'DELETE' });
             showToast('Budget deleted', 'success');
             loadBudgetSummary();
+        }
+
+        // ==================== EMAIL FUNCTIONS ====================
+
+        async function loadEmailSettings() {
+            try {
+                const res = await fetch(`${API}/settings/email`);
+                const data = await res.json();
+                document.getElementById('smtpHost').value = data.smtp_host || '';
+                document.getElementById('smtpPort').value = data.smtp_port || 587;
+                document.getElementById('smtpUser').value = data.smtp_user || '';
+                document.getElementById('fromName').value = data.from_name || '';
+                document.getElementById('fromEmail').value = data.from_email || '';
+                document.getElementById('smtpSecure').checked = !!data.smtp_secure;
+                document.getElementById('autoNotifyClient').checked = !!data.auto_notify_client;
+                document.getElementById('autoNotifyStaff').checked = !!data.auto_notify_staff;
+            } catch (err) {
+                console.error('Failed to load email settings:', err);
+            }
+        }
+
+        async function loadEmailLog() {
+            try {
+                const filter = document.getElementById('emailLogFilter').value;
+                const url = filter ? `${API}/notifications?status=${filter}&limit=50` : `${API}/notifications?limit=50`;
+                const res = await fetch(url);
+                const data = await res.json();
+
+                const allRes = await fetch(`${API}/notifications?limit=200`);
+                const all = await allRes.json();
+                document.getElementById('emailPendingCount').textContent = all.filter(n => n.status === 'pending').length;
+                document.getElementById('emailSentCount').textContent = all.filter(n => n.status === 'sent').length;
+                document.getElementById('emailFailedCount').textContent = all.filter(n => n.status === 'failed').length;
+
+                const container = document.getElementById('emailLog');
+                if (data.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">No email notifications yet.</p>';
+                    return;
+                }
+
+                const statusColors = { pending: 'bg-yellow-600', sent: 'bg-green-600', failed: 'bg-red-600' };
+                container.innerHTML = data.map(n => {
+                    const createdAt = new Date(n.created_at).toLocaleString();
+                    const retryBtn = n.status === 'failed' ? `<button onclick="retryEmail(${n.id})" class="text-blue-400 hover:text-blue-300 text-xs ml-2">Retry</button>` : '';
+                    return `<div class="flex items-center justify-between bg-gray-700 rounded p-3 text-sm">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="px-2 py-0.5 rounded text-xs font-semibold ${statusColors[n.status] || 'bg-gray-600'}">${n.status}</span>
+                                <span class="text-gray-300 truncate">${n.subject}</span>
+                            </div>
+                            <div class="text-xs text-gray-400 mt-1">To: ${n.recipient} · ${createdAt}</div>
+                        </div>
+                        ${retryBtn}
+                    </div>`;
+                }).join('');
+            } catch (err) {
+                console.error('Failed to load email log:', err);
+            }
+        }
+
+        async function sendPendingEmails() {
+            try {
+                const res = await fetch(`${API}/notifications/send-pending`, { method: 'POST' });
+                const data = await res.json();
+                if (data.error) {
+                    showToast('⚠️ ' + data.error, 'warning');
+                } else {
+                    const sent = data.results.filter(r => r.status === 'sent').length;
+                    const failed = data.results.filter(r => r.status === 'failed').length;
+                    showToast(`📤 Processed: ${sent} sent, ${failed} failed`, sent > 0 ? 'success' : 'info');
+                }
+                loadEmailLog();
+            } catch (err) {
+                showToast('Failed to send: ' + err.message, 'error');
+            }
+        }
+
+        async function retryEmail(id) {
+            try {
+                const res = await fetch(`${API}/notifications/${id}/retry`, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('✅ Email sent successfully!', 'success');
+                } else {
+                    showToast('❌ Failed: ' + (data.error || 'Unknown'), 'error');
+                }
+                loadEmailLog();
+            } catch (err) {
+                showToast('Retry failed: ' + err.message, 'error');
+            }
+        }
+
+        document.getElementById('emailSettingsForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const body = {
+                smtp_host: document.getElementById('smtpHost').value,
+                smtp_port: parseInt(document.getElementById('smtpPort').value) || 587,
+                smtp_secure: document.getElementById('smtpSecure').checked,
+                smtp_user: document.getElementById('smtpUser').value,
+                smtp_pass: document.getElementById('smtpPass').value,
+                from_name: document.getElementById('fromName').value,
+                from_email: document.getElementById('fromEmail').value,
+                auto_notify_client: document.getElementById('autoNotifyClient').checked,
+                auto_notify_staff: document.getElementById('autoNotifyStaff').checked
+            };
+            const res = await fetch(`${API}/settings/email`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('✅ Email settings saved!', 'success');
+            } else {
+                showToast('Failed: ' + (data.error || 'Unknown'), 'error');
+            }
+        });
+
+        async function testEmailSettings() {
+            const to = prompt('Enter test email address:');
+            if (!to) return;
+            try {
+                const res = await fetch(`${API}/settings/email/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ to })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('✅ Test email sent to ' + to, 'success');
+                } else {
+                    showToast('❌ ' + (data.error || 'Failed to send test email'), 'error');
+                }
+            } catch (err) {
+                showToast('Test failed: ' + err.message, 'error');
+            }
         }
 
         // Service Worker registration for PWA
