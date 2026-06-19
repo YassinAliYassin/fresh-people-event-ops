@@ -3795,9 +3795,61 @@ app.post('/api/notification-center/read-all', (req, res) => {
   });
 });
 
+// GET /api/calendar/events - Calendar events with optional month filter
+app.get('/api/calendar/events', (req, res) => {
+  const { year, month, from, to } = req.query;
+  let sql = `SELECT id, event, date, time, location, status, client, estimated_cost FROM events WHERE date IS NOT NULL AND date != ''`;
+  const params = [];
+
+  if (year && month) {
+    const monthStr = String(month).padStart(2, '0');
+    sql += ` AND strftime('%Y-%m', date) = ?`;
+    params.push(`${year}-${monthStr}`);
+  } else if (from && to) {
+    sql += ` AND date BETWEEN ? AND ?`;
+    params.push(from, to);
+  }
+
+  sql += ` ORDER BY date ASC, time ASC`;
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // Group events by date
+    const grouped = {};
+    rows.forEach(row => {
+      if (!grouped[row.date]) grouped[row.date] = [];
+      grouped[row.date].push(row);
+    });
+
+    res.json({ events: rows, grouped });
+  });
+});
+
+// GET /api/calendar/month-stats - Stats for a given month
+app.get('/api/calendar/month-stats', (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: 'year and month required' });
+
+  const monthStr = String(month).padStart(2, '0');
+  const prefix = `${year}-${monthStr}`;
+
+  db.get(`SELECT
+    COUNT(*) as total_events,
+    SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as confirmed,
+    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+    SUM(COALESCE(estimated_cost, 0)) as total_estimated
+    FROM events WHERE strftime('%Y-%m', date) = ?`, [prefix], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(row);
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.22.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.23.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -4978,6 +5030,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.21 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.23 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
