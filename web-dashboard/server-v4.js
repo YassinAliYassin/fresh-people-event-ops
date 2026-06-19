@@ -376,8 +376,19 @@ db.run(`CREATE TABLE IF NOT EXISTS venues (
 )`);
 
 // Add venue_id to events table (migration)
-db.run(`ALTER TABLE events ADD COLUMN venue_id INTEGER DEFAULT 0`, () => {});
-
+db.get(`SELECT id FROM venues WHERE name = 'Main Hall'`, (err, row) => {
+  if (!row) {
+    db.run(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ['Main Hall', '123 Main St', 'Cape Town', 'Western Cape', '8000', 'South Africa', 500, 'indoor', 'John Doe', '+27 21 123 4567', 'john@example.com', 'https://example.com', 1, 1, 1, 1, 1, 0, 1500, 100, 'ZAR', 'Spacious venue', '[]', 1]);
+  }
+});
+// Add another venue
+db.get(`SELECT id FROM venues WHERE name = 'Outdoor Plaza'`, (err, row) => {
+  if (!row) {
+    db.run(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ['Outdoor Plaza', '456 Park Ave', 'Port Elizabeth', 'Eastern Cape', '6000', 'South Africa', 800, 'outdoor', 'Jane Smith', '+27 52 987 6543', 'jane@example.com', 'https://outdoorplaza.com', 0, 0, 0, 0, 0, 1, 2000, 150, 'ZAR', 'Outdoor space with sound system', '[]', 1]);
+  }
+});
 // Seed default venues if table is empty
 db.get(`SELECT COUNT(*) as count FROM venues`, (err, row) => {
   if (row && row.count === 0) {

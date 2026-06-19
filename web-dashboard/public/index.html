@@ -6339,6 +6339,207 @@
         </div>
     </div>
 
+    <!-- ==================== VENUES TAB ==================== -->
+    <div id="view-venues" class="hidden">
+        <!-- Venue Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Venues</p>
+                <p id="venueStatTotal" class="text-2xl font-bold text-purple-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Active Venues</p>
+                <p id="venueStatActive" class="text-2xl font-bold text-green-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Capacity</p>
+                <p id="venueStatCapacity" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Avg Rating</p>
+                <p id="venueStatRating" class="text-2xl font-bold text-yellow-400">-</p>
+            </div>
+        </div>
+
+        <!-- Filters & Actions -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+            <div class="flex flex-col md:flex-row gap-3 items-end">
+                <div class="flex-1">
+                    <label class="text-xs text-gray-400">Search</label>
+                    <input type="text" id="venueSearch" oninput="loadVenues()" placeholder="Search venues..." class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">City</label>
+                    <select id="venueFilterCity" onchange="loadVenues()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">All Cities</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Type</label>
+                    <select id="venueFilterType" onchange="loadVenues()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">All Types</option>
+                        <option value="indoor">Indoor</option>
+                        <option value="outdoor">Outdoor</option>
+                        <option value="both">Both</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Sort By</label>
+                    <select id="venueSort" onchange="loadVenues()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="name">Name</option>
+                        <option value="capacity">Capacity</option>
+                        <option value="rating">Rating</option>
+                        <option value="events">Events</option>
+                        <option value="rate">Rate (Low-High)</option>
+                        <option value="city">City</option>
+                    </select>
+                </div>
+                <button onclick="openVenueModal()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold whitespace-nowrap">+ Add Venue</button>
+            </div>
+        </div>
+
+        <!-- Venues Grid -->
+        <div id="venuesList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <p class="text-gray-500 text-sm col-span-full">Loading venues...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="venuesEmpty" class="hidden text-center py-12">
+            <p class="text-4xl mb-3">🏛️</p>
+            <p class="text-gray-400 text-lg">No venues found</p>
+            <p class="text-gray-500 text-sm mt-1">Add your first venue or adjust filters</p>
+        </div>
+    </div>
+
+    <!-- Add/Edit Venue Modal -->
+    <div id="venueModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold" id="venueModalTitle">Add Venue</h3>
+                <button onclick="closeVenueModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4">
+                <input type="hidden" id="venueId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Venue Name *</label>
+                        <input type="text" id="venueName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="e.g., The Grand Ballroom">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Address</label>
+                        <input type="text" id="venueAddress" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="Street address">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">City</label>
+                        <input type="text" id="venueCity" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="e.g., Cape Town">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Province / State</label>
+                        <input type="text" id="venueProvince" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="e.g., Western Cape">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Postal Code</label>
+                        <input type="text" id="venuePostalCode" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Country</label>
+                        <input type="text" id="venueCountry" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" value="South Africa">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Capacity</label>
+                        <input type="number" id="venueCapacity" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="e.g., 500">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Venue Type</label>
+                        <select id="venueType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="indoor">Indoor</option>
+                            <option value="outdoor">Outdoor</option>
+                            <option value="both">Indoor & Outdoor</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Contact Name</label>
+                        <input type="text" id="venueContactName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Contact Phone</label>
+                        <input type="text" id="venueContactPhone" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Contact Email</label>
+                        <input type="email" id="venueContactEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Website</label>
+                        <input type="url" id="venueWebsite" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Rate per Day (ZAR)</label>
+                        <input type="number" id="venueRateDay" step="0.01" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Rate per Hour (ZAR)</label>
+                        <input type="number" id="venueRateHour" step="0.01" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Parking Spots</label>
+                        <input type="number" id="venueParkingSpots" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Rating (0-5)</label>
+                        <input type="number" id="venueRatingInput" step="0.1" min="0" max="5" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Tags (comma-separated)</label>
+                        <input type="text" id="venueTags" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="e.g., premium, corporate, waterfront">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Notes</label>
+                        <textarea id="venueNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" rows="2" placeholder="Additional notes about this venue..."></textarea>
+                    </div>
+                    <!-- Facilities checkboxes -->
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400 mb-2 block">Facilities</label>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="venueHasParking" class="rounded"> 🅿️ Parking</label>
+                            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="venueHasWifi" class="rounded"> 📶 WiFi</label>
+                            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="venueHasCatering" class="rounded"> 🍽️ Catering</label>
+                            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="venueHasAV" class="rounded"> 🎤 AV Equipment</label>
+                            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="venueHasStage" class="rounded"> 🎭 Stage</label>
+                            <label class="flex items-center gap-2 text-sm"><input type="checkbox" id="venueHasDance" class="rounded"> 💃 Dance Floor</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-between">
+                <div>
+                    <button type="button" id="venueDeleteBtn" onclick="deleteVenue()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded hidden">🗑️ Delete</button>
+                </div>
+                <div class="flex gap-3">
+                    <button onclick="closeVenueModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
+                    <button onclick="saveVenue()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Save Venue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Venue Detail Modal -->
+    <div id="venueDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold" id="venueDetailTitle">Venue Details</h3>
+                <button onclick="closeVenueDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div id="venueDetailContent" class="p-4">
+                <p class="text-gray-500 text-sm">Loading...</p>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closeVenueDetailModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Close</button>
+                <button id="venueDetailEditBtn" onclick="editVenueFromDetail()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">✏️ Edit</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Add/Edit Timeline Item Modal -->
     <div id="timelineItemModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
         <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
