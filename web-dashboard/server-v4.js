@@ -65,6 +65,8 @@ function authMiddleware(req, res, next) {
   // Public check-in routes (no auth required)
   if (req.path.startsWith('/checkin/')) return next();
   if (req.path.startsWith('/api/checkin/')) return next();
+  // Public feedback submission (no auth required)
+  if (req.method === 'POST' && /^\/api\/events\/[^\/]+\/feedback$/.test(req.path)) return next();
 
   // Check session token from header or cookie
   const token = req.headers['x-session-token'] || req.cookies?.sessionToken;
@@ -242,6 +244,41 @@ db.run(`CREATE TABLE IF NOT EXISTS email_notifications (
   sent_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
+
+// Create event_reviews table for post-event internal reviews
+db.run(`CREATE TABLE IF NOT EXISTS event_reviews (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  reviewer TEXT DEFAULT '',
+  overall_rating INTEGER DEFAULT 0,
+  staff_rating INTEGER DEFAULT 0,
+  venue_rating INTEGER DEFAULT 0,
+  client_rating INTEGER DEFAULT 0,
+  logistics_rating INTEGER DEFAULT 0,
+  highlights TEXT DEFAULT '',
+  issues TEXT DEFAULT '',
+  recommendations TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create attendee_feedback table for collecting feedback from event attendees
+db.run(`CREATE TABLE IF NOT EXISTS attendee_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  attendee_name TEXT DEFAULT '',
+  attendee_email TEXT DEFAULT '',
+  rating INTEGER DEFAULT 0,
+  feedback TEXT DEFAULT '',
+  category TEXT DEFAULT 'general',
+  is_public INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Add review columns to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN review_completed INTEGER DEFAULT 0`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN avg_rating REAL DEFAULT 0`, () => {});
 
 // Create email_settings table for SMTP configuration
 db.run(`CREATE TABLE IF NOT EXISTS email_settings (
@@ -1663,7 +1700,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.12.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.13.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -1945,6 +1982,192 @@ app.get('/checkin/:checkCode', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'checkin.html'));
 });
 
+// ==================== EVENT REVIEWS & FEEDBACK ====================
+
+// POST /api/events/:id/review - Submit a post-event review
+app.post('/api/events/:id/review', (req, res) => {
+  const { id } = req.params;
+  const {
+    reviewer, overall_rating, staff_rating, venue_rating,
+    client_rating, logistics_rating, highlights, issues, recommendations
+  } = req.body;
+
+  db.run(
+    `INSERT INTO event_reviews
+     (event_id, reviewer, overall_rating, staff_rating, venue_rating, client_rating, logistics_rating, highlights, issues, recommendations)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id, reviewer || req.user?.username || 'anonymous',
+      overall_rating || 0, staff_rating || 0, venue_rating || 0,
+      client_rating || 0, logistics_rating || 0,
+      highlights || '', issues || '', recommendations || ''
+    ],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Update event review status
+      db.run(`UPDATE events SET review_completed = 1 WHERE id = ?`, [id]);
+
+      // Calculate average rating for the event
+      db.get(
+        `SELECT AVG(overall_rating) as avg FROM event_reviews WHERE event_id = ? AND overall_rating > 0`,
+        [id],
+        (err2, row) => {
+          if (!err2 && row) {
+            db.run(`UPDATE events SET avg_rating = ? WHERE id = ?`, [Math.round(row.avg * 10) / 10, id]);
+          }
+        }
+      );
+
+      // Broadcast review submission
+      app.broadcast({ type: 'event_reviewed', eventId: id, reviewer: reviewer || req.user?.username });
+
+      res.json({ success: true, id: this.lastID, message: 'Review submitted successfully' });
+    }
+  );
+});
+
+// GET /api/events/:id/reviews - Get all reviews for an event
+app.get('/api/events/:id/reviews', (req, res) => {
+  const { id } = req.params;
+  db.all(
+    `SELECT * FROM event_reviews WHERE event_id = ? ORDER BY created_at DESC`,
+    [id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, reviews: rows || [] });
+    }
+  );
+});
+
+// DELETE /api/reviews/:id - Delete a review (admin only)
+app.delete('/api/reviews/:id', (req, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  const { id } = req.params;
+  db.get(`SELECT event_id FROM event_reviews WHERE id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Review not found' });
+
+    db.run(`DELETE FROM event_reviews WHERE id = ?`, [id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      // Recalculate avg rating
+      db.get(
+        `SELECT AVG(overall_rating) as avg FROM event_reviews WHERE event_id = ? AND overall_rating > 0`,
+        [row.event_id],
+        (err3, avgRow) => {
+          db.run(`UPDATE events SET avg_rating = ? WHERE id = ?`,
+            [avgRow && avgRow.avg ? Math.round(avgRow.avg * 10) / 10 : 0, row.event_id]);
+        }
+      );
+
+      res.json({ success: true });
+    });
+  });
+});
+
+// POST /api/events/:id/feedback - Submit attendee feedback (public, no auth)
+app.post('/api/events/:id/feedback', (req, res) => {
+  const { id } = req.params;
+  const { attendee_name, attendee_email, rating, feedback, category } = req.body;
+
+  if (!rating || rating < 1 || rating > 5) {
+    return res.status(400).json({ error: 'Rating must be between 1 and 5' });
+  }
+
+  db.run(
+    `INSERT INTO attendee_feedback (event_id, attendee_name, attendee_email, rating, feedback, category)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, attendee_name || 'Anonymous', attendee_email || '', rating, feedback || '', category || 'general'],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID, message: 'Feedback submitted successfully' });
+    }
+  );
+});
+
+// GET /api/events/:id/feedback - Get feedback for an event
+app.get('/api/events/:id/feedback', (req, res) => {
+  const { id } = req.params;
+  db.all(
+    `SELECT * FROM attendee_feedback WHERE event_id = ? ORDER BY created_at DESC`,
+    [id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, feedback: rows || [] });
+    }
+  );
+});
+
+// GET /api/reviews/summary - Get review summary statistics
+app.get('/api/reviews/summary', (req, res) => {
+  db.get(
+    `SELECT
+      COUNT(*) as total_reviews,
+      AVG(overall_rating) as avg_overall,
+      AVG(staff_rating) as avg_staff,
+      AVG(venue_rating) as avg_venue,
+      AVG(client_rating) as avg_client,
+      AVG(logistics_rating) as avg_logistics
+     FROM event_reviews`,
+    (err, reviewStats) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      db.get(
+        `SELECT COUNT(*) as total_feedback, AVG(rating) as avg_attendee_rating
+         FROM attendee_feedback`,
+        (err2, feedbackStats) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          db.all(
+            `SELECT e.id, e.event, e.date, e.avg_rating, e.review_completed,
+                    COUNT(r.id) as review_count
+             FROM events e
+             LEFT JOIN event_reviews r ON e.id = r.event_id
+             WHERE e.status = 'completed'
+             GROUP BY e.id
+             ORDER BY e.date DESC
+             LIMIT 20`,
+            (err3, completedEvents) => {
+              if (err3) return res.status(500).json({ error: err3.message });
+
+              db.all(
+                `SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+                 FROM attendee_feedback
+                 GROUP BY category
+                 ORDER BY count DESC`,
+                (err4, categories) => {
+                  if (err4) return res.status(500).json({ error: err4.message });
+
+                  res.json({
+                    success: true,
+                    reviews: {
+                      total: reviewStats?.total_reviews || 0,
+                      avg_overall: reviewStats?.avg_overall ? Math.round(reviewStats.avg_overall * 10) / 10 : 0,
+                      avg_staff: reviewStats?.avg_staff ? Math.round(reviewStats.avg_staff * 10) / 10 : 0,
+                      avg_venue: reviewStats?.avg_venue ? Math.round(reviewStats.avg_venue * 10) / 10 : 0,
+                      avg_client: reviewStats?.avg_client ? Math.round(reviewStats.avg_client * 10) / 10 : 0,
+                      avg_logistics: reviewStats?.avg_logistics ? Math.round(reviewStats.avg_logistics * 10) / 10 : 0,
+                    },
+                    attendee_feedback: {
+                      total: feedbackStats?.total_feedback || 0,
+                      avg_rating: feedbackStats?.avg_attendee_rating ? Math.round(feedbackStats.avg_attendee_rating * 10) / 10 : 0,
+                      categories: categories || []
+                    },
+                    completed_events: completedEvents || []
+                  });
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
 // ==================== WEBSOCKET SERVER ====================
 
 const { WebSocketServer } = require('ws');
@@ -2006,6 +2229,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.12 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.13 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

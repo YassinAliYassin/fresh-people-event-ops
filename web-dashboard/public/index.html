@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.12</title>
+    <title>Fresh People Event Ops v4.13</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -93,6 +93,7 @@
             <button onclick="switchTab('email')" id="tab-email" class="pb-2 font-semibold tab-inactive">📧 Email</button>
             <button onclick="switchTab('users')" id="tab-users" class="pb-2 font-semibold tab-inactive">👥 Users</button>
             <button onclick="switchTab('checkin')" id="tab-checkin" class="pb-2 font-semibold tab-inactive">✅ Check-In</button>
+            <button onclick="switchTab('reviews')" id="tab-reviews" class="pb-2 font-semibold tab-inactive">📝 Reviews</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -826,6 +827,89 @@
         </div>
     </div>
 
+    <!-- ==================== REVIEWS TAB ==================== -->
+    <div id="view-reviews" class="hidden">
+        <!-- Review Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Total Reviews</div>
+                <div class="text-2xl font-bold" id="totalReviews">0</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Avg Overall Rating</div>
+                <div class="text-2xl font-bold text-yellow-400" id="avgOverallRating">-</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Attendee Feedback</div>
+                <div class="text-2xl font-bold" id="totalFeedback">0</div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-gray-400 text-xs">Avg Attendee Rating</div>
+                <div class="text-2xl font-bold text-green-400" id="avgAttendeeRating">-</div>
+            </div>
+        </div>
+
+        <!-- Rating Breakdown -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h3 class="font-semibold mb-4">📊 Internal Rating Breakdown</h3>
+                <div class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1"><span>Staff Performance</span><span id="avgStaffRating" class="text-yellow-400">-</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="barStaffRating" class="bg-yellow-400 h-2 rounded-full" style="width:0%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm mb-1"><span>Venue Quality</span><span id="avgVenueRating" class="text-blue-400">-</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="barVenueRating" class="bg-blue-400 h-2 rounded-full" style="width:0%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm mb-1"><span>Client Satisfaction</span><span id="avgClientRating" class="text-green-400">-</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="barClientRating" class="bg-green-400 h-2 rounded-full" style="width:0%"></div></div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm mb-1"><span>Logistics</span><span id="avgLogisticsRating" class="text-purple-400">-</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="barLogisticsRating" class="bg-purple-400 h-2 rounded-full" style="width:0%"></div></div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h3 class="font-semibold mb-4">💬 Feedback Categories</h3>
+                <div id="feedbackCategories" class="space-y-2">
+                    <p class="text-gray-500 text-sm">No feedback yet</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Completed Events Needing Review -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+            <h3 class="font-semibold mb-4">✅ Completed Events</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 text-left">
+                            <th class="pb-3 pr-4">Event</th>
+                            <th class="pb-3 pr-4">Date</th>
+                            <th class="pb-3 pr-4">Rating</th>
+                            <th class="pb-3 pr-4">Reviewed</th>
+                            <th class="pb-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reviewsEventsTable">
+                        <tr><td colspan="5" class="py-4 text-center text-gray-500">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Reviews -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <h3 class="font-semibold mb-4">📝 Recent Reviews</h3>
+            <div id="recentReviewsList" class="space-y-3">
+                <p class="text-gray-500 text-sm">No reviews yet. Complete an event and submit a review.</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Check-In QR Modal -->
     <div id="qrModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
@@ -1090,6 +1174,116 @@
                     <button type="button" onclick="closeEditStaffModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Review Modal -->
+    <div id="reviewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">📝 Post-Event Review</h3>
+                <button onclick="closeReviewModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <form id="reviewForm" onsubmit="submitReview(event)" class="space-y-4">
+                <input type="hidden" id="reviewEventId">
+                <div class="bg-gray-700 rounded-lg p-3 mb-2">
+                    <p class="text-sm text-gray-400">Event</p>
+                    <p class="font-semibold" id="reviewEventName">-</p>
+                    <p class="text-xs text-gray-400" id="reviewEventDate">-</p>
+                </div>
+
+                <!-- Star Ratings -->
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Overall Rating *</label>
+                        <div class="flex gap-1" id="overallRatingStars">
+                            <button type="button" onclick="setRating('overall', 1)" class="text-2xl text-gray-600 hover:text-yellow-400 star-btn" data-rating="1">★</button>
+                            <button type="button" onclick="setRating('overall', 2)" class="text-2xl text-gray-600 hover:text-yellow-400 star-btn" data-rating="2">★</button>
+                            <button type="button" onclick="setRating('overall', 3)" class="text-2xl text-gray-600 hover:text-yellow-400 star-btn" data-rating="3">★</button>
+                            <button type="button" onclick="setRating('overall', 4)" class="text-2xl text-gray-600 hover:text-yellow-400 star-btn" data-rating="4">★</button>
+                            <button type="button" onclick="setRating('overall', 5)" class="text-2xl text-gray-600 hover:text-yellow-400 star-btn" data-rating="5">★</button>
+                        </div>
+                        <input type="hidden" id="overallRating" value="0">
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Staff</label>
+                            <div class="flex gap-1" id="staffRatingStars">
+                                <button type="button" onclick="setRating('staff', 1)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="1">★</button>
+                                <button type="button" onclick="setRating('staff', 2)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="2">★</button>
+                                <button type="button" onclick="setRating('staff', 3)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="3">★</button>
+                                <button type="button" onclick="setRating('staff', 4)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="4">★</button>
+                                <button type="button" onclick="setRating('staff', 5)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="5">★</button>
+                            </div>
+                            <input type="hidden" id="staffRating" value="0">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Venue</label>
+                            <div class="flex gap-1" id="venueRatingStars">
+                                <button type="button" onclick="setRating('venue', 1)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="1">★</button>
+                                <button type="button" onclick="setRating('venue', 2)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="2">★</button>
+                                <button type="button" onclick="setRating('venue', 3)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="3">★</button>
+                                <button type="button" onclick="setRating('venue', 4)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="4">★</button>
+                                <button type="button" onclick="setRating('venue', 5)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="5">★</button>
+                            </div>
+                            <input type="hidden" id="venueRating" value="0">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Client</label>
+                            <div class="flex gap-1" id="clientRatingStars">
+                                <button type="button" onclick="setRating('client', 1)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="1">★</button>
+                                <button type="button" onclick="setRating('client', 2)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="2">★</button>
+                                <button type="button" onclick="setRating('client', 3)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="3">★</button>
+                                <button type="button" onclick="setRating('client', 4)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="4">★</button>
+                                <button type="button" onclick="setRating('client', 5)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="5">★</button>
+                            </div>
+                            <input type="hidden" id="clientRating" value="0">
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Logistics</label>
+                            <div class="flex gap-1" id="logisticsRatingStars">
+                                <button type="button" onclick="setRating('logistics', 1)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="1">★</button>
+                                <button type="button" onclick="setRating('logistics', 2)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="2">★</button>
+                                <button type="button" onclick="setRating('logistics', 3)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="3">★</button>
+                                <button type="button" onclick="setRating('logistics', 4)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="4">★</button>
+                                <button type="button" onclick="setRating('logistics', 5)" class="text-lg text-gray-600 hover:text-yellow-400" data-rating="5">★</button>
+                            </div>
+                            <input type="hidden" id="logisticsRating" value="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Highlights</label>
+                    <textarea id="reviewHighlights" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm" placeholder="What went well?"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Issues</label>
+                    <textarea id="reviewIssues" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm" placeholder="Any problems or challenges?"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Recommendations</label>
+                    <textarea id="reviewRecommendations" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm" placeholder="Suggestions for future events"></textarea>
+                </div>
+
+                <div class="flex gap-2">
+                    <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Submit Review</button>
+                    <button type="button" onclick="closeReviewModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- View Reviews Modal -->
+    <div id="viewReviewsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">📋 Event Reviews & Feedback</h3>
+                <button onclick="closeViewReviewsModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div id="viewReviewsContent">
+                <p class="text-gray-500 text-sm">Loading...</p>
+            </div>
         </div>
     </div>
 
@@ -1604,7 +1798,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -1653,6 +1847,9 @@
                 loadCiEvents();
                 loadRecentCheckins();
             }
+            if (tab === 'reviews') {
+                loadReviewSummary();
+            }
         }
 
         // Load all data
@@ -1689,7 +1886,7 @@
         // Load analytics
         async function loadAnalytics() {
             try {
-                const res = await fetch(${API}/analytics, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/analytics`, { headers: getAuthHeadersNoJSON() });
                 const data = await res.json();
                 renderAnalytics(data);
             } catch (err) {
@@ -2373,7 +2570,7 @@
             document.getElementById('addStaffModal').classList.remove('flex');
             document.getElementById('addStaffForm').reset();
             document.getElementById('staffSkills').value = '';
-        });
+        }
 
         document.getElementById('addStaffForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -2591,6 +2788,7 @@
                     <button onclick="exportEventPDF('${event.id}')" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold text-sm">📄 PDF</button>
                     <button onclick="duplicateEvent('${event.id}')" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded font-semibold text-sm">📋 Duplicate</button>
                     ${(event.status || 'pending') === 'pending' ? `<button onclick="closeEventDetailModal(); updateStatus('${event.id}','confirmed')" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold text-sm">Confirm</button>` : ''}
+                    ${(event.status || '') === 'completed' ? `<button onclick="closeEventDetailModal(); openReviewModal('${event.id}', '${(event.event || '').replace(/'/g, "\\'")}', '${event.date || ''}')" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded font-semibold text-sm">📝 Review</button>` : ''}
                 </div>
             `;
             document.getElementById('eventDetailModal').classList.remove('hidden');
@@ -3655,6 +3853,289 @@
                 connectWebSocket();
             }
         })();
+
+        // ==================== REVIEWS & FEEDBACK ====================
+
+        let currentRatings = { overall: 0, staff: 0, venue: 0, client: 0, logistics: 0 };
+
+        function setRating(category, value) {
+            currentRatings[category] = value;
+            const prefix = category === 'overall' ? 'overall' : category;
+            const container = document.getElementById(prefix + 'RatingStars');
+            if (!container) return;
+            const stars = container.querySelectorAll('button');
+            stars.forEach((btn, i) => {
+                if (i < value) {
+                    btn.classList.remove('text-gray-600');
+                    btn.classList.add('text-yellow-400');
+                } else {
+                    btn.classList.remove('text-yellow-400');
+                    btn.classList.add('text-gray-600');
+                }
+            });
+            const input = document.getElementById(prefix + 'Rating');
+            if (input) input.value = value;
+        }
+
+        function resetRatings() {
+            currentRatings = { overall: 0, staff: 0, venue: 0, client: 0, logistics: 0 };
+            ['overall', 'staff', 'venue', 'client', 'logistics'].forEach(cat => {
+                const container = document.getElementById(cat + 'RatingStars');
+                if (!container) return;
+                container.querySelectorAll('button').forEach(btn => {
+                    btn.classList.remove('text-yellow-400');
+                    btn.classList.add('text-gray-600');
+                });
+                const input = document.getElementById(cat + 'Rating');
+                if (input) input.value = 0;
+            });
+        }
+
+        function openReviewModal(eventId, eventName, eventDate) {
+            document.getElementById('reviewEventId').value = eventId;
+            document.getElementById('reviewEventName').textContent = eventName;
+            document.getElementById('reviewEventDate').textContent = eventDate;
+            resetRatings();
+            document.getElementById('reviewHighlights').value = '';
+            document.getElementById('reviewIssues').value = '';
+            document.getElementById('reviewRecommendations').value = '';
+            document.getElementById('reviewModal').classList.remove('hidden');
+            document.getElementById('reviewModal').classList.add('flex');
+        }
+
+        function closeReviewModal() {
+            document.getElementById('reviewModal').classList.add('hidden');
+            document.getElementById('reviewModal').classList.remove('flex');
+        }
+
+        async function submitReview(event) {
+            event.preventDefault();
+            const eventId = document.getElementById('reviewEventId').value;
+            if (!eventId) return;
+
+            const overall = parseInt(document.getElementById('overallRating').value) || 0;
+            if (overall < 1 || overall > 5) {
+                showToast('Please provide an overall rating', 'warning');
+                return;
+            }
+
+            const body = {
+                overall_rating: overall,
+                staff_rating: parseInt(document.getElementById('staffRating').value) || 0,
+                venue_rating: parseInt(document.getElementById('venueRating').value) || 0,
+                client_rating: parseInt(document.getElementById('clientRating').value) || 0,
+                logistics_rating: parseInt(document.getElementById('logisticsRating').value) || 0,
+                highlights: document.getElementById('reviewHighlights').value,
+                issues: document.getElementById('reviewIssues').value,
+                recommendations: document.getElementById('reviewRecommendations').value
+            };
+
+            try {
+                const res = await fetch(`${API}/events/${eventId}/review`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Review submitted successfully!', 'success');
+                    closeReviewModal();
+                    loadReviewSummary();
+                    loadData();
+                } else {
+                    showToast(data.error || 'Failed to submit review', 'error');
+                }
+            } catch (err) {
+                showToast('Error submitting review: ' + err.message, 'error');
+            }
+        }
+
+        async function loadReviewSummary() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/reviews/summary`, { headers });
+                const data = await res.json();
+
+                // Update stats
+                document.getElementById('totalReviews').textContent = data.reviews?.total || 0;
+                document.getElementById('avgOverallRating').textContent = data.reviews?.avg_overall > 0 ? '★ ' + data.reviews.avg_overall : '-';
+                document.getElementById('totalFeedback').textContent = data.attendee_feedback?.total || 0;
+                document.getElementById('avgAttendeeRating').textContent = data.attendee_feedback?.avg_rating > 0 ? '★ ' + data.attendee_feedback.avg_rating : '-';
+
+                // Update rating bars
+                const updateBar = (id, val) => {
+                    const el = document.getElementById(id);
+                    if (el) el.textContent = val > 0 ? '★ ' + val : '-';
+                };
+                const updateBarWidth = (id, val) => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.width = (val / 5 * 100) + '%';
+                };
+                updateBar('avgStaffRating', data.reviews?.avg_staff);
+                updateBar('avgVenueRating', data.reviews?.avg_venue);
+                updateBar('avgClientRating', data.reviews?.avg_client);
+                updateBar('avgLogisticsRating', data.reviews?.avg_logistics);
+                updateBarWidth('barStaffRating', data.reviews?.avg_staff);
+                updateBarWidth('barVenueRating', data.reviews?.avg_venue);
+                updateBarWidth('barClientRating', data.reviews?.avg_client);
+                updateBarWidth('barLogisticsRating', data.reviews?.avg_logistics);
+
+                // Feedback categories
+                const catContainer = document.getElementById('feedbackCategories');
+                if (data.attendee_feedback?.categories?.length > 0) {
+                    catContainer.innerHTML = data.attendee_feedback.categories.map(c =>
+                        `<div class="flex justify-between items-center bg-gray-700 rounded px-3 py-2">
+                            <span class="capitalize">${c.category}</span>
+                            <span class="text-sm"><span class="text-yellow-400">★ ${c.avg_rating ? Math.round(c.avg_rating * 10) / 10 : '-'}</span> <span class="text-gray-500">(${c.count})</span></span>
+                        </div>`
+                    ).join('');
+                } else {
+                    catContainer.innerHTML = '<p class="text-gray-500 text-sm">No feedback yet</p>';
+                }
+
+                // Completed events table
+                const tableBody = document.getElementById('reviewsEventsTable');
+                if (data.completed_events?.length > 0) {
+                    tableBody.innerHTML = data.completed_events.map(ev => `
+                        <tr class="border-t border-gray-700">
+                            <td class="py-3 pr-4">
+                                <div class="font-medium">${ev.event || 'Untitled'}</div>
+                            </td>
+                            <td class="py-3 pr-4 text-gray-400">${ev.date || '-'}</td>
+                            <td class="py-3 pr-4">
+                                ${ev.avg_rating > 0 ? '<span class="text-yellow-400">★ ' + ev.avg_rating + '</span>' : '<span class="text-gray-500">-</span>'}
+                            </td>
+                            <td class="py-3 pr-4">
+                                ${ev.review_completed ? '<span class="text-green-400">✓ Yes</span>' : '<span class="text-yellow-400">Pending</span>'}
+                            </td>
+                            <td class="py-3">
+                                <div class="flex gap-1">
+                                    <button onclick="openReviewModal('${ev.id}', '${(ev.event || '').replace(/'/g, "\\'")}', '${ev.date || ''}')" class="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded text-xs">${ev.review_completed ? '📝 Review Again' : '📝 Review'}</button>
+                                    <button onclick="viewEventReviews('${ev.id}', '${(ev.event || '').replace(/'/g, "\\'")}')" class="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 rounded text-xs">📋 View</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">No completed events</td></tr>';
+                }
+
+                // Recent reviews list
+                const recentList = document.getElementById('recentReviewsList');
+                const allReviews = [];
+                for (const ev of (data.completed_events || []).slice(0, 5)) {
+                    try {
+                        const rRes = await fetch(`${API}/events/${ev.id}/reviews`, { headers });
+                        const rData = await rRes.json();
+                        if (rData.reviews?.length > 0) {
+                            allReviews.push(...rData.reviews.map(r => ({ ...r, event_name: ev.event, event_date: ev.date })));
+                        }
+                    } catch (e) { /* skip */ }
+                }
+                allReviews.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+                if (allReviews.length > 0) {
+                    recentList.innerHTML = allReviews.slice(0, 10).map(r => `
+                        <div class="bg-gray-700 rounded-lg p-3">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <span class="font-medium">${r.event_name || 'Event'}</span>
+                                    <span class="text-gray-400 text-xs ml-2">${r.event_date || ''}</span>
+                                </div>
+                                <span class="text-yellow-400 text-sm">${'★'.repeat(r.overall_rating || 0)}${'☆'.repeat(5 - (r.overall_rating || 0))}</span>
+                            </div>
+                            <div class="text-xs text-gray-400 mb-1">By: ${r.reviewer || 'Anonymous'} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</div>
+                            ${r.highlights ? `<p class="text-sm text-green-300 mt-1">✓ ${r.highlights}</p>` : ''}
+                            ${r.issues ? `<p class="text-sm text-red-300 mt-1">⚠ ${r.issues}</p>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    recentList.innerHTML = '<p class="text-gray-500 text-sm">No reviews yet. Complete an event and submit a review.</p>';
+                }
+            } catch (err) {
+                console.error('Failed to load review summary:', err);
+            }
+        }
+
+        async function viewEventReviews(eventId, eventName) {
+            const content = document.getElementById('viewReviewsContent');
+            content.innerHTML = '<p class="text-gray-500 text-sm">Loading...</p>';
+            document.getElementById('viewReviewsModal').classList.remove('hidden');
+            document.getElementById('viewReviewsModal').classList.add('flex');
+
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const [reviewsRes, feedbackRes] = await Promise.all([
+                    fetch(`${API}/events/${eventId}/reviews`, { headers }),
+                    fetch(`${API}/events/${eventId}/feedback`, { headers })
+                ]);
+                const reviewsData = await reviewsRes.json();
+                const feedbackData = await feedbackRes.json();
+
+                let html = `<h4 class="font-semibold mb-3">${eventName || 'Event'} - Reviews & Feedback</h4>`;
+
+                // Internal reviews
+                html += '<h5 class="text-sm font-semibold text-gray-400 mb-2">📝 Internal Reviews</h5>';
+                if (reviewsData.reviews?.length > 0) {
+                    html += reviewsData.reviews.map(r => `
+                        <div class="bg-gray-700 rounded-lg p-3 mb-2">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm font-medium">${r.reviewer || 'Anonymous'}</span>
+                                <span class="text-yellow-400 text-sm">Overall: ${'★'.repeat(r.overall_rating || 0)}${'☆'.repeat(5 - (r.overall_rating || 0))}</span>
+                            </div>
+                            <div class="grid grid-cols-4 gap-2 text-xs text-gray-400 mb-2">
+                                <span>Staff: ${r.staff_rating || 0}★</span>
+                                <span>Venue: ${r.venue_rating || 0}★</span>
+                                <span>Client: ${r.client_rating || 0}★</span>
+                                <span>Logistics: ${r.logistics_rating || 0}★</span>
+                            </div>
+                            ${r.highlights ? `<p class="text-xs text-green-300">✓ ${r.highlights}</p>` : ''}
+                            ${r.issues ? `<p class="text-xs text-red-300">⚠ ${r.issues}</p>` : ''}
+                            ${r.recommendations ? `<p class="text-xs text-blue-300">💡 ${r.recommendations}</p>` : ''}
+                            <p class="text-xs text-gray-500 mt-1">${r.created_at ? new Date(r.created_at).toLocaleString() : ''}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    html += '<p class="text-gray-500 text-sm mb-3">No internal reviews yet</p>';
+                }
+
+                // Attendee feedback
+                html += '<h5 class="text-sm font-semibold text-gray-400 mb-2 mt-4">💬 Attendee Feedback</h5>';
+                if (feedbackData.feedback?.length > 0) {
+                    html += feedbackData.feedback.map(f => `
+                        <div class="bg-gray-700 rounded-lg p-3 mb-2">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-sm">${f.attendee_name || 'Anonymous'} <span class="text-gray-500 text-xs">(${f.category})</span></span>
+                                <span class="text-yellow-400 text-sm">${'★'.repeat(f.rating || 0)}${'☆'.repeat(5 - (f.rating || 0))}</span>
+                            </div>
+                            ${f.feedback ? `<p class="text-xs text-gray-300">${f.feedback}</p>` : ''}
+                            <p class="text-xs text-gray-500 mt-1">${f.created_at ? new Date(f.created_at).toLocaleString() : ''}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    html += '<p class="text-gray-500 text-sm">No attendee feedback yet</p>';
+                }
+
+                content.innerHTML = html;
+            } catch (err) {
+                content.innerHTML = `<p class="text-red-400 text-sm">Error loading reviews: ${err.message}</p>`;
+            }
+        }
+
+        function closeViewReviewsModal() {
+            document.getElementById('viewReviewsModal').classList.add('hidden');
+            document.getElementById('viewReviewsModal').classList.remove('flex');
+        }
+
+        // Close modals on outside click
+        ['reviewModal', 'viewReviewsModal'].forEach(modalId => {
+            document.getElementById(modalId).addEventListener('click', (e) => {
+                if (e.target.id === modalId) {
+                    if (modalId === 'reviewModal') closeReviewModal();
+                    if (modalId === 'viewReviewsModal') closeViewReviewsModal();
+                }
+            });
+        });
 </script>
 </body>
 </html>
