@@ -280,6 +280,43 @@ db.run(`CREATE TABLE IF NOT EXISTS attendee_feedback (
 db.run(`ALTER TABLE events ADD COLUMN review_completed INTEGER DEFAULT 0`, () => {});
 db.run(`ALTER TABLE events ADD COLUMN avg_rating REAL DEFAULT 0`, () => {});
 
+// Create clients table for client management
+db.run(`CREATE TABLE IF NOT EXISTS clients (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  company TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  vat_number TEXT DEFAULT '',
+  payment_terms TEXT DEFAULT '30 days',
+  notes TEXT DEFAULT '',
+  tags TEXT DEFAULT '[]',
+  is_active INTEGER DEFAULT 1,
+  total_events INTEGER DEFAULT 0,
+  total_revenue REAL DEFAULT 0,
+  last_event_date TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Add client_id to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN client_id INTEGER DEFAULT 0`, () => {});
+
+// Create client_communications log table
+db.run(`CREATE TABLE IF NOT EXISTS client_communications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  client_id INTEGER NOT NULL,
+  event_id TEXT DEFAULT '',
+  type TEXT DEFAULT 'email',
+  direction TEXT DEFAULT 'outbound',
+  subject TEXT DEFAULT '',
+  body TEXT DEFAULT '',
+  status TEXT DEFAULT 'sent',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES clients(id)
+)`);
+
 // Create email_settings table for SMTP configuration
 db.run(`CREATE TABLE IF NOT EXISTS email_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -741,7 +778,7 @@ app.get('/api/events', (req, res) => {
 // POST /api/events (with staff shortage warning)
 app.post('/api/events', async (req, res) => {
   try {
-    const { event, date, time, location, client, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget } = req.body;
+    const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time } = req.body;
     const id = await generateEventID(date);
     const staffList = staff || [];
     const activeStaffCount = await getActiveStaffCount();
@@ -760,13 +797,16 @@ app.post('/api/events', async (req, res) => {
     const curr = currency || 'ZAR';
     const evtBudget = budget || 0;
     const cliEmail = client_email || '';
+    const cliId = client_id || 0;
+    const guestCount = guests || 0;
+    const endTime = end_time || '';
     
     db.run(
-      `INSERT INTO events (id, event, date, time, location, client, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, event, date, time, location, client, cliEmail, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget],
+      `INSERT INTO events (id, event, date, time, end_time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, event, date, time, endTime, location, client, cliId, cliEmail, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget, guestCount],
       async function(err) {
         if (err) return res.status(500).json({error: err.message});
-        const newEvent = {id, event, date, time, location, client, client_email: cliEmail, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget};
+        const newEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, client_email: cliEmail, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount};
         const icsContent = generateICS(newEvent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(newEvent, null, 2));
@@ -774,6 +814,13 @@ app.post('/api/events', async (req, res) => {
         try { await backupDatabase(); } catch(e) { console.error('Backup failed:', e); }
         // Auto-notify client and staff via email
         try { await autoNotifyEvent(newEvent, staffList); } catch(e) { console.error('Auto-notify failed:', e); }
+        // Update client stats if linked
+        if (cliId > 0) {
+          try {
+            db.run(`UPDATE clients SET total_events = total_events + 1, last_event_date = ?, updated_at = ? WHERE id = ?`,
+              [date, new Date().toISOString(), cliId]);
+          } catch(e) { console.error('Client stats update failed:', e); }
+        }
         // Send push notification
         try { sendPushNotification(`New Event: ${event}`, `${date} at ${time} - ${location}`, '/'); } catch(e) { console.error('Push notify failed:', e); }
         // Broadcast real-time update
@@ -788,20 +835,23 @@ app.post('/api/events', async (req, res) => {
 
 // PUT /api/events/:id
 app.put('/api/events/:id', (req, res) => {
-  const { event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency, budget } = req.body;
+  const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time } = req.body;
   const id = req.params.id;
   const staffJSON = JSON.stringify(staff || []);
   const estCost = estimated_cost || 0;
   const actCost = actual_cost || 0;
   const curr = currency || 'ZAR';
   const evtBudget = budget || 0;
+  const cliId = client_id || 0;
+  const guestCount = guests || 0;
+  const endTime = end_time || '';
   db.run(
-    `UPDATE events SET event=?, date=?, time=?, location=?, client=?, services=?, staff=?, notes=?, estimated_cost=?, actual_cost=?, currency=?, budget=? WHERE id=?`,
-    [event, date, time, location, client, services, staffJSON, notes, estCost, actCost, curr, evtBudget, id],
+    `UPDATE events SET event=?, date=?, time=?, end_time=?, location=?, client=?, client_id=?, client_email=?, services=?, staff=?, notes=?, estimated_cost=?, actual_cost=?, currency=?, budget=?, guests=? WHERE id=?`,
+    [event, date, time, endTime, location, client, cliId, client_email || '', services, staffJSON, notes, estCost, actCost, curr, evtBudget, guestCount, id],
     async function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
-      const updatedEvent = {id, event, date, time, location, client, services, staff: JSON.parse(staffJSON), notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget};
+      const updatedEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, services, staff: JSON.parse(staffJSON), notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount};
       const icsContent = generateICS(updatedEvent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(updatedEvent, null, 2));
@@ -1700,13 +1750,13 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.14.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.15.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
 app.post('/api/events/recurring', async (req, res) => {
   try {
-    const { event, startDate, endDate, time, location, client, services, staff, notes, frequency } = req.body;
+    const { event, startDate, endDate, time, location, client, client_id, services, staff, notes, frequency } = req.body;
     if (!event || !startDate || !endDate || !time) {
       return res.status(400).json({ error: 'Event name, startDate, endDate, and time are required' });
     }
@@ -1734,13 +1784,18 @@ app.post('/api/events/recurring', async (req, res) => {
       const notesText = notes || `Dress Code: All Black\nArrival Time: ${parseInt(time.split(':')[0]) - 1}:${time.split(':')[1]}`;
       const fullNotes = warnings.length > 0 ? `${notesText}\n\n⚠️ WARNINGS:\n${warnings.join('\n')}` : notesText;
 
+      const cliId = client_id || 0;
+      const estCost = estimated_cost || 0;
+      const actCost = actual_cost || 0;
+      const curr = currency || 'ZAR';
+
       await new Promise((resolve, reject) => {
         db.run(
-          `INSERT INTO events (id, event, date, time, location, client, services, staff, notes, estimated_cost, actual_cost, currency) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [id, event, dateStr, time, location, client, services, staffJSON, fullNotes, estimated_cost || 0, actual_cost || 0, currency || 'ZAR'],
+          `INSERT INTO events (id, event, date, time, location, client, client_id, services, staff, notes, estimated_cost, actual_cost, currency) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [id, event, dateStr, time, location, client, cliId, services, staffJSON, fullNotes, estCost, actCost, curr],
           function(err) {
             if (err) return reject(err);
-            createdEvents.push({ id, event, date: dateStr, time, location, client, services, staff: staffList, notes: fullNotes });
+            createdEvents.push({ id, event, date: dateStr, time, location, client, client_id: cliId, services, staff: staffList, notes: fullNotes });
             resolve();
           }
         );
@@ -2325,6 +2380,254 @@ app.get('/api/todays-events', (req, res) => {
   );
 });
 
+// ==================== CLIENT MANAGEMENT API ====================
+
+// GET /api/clients - List all clients with search and filter
+app.get('/api/clients', (req, res) => {
+  const { search, tag, status, sort = 'name', order = 'ASC', limit = 100, offset = 0 } = req.query;
+
+  let sql = `SELECT * FROM clients WHERE 1=1`;
+  const params = [];
+
+  if (search) {
+    sql += ` AND (name LIKE ? OR company LIKE ? OR email LIKE ? OR phone LIKE ?)`;
+    const s = `%${search}%`;
+    params.push(s, s, s, s);
+  }
+
+  if (tag) {
+    sql += ` AND tags LIKE ?`;
+    params.push(`%${tag}%`);
+  }
+
+  if (status === 'active') {
+    sql += ` AND is_active = 1`;
+  } else if (status === 'inactive') {
+    sql += ` AND is_active = 0`;
+  }
+
+  const allowedSorts = ['name', 'company', 'total_events', 'total_revenue', 'last_event_date', 'created_at'];
+  const sortCol = allowedSorts.includes(sort) ? sort : 'name';
+  const sortOrder = order === 'DESC' ? 'DESC' : 'ASC';
+
+  sql += ` ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`;
+  params.push(parseInt(limit), parseInt(offset));
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // Parse tags JSON for each client
+    const clients = rows.map(r => ({
+      ...r,
+      tags: JSON.parse(r.tags || '[]'),
+    }));
+
+    // Get total count
+    db.get(`SELECT COUNT(*) as total FROM clients WHERE 1=1${search ? ` AND (name LIKE ? OR company LIKE ? OR email LIKE ? OR phone LIKE ?)` : ''}${tag ? ` AND tags LIKE ?` : ''}${status === 'active' ? ` AND is_active = 1` : ''}${status === 'inactive' ? ` AND is_active = 0` : ''}`, search ? [ `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%` ] : [], (err2, countRow) => {
+      res.json({
+        success: true,
+        clients,
+        total: countRow?.total || clients.length,
+      });
+    });
+  });
+});
+
+// GET /api/clients/:id - Get single client with event history
+app.get('/api/clients/:id', (req, res) => {
+  const { id } = req.params;
+
+  db.get(`SELECT * FROM clients WHERE id = ?`, [id], (err, client) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!client) return res.status(404).json({ error: 'Client not found' });
+
+    // Parse tags
+    client.tags = JSON.parse(client.tags || '[]');
+
+    // Get event history
+    db.all(
+      `SELECT id, event, date, time, location, status, estimated_cost, actual_cost, guests, end_time
+       FROM events
+       WHERE client_id = ? OR client = ?
+       ORDER BY date DESC
+       LIMIT 50`,
+      [id, client.name],
+      (err2, events) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+
+        // Get communication history
+        db.all(
+          `SELECT * FROM client_communications
+           WHERE client_id = ?
+           ORDER BY created_at DESC
+           LIMIT 30`,
+          [id],
+          (err3, communications) => {
+            if (err3) return res.status(500).json({ error: err3.message });
+
+            // Calculate stats
+            const totalEvents = events.length;
+            const completedEvents = events.filter(e => e.status === 'completed').length;
+            const totalRevenue = events.reduce((sum, e) => sum + (e.actual_cost || e.estimated_cost || 0), 0);
+
+            res.json({
+              success: true,
+              client,
+              events: events || [],
+              communications: communications || [],
+              stats: {
+                totalEvents,
+                completedEvents,
+                totalRevenue,
+              },
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+// POST /api/clients - Create new client
+app.post('/api/clients', (req, res) => {
+  const { name, company, email, phone, address, vat_number, payment_terms, notes, tags } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Client name is required' });
+
+  const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]');
+  const now = new Date().toISOString();
+
+  db.run(
+    `INSERT INTO clients (name, company, email, phone, address, vat_number, payment_terms, notes, tags, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, company || '', email || '', phone || '', address || '', vat_number || '', payment_terms || '30 days', notes || '', tagsJson, now],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Auto-link existing events with matching client name
+      db.all(`SELECT id FROM events WHERE client = ? AND client_id = 0`, [name], (err2, events) => {
+        if (!err2 && events.length > 0) {
+          const stmt = db.prepare(`UPDATE events SET client_id = ? WHERE id = ?`);
+          events.forEach(e => stmt.run([this.lastID, e.id]));
+          stmt.finalize();
+
+          // Update client stats
+          db.run(`UPDATE clients SET total_events = ?, last_event_date = (SELECT MAX(date) FROM events WHERE client_id = ?) WHERE id = ?`,
+            [events.length, this.lastID, this.lastID]);
+        }
+      });
+
+      res.json({
+        success: true,
+        id: this.lastID,
+        message: `Client "${name}" created successfully`,
+      });
+    }
+  );
+});
+
+// PUT /api/clients/:id - Update client
+app.put('/api/clients/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, company, email, phone, address, vat_number, payment_terms, notes, tags, is_active } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Client name is required' });
+
+  const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]');
+  const now = new Date().toISOString();
+
+  db.run(
+    `UPDATE clients SET name = ?, company = ?, email = ?, phone = ?, address = ?,
+     vat_number = ?, payment_terms = ?, notes = ?, tags = ?, is_active = ?, updated_at = ?
+     WHERE id = ?`,
+    [name, company || '', email || '', phone || '', address || '', vat_number || '', payment_terms || '30 days', notes || '', tagsJson, is_active !== undefined ? (is_active ? 1 : 0) : 1, now, id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Client not found' });
+
+      res.json({ success: true, message: `Client "${name}" updated successfully` });
+    }
+  );
+});
+
+// DELETE /api/clients/:id - Delete client
+app.delete('/api/clients/:id', (req, res) => {
+  const { id } = req.params;
+
+  db.get(`SELECT name FROM clients WHERE id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Client not found' });
+
+    // Unlink events first
+    db.run(`UPDATE events SET client_id = 0 WHERE client_id = ?`, [id], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      db.run(`DELETE FROM client_communications WHERE client_id = ?`, [id], (err3) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+
+        db.run(`DELETE FROM clients WHERE id = ?`, [id], (err4) => {
+          if (err4) return res.status(500).json({ error: err4.message });
+          res.json({ success: true, message: `Client "${row.name}" deleted` });
+        });
+      });
+    });
+  });
+});
+
+// POST /api/clients/:id/communications - Log communication
+app.post('/api/clients/:id/communications', (req, res) => {
+  const { id } = req.params;
+  const { event_id, type, direction, subject, body, status } = req.body;
+
+  db.run(
+    `INSERT INTO client_communications (client_id, event_id, type, direction, subject, body, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, event_id || '', type || 'email', direction || 'outbound', subject || '', body || '', status || 'sent'],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID, message: 'Communication logged' });
+    }
+  );
+});
+
+// GET /api/clients/stats/summary - Client statistics
+app.get('/api/clients/stats/summary', (req, res) => {
+  db.get(`SELECT COUNT(*) as total_clients FROM clients WHERE is_active = 1`, [], (err, active) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    db.get(`SELECT COUNT(*) as total_clients FROM clients`, [], (err2, all) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      db.get(`SELECT SUM(total_revenue) as total_revenue FROM clients`, [], (err3, revenue) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+
+        db.get(`SELECT SUM(total_events) as total_events FROM clients`, [], (err4, events) => {
+          if (err4) return res.status(500).json({ error: err4.message });
+
+          // Get top clients by revenue
+          db.all(
+            `SELECT id, name, company, total_events, total_revenue FROM clients
+             WHERE is_active = 1 ORDER BY total_revenue DESC LIMIT 5`,
+            [],
+            (err5, topClients) => {
+              if (err5) return res.status(500).json({ error: err5.message });
+
+              res.json({
+                success: true,
+                activeClients: active?.total_clients || 0,
+                totalClients: all?.total_clients || 0,
+                totalRevenue: revenue?.total_revenue || 0,
+                totalClientEvents: events?.total_events || 0,
+                topClients: topClients || [],
+              });
+            }
+          );
+        });
+      });
+    });
+  });
+});
+
 // ==================== WEBSOCKET SERVER ====================
 
 const { WebSocketServer } = require('ws');
@@ -2386,6 +2689,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.14 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.15 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

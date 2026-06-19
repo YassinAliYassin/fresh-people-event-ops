@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.14</title>
+    <title>Fresh People Event Ops v4.15</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -94,6 +94,7 @@
             <button onclick="switchTab('users')" id="tab-users" class="pb-2 font-semibold tab-inactive">👥 Users</button>
             <button onclick="switchTab('checkin')" id="tab-checkin" class="pb-2 font-semibold tab-inactive">✅ Check-In</button>
             <button onclick="switchTab('reviews')" id="tab-reviews" class="pb-2 font-semibold tab-inactive">📝 Reviews</button>
+            <button onclick="switchTab('clients')" id="tab-clients" class="pb-2 font-semibold tab-inactive">🏢 Clients</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -179,7 +180,13 @@
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Client</label>
-                            <input type="text" id="eventClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <div class="flex gap-2">
+                                <input type="text" id="eventClient" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Type client name...">
+                                <select id="eventClientSelect" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm" onchange="selectClientFromDropdown()">
+                                    <option value="">— Select —</option>
+                                </select>
+                            </div>
+                            <input type="hidden" id="eventClientId" value="0">
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Client Email</label>
@@ -392,7 +399,13 @@
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Client</label>
-                            <input type="text" id="recClient" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <div class="flex gap-2">
+                                <input type="text" id="recClient" class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Type client name...">
+                                <select id="recClientSelect" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm" onchange="selectRecClientFromDropdown()">
+                                    <option value="">— Select —</option>
+                                </select>
+                            </div>
+                            <input type="hidden" id="recClientId" value="0">
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Services</label>
@@ -917,6 +930,165 @@
             <h3 class="font-semibold mb-4">📝 Recent Reviews</h3>
             <div id="recentReviewsList" class="space-y-3">
                 <p class="text-gray-500 text-sm">No reviews yet. Complete an event and submit a review.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== CLIENTS TAB ==================== -->
+    <div id="view-clients" class="hidden">
+        <!-- Client Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Active Clients</p>
+                <p id="clientStatActive" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Clients</p>
+                <p id="clientStatTotal" class="text-2xl font-bold text-green-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Revenue</p>
+                <p id="clientStatRevenue" class="text-2xl font-bold text-yellow-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Client Events</p>
+                <p id="clientStatEvents" class="text-2xl font-bold text-purple-400">-</p>
+            </div>
+        </div>
+
+        <!-- Search and Add -->
+        <div class="flex flex-col md:flex-row gap-4 mb-6">
+            <div class="flex-1">
+                <input type="text" id="clientSearch" placeholder="🔍 Search clients by name, company, email..."
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white"
+                    oninput="debounce(loadClients, 300)()">
+            </div>
+            <select id="clientStatusFilter" class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white" onchange="loadClients()">
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+            <select id="clientSort" class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white" onchange="loadClients()">
+                <option value="name">Sort by Name</option>
+                <option value="total_revenue">Sort by Revenue</option>
+                <option value="total_events">Sort by Events</option>
+                <option value="last_event_date">Sort by Last Event</option>
+                <option value="created_at">Sort by Created</option>
+            </select>
+            <button onclick="openClientModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold whitespace-nowrap">+ Add Client</button>
+        </div>
+
+        <!-- Client Cards Grid -->
+        <div id="clientsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <div class="col-span-full text-center text-gray-500 py-8">Loading clients...</div>
+        </div>
+
+        <!-- Top Clients -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <h3 class="font-semibold mb-4">🏆 Top Clients by Revenue</h3>
+            <div id="topClientsList" class="space-y-2">
+                <p class="text-gray-500 text-sm">No clients yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Client Detail Modal -->
+    <div id="clientDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 id="clientDetailTitle" class="text-lg font-bold">Client Details</h3>
+                <button onclick="closeClientDetailModal()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+            </div>
+            <div class="p-4">
+                <!-- Client Info -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Name *</label>
+                        <input type="text" id="cdName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Company</label>
+                        <input type="text" id="cdCompany" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Email</label>
+                        <input type="email" id="cdEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Phone</label>
+                        <input type="tel" id="cdPhone" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Address</label>
+                        <input type="text" id="cdAddress" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">VAT Number</label>
+                        <input type="text" id="cdVat" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Payment Terms</label>
+                        <select id="cdPaymentTerms" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="15 days">15 days</option>
+                            <option value="30 days">30 days</option>
+                            <option value="60 days">60 days</option>
+                            <option value="On Receipt">On Receipt</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Tags (comma-separated)</label>
+                        <input type="text" id="cdTags" placeholder="corporate, wedding, regular" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm text-gray-400 mb-1">Notes</label>
+                    <textarea id="cdNotes" rows="3" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></textarea>
+                </div>
+                <div class="flex items-center gap-4 mb-6">
+                    <label class="flex items-center gap-2">
+                        <input type="checkbox" id="cdActive" checked class="rounded">
+                        <span class="text-sm text-gray-400">Active</span>
+                    </label>
+                    <div class="flex-1"></div>
+                    <button id="cdDeleteBtn" onclick="deleteClient()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm">🗑️ Delete</button>
+                    <button onclick="saveClientDetail()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold">💾 Save</button>
+                </div>
+
+                <!-- Stats -->
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="bg-gray-700 rounded-lg p-3 text-center">
+                        <p class="text-gray-400 text-xs">Total Events</p>
+                        <p id="cdStatEvents" class="text-xl font-bold text-blue-400">0</p>
+                    </div>
+                    <div class="bg-gray-700 rounded-lg p-3 text-center">
+                        <p class="text-gray-400 text-xs">Completed</p>
+                        <p id="cdStatCompleted" class="text-xl font-bold text-green-400">0</p>
+                    </div>
+                    <div class="bg-gray-700 rounded-lg p-3 text-center">
+                        <p class="text-gray-400 text-xs">Total Revenue</p>
+                        <p id="cdStatRevenue" class="text-xl font-bold text-yellow-400">R 0</p>
+                    </div>
+                </div>
+
+                <!-- Event History -->
+                <div class="mb-4">
+                    <h4 class="font-semibold mb-2">📅 Event History</h4>
+                    <div id="cdEventHistory" class="space-y-2 max-h-60 overflow-y-auto">
+                        <p class="text-gray-500 text-sm">No events found.</p>
+                    </div>
+                </div>
+
+                <!-- Communication Log -->
+                <div>
+                    <h4 class="font-semibold mb-2">📧 Communication Log</h4>
+                    <div id="cdCommLog" class="space-y-2 max-h-40 overflow-y-auto mb-3">
+                        <p class="text-gray-500 text-sm">No communications logged.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <input type="text" id="cdCommNote" placeholder="Log a note..." class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                        <button onclick="logClientNote()" class="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded text-sm">+ Add</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -1809,7 +1981,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -1861,6 +2033,10 @@
             if (tab === 'reviews') {
                 loadReviewSummary();
             }
+            if (tab === 'clients') {
+                loadClients();
+                loadClientStats();
+            }
         }
 
         // Load all data
@@ -1890,6 +2066,7 @@
                 renderBackups(backups);
                 populateTemplates();
                 loadTodaysEvents();
+                loadClientDropdown();
             } catch (err) {
                 console.error('Failed to load data:', err);
             }
@@ -2315,14 +2492,18 @@
                 event: document.getElementById('eventName').value,
                 date: document.getElementById('eventDate').value,
                 time: document.getElementById('eventTime').value,
+                end_time: document.getElementById('eventEndTime')?.value || '',
                 location: document.getElementById('eventLocation').value,
                 client: document.getElementById('eventClient').value,
+                client_id: parseInt(document.getElementById('eventClientId')?.value) || 0,
                 client_email: document.getElementById('eventClientEmail').value,
                 services: document.getElementById('eventServices').value,
                 staff: staff,
                 notes: document.getElementById('eventNotes').value,
                 estimated_cost: parseFloat(document.getElementById('eventEstCost').value) || 0,
-                budget: parseFloat(document.getElementById('eventBudget').value) || 0
+                actual_cost: parseFloat(document.getElementById('eventActCost')?.value) || 0,
+                budget: parseFloat(document.getElementById('eventBudget').value) || 0,
+                guests: parseInt(document.getElementById('eventGuests')?.value) || 0,
             };
             const res = await fetch(`${API}/events`, { method: 'POST', headers: getAuthHeaders(),
                 headers: {'Content-Type': 'application/json'},
@@ -2388,6 +2569,7 @@
                 time: document.getElementById('recTime').value,
                 location: document.getElementById('recLocation').value,
                 client: document.getElementById('recClient').value,
+                client_id: parseInt(document.getElementById('recClientId')?.value) || 0,
                 services: document.getElementById('recServices').value,
                 staff: staff,
                 notes: document.getElementById('recNotes').value,
@@ -4314,6 +4496,386 @@
             modal.classList.add('hidden');
             modal.classList.remove('flex');
         }
+
+        // ==================== CLIENT MANAGEMENT ====================
+
+        let currentClientId = null;
+        let allClients = [];
+
+        // Debounce helper
+        function debounce(fn, ms) {
+            let timer;
+            return function(...args) {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn.apply(this, args), ms);
+            };
+        }
+
+        // Load clients list
+        async function loadClients() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const search = document.getElementById('clientSearch')?.value || '';
+                const status = document.getElementById('clientStatusFilter')?.value || '';
+                const sort = document.getElementById('clientSort')?.value || 'name';
+
+                let url = `${API}/clients?sort=${sort}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+                if (status) url += `&status=${status}`;
+
+                const res = await fetch(url, { headers });
+                const data = await res.json();
+                allClients = data.clients || [];
+                renderClients(allClients);
+            } catch (err) {
+                console.error('Failed to load clients:', err);
+                document.getElementById('clientsGrid').innerHTML = `<div class="col-span-full text-center text-red-400 py-8">Error: ${err.message}</div>`;
+            }
+        }
+
+        // Render client cards
+        function renderClients(clients) {
+            const grid = document.getElementById('clientsGrid');
+            if (!clients.length) {
+                grid.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No clients found. Add your first client!</div>';
+                return;
+            }
+
+            grid.innerHTML = clients.map(c => `
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500 cursor-pointer transition-colors" onclick="openClientDetail(${c.id})">
+                    <div class="flex items-start justify-between mb-2">
+                        <div>
+                            <h4 class="font-semibold text-white">${escapeHtml(c.name)}</h4>
+                            ${c.company ? `<p class="text-sm text-gray-400">${escapeHtml(c.company)}</p>` : ''}
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-xs ${c.is_active ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${c.is_active ? 'Active' : 'Inactive'}</span>
+                    </div>
+                    <div class="text-sm text-gray-400 space-y-1">
+                        ${c.email ? `<p>📧 ${escapeHtml(c.email)}</p>` : ''}
+                        ${c.phone ? `<p>📱 ${escapeHtml(c.phone)}</p>` : ''}
+                    </div>
+                    <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-700">
+                        <span class="text-xs text-gray-500">${c.total_events || 0} events</span>
+                        <span class="text-sm font-semibold text-yellow-400">R ${(c.total_revenue || 0).toLocaleString()}</span>
+                    </div>
+                    ${c.tags?.length ? `<div class="flex flex-wrap gap-1 mt-2">${c.tags.map(t => `<span class="px-2 py-0.5 bg-gray-700 rounded text-xs text-gray-300">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Load client stats
+        async function loadClientStats() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/clients/stats/summary`, { headers });
+                const data = await res.json();
+
+                document.getElementById('clientStatActive').textContent = data.activeClients || 0;
+                document.getElementById('clientStatTotal').textContent = data.totalClients || 0;
+                document.getElementById('clientStatRevenue').textContent = `R ${(data.totalRevenue || 0).toLocaleString()}`;
+                document.getElementById('clientStatEvents').textContent = data.totalClientEvents || 0;
+
+                // Render top clients
+                const topList = document.getElementById('topClientsList');
+                if (data.topClients?.length) {
+                    topList.innerHTML = data.topClients.map((c, i) => `
+                        <div class="flex items-center gap-3 p-2 bg-gray-700 rounded cursor-pointer hover:bg-gray-600" onclick="openClientDetail(${c.id})">
+                            <span class="text-lg font-bold ${i === 0 ? 'text-yellow-400' : i === 1 ? 'text-gray-300' : 'text-amber-600'}">${i + 1}</span>
+                            <div class="flex-1">
+                                <p class="text-sm font-semibold">${escapeHtml(c.name)}</p>
+                                ${c.company ? `<p class="text-xs text-gray-400">${escapeHtml(c.company)}</p>` : ''}
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-semibold text-yellow-400">R ${(c.total_revenue || 0).toLocaleString()}</p>
+                                <p class="text-xs text-gray-500">${c.total_events || 0} events</p>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    topList.innerHTML = '<p class="text-gray-500 text-sm">No clients yet.</p>';
+                }
+            } catch (err) {
+                console.error('Failed to load client stats:', err);
+            }
+        }
+
+        // Open client detail modal
+        async function openClientDetail(id) {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/clients/${id}`, { headers });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+
+                currentClientId = id;
+                const c = data.client;
+
+                document.getElementById('clientDetailTitle').textContent = c.name;
+                document.getElementById('cdName').value = c.name || '';
+                document.getElementById('cdCompany').value = c.company || '';
+                document.getElementById('cdEmail').value = c.email || '';
+                document.getElementById('cdPhone').value = c.phone || '';
+                document.getElementById('cdAddress').value = c.address || '';
+                document.getElementById('cdVat').value = c.vat_number || '';
+                document.getElementById('cdPaymentTerms').value = c.payment_terms || '30 days';
+                document.getElementById('cdTags').value = (c.tags || []).join(', ');
+                document.getElementById('cdNotes').value = c.notes || '';
+                document.getElementById('cdActive').checked = !!c.is_active;
+
+                // Stats
+                document.getElementById('cdStatEvents').textContent = data.stats?.totalEvents || 0;
+                document.getElementById('cdStatCompleted').textContent = data.stats?.completedEvents || 0;
+                document.getElementById('cdStatRevenue').textContent = `R ${(data.stats?.totalRevenue || 0).toLocaleString()}`;
+
+                // Event history
+                const evHist = document.getElementById('cdEventHistory');
+                if (data.events?.length) {
+                    evHist.innerHTML = data.events.map(e => `
+                        <div class="flex items-center gap-3 p-2 bg-gray-700 rounded text-sm">
+                            <span class="px-2 py-0.5 rounded text-xs status-${e.status}">${e.status}</span>
+                            <div class="flex-1">
+                                <p class="font-semibold">${escapeHtml(e.event)}</p>
+                                <p class="text-xs text-gray-400">${e.date} ${e.time || ''} - ${escapeHtml(e.location || '')}</p>
+                            </div>
+                            <span class="text-yellow-400 text-xs">R ${(e.actual_cost || e.estimated_cost || 0).toLocaleString()}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    evHist.innerHTML = '<p class="text-gray-500 text-sm">No events found.</p>';
+                }
+
+                // Communication log
+                const commLog = document.getElementById('cdCommLog');
+                if (data.communications?.length) {
+                    commLog.innerHTML = data.communications.map(comm => `
+                        <div class="p-2 bg-gray-700 rounded text-sm">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="px-2 py-0.5 rounded text-xs ${comm.direction === 'inbound' ? 'bg-blue-900 text-blue-300' : 'bg-green-900 text-green-300'}">${comm.direction}</span>
+                                <span class="text-xs text-gray-400">${comm.type}</span>
+                                <span class="text-xs text-gray-500 ml-auto">${new Date(comm.created_at).toLocaleDateString()}</span>
+                            </div>
+                            ${comm.subject ? `<p class="font-semibold text-xs">${escapeHtml(comm.subject)}</p>` : ''}
+                            ${comm.body ? `<p class="text-gray-300 text-xs">${escapeHtml(comm.body)}</p>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    commLog.innerHTML = '<p class="text-gray-500 text-sm">No communications logged.</p>';
+                }
+
+                document.getElementById('cdCommNote').value = '';
+
+                const modal = document.getElementById('clientDetailModal');
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            } catch (err) {
+                toast('error', `Failed to load client: ${err.message}`);
+            }
+        }
+
+        // Close client detail modal
+        function closeClientDetailModal() {
+            const modal = document.getElementById('clientDetailModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            currentClientId = null;
+        }
+
+        // Open new client modal (reuse detail modal with empty fields)
+        function openClientModal() {
+            currentClientId = null;
+            document.getElementById('clientDetailTitle').textContent = 'New Client';
+            document.getElementById('cdName').value = '';
+            document.getElementById('cdCompany').value = '';
+            document.getElementById('cdEmail').value = '';
+            document.getElementById('cdPhone').value = '';
+            document.getElementById('cdAddress').value = '';
+            document.getElementById('cdVat').value = '';
+            document.getElementById('cdPaymentTerms').value = '30 days';
+            document.getElementById('cdTags').value = '';
+            document.getElementById('cdNotes').value = '';
+            document.getElementById('cdActive').checked = true;
+            document.getElementById('cdStatEvents').textContent = '0';
+            document.getElementById('cdStatCompleted').textContent = '0';
+            document.getElementById('cdStatRevenue').textContent = 'R 0';
+            document.getElementById('cdEventHistory').innerHTML = '<p class="text-gray-500 text-sm">No events yet.</p>';
+            document.getElementById('cdCommLog').innerHTML = '<p class="text-gray-500 text-sm">No communications logged.</p>';
+            document.getElementById('cdCommNote').value = '';
+
+            const modal = document.getElementById('clientDetailModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        // Save client (create or update)
+        async function saveClientDetail() {
+            const name = document.getElementById('cdName').value.trim();
+            if (!name) return toast('error', 'Client name is required');
+
+            const tagsStr = document.getElementById('cdTags').value;
+            const tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+            const body = {
+                name,
+                company: document.getElementById('cdCompany').value.trim(),
+                email: document.getElementById('cdEmail').value.trim(),
+                phone: document.getElementById('cdPhone').value.trim(),
+                address: document.getElementById('cdAddress').value.trim(),
+                vat_number: document.getElementById('cdVat').value.trim(),
+                payment_terms: document.getElementById('cdPaymentTerms').value,
+                notes: document.getElementById('cdNotes').value.trim(),
+                tags,
+                is_active: document.getElementById('cdActive').checked,
+            };
+
+            try {
+                const headers = getAuthHeaders();
+                let res;
+                if (currentClientId) {
+                    res = await fetch(`${API}/clients/${currentClientId}`, {
+                        method: 'PUT',
+                        headers,
+                        body: JSON.stringify(body),
+                    });
+                } else {
+                    res = await fetch(`${API}/clients`, {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(body),
+                    });
+                }
+
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+
+                toast('success', data.message);
+                closeClientDetailModal();
+                loadClients();
+                loadClientStats();
+            } catch (err) {
+                toast('error', `Failed to save: ${err.message}`);
+            }
+        }
+
+        // Delete client
+        async function deleteClient() {
+            if (!currentClientId) return;
+            if (!confirm('Are you sure you want to delete this client? This will unlink all associated events.')) return;
+
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/clients/${currentClientId}`, {
+                    method: 'DELETE',
+                    headers,
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+
+                toast('success', data.message);
+                closeClientDetailModal();
+                loadClients();
+                loadClientStats();
+            } catch (err) {
+                toast('error', `Failed to delete: ${err.message}`);
+            }
+        }
+
+        // Log client note
+        async function logClientNote() {
+            if (!currentClientId) return;
+            const note = document.getElementById('cdCommNote').value.trim();
+            if (!note) return;
+
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/clients/${currentClientId}/communications`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        type: 'note',
+                        direction: 'inbound',
+                        body: note,
+                        status: 'sent',
+                    }),
+                });
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error);
+
+                document.getElementById('cdCommNote').value = '';
+                toast('success', 'Note logged');
+                openClientDetail(currentClientId); // Refresh
+            } catch (err) {
+                toast('error', `Failed to log note: ${err.message}`);
+            }
+        }
+
+        // HTML escape helper
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Populate client dropdown in event form
+        async function loadClientDropdown() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/clients?status=active&sort=name&limit=100`, { headers });
+                const data = await res.json();
+                const clients = data.clients || [];
+
+                // Populate event form dropdown
+                const select = document.getElementById('eventClientSelect');
+                select.innerHTML = '<option value="">— Select —</option>';
+                clients.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.company ? `${c.name} (${c.company})` : c.name;
+                    opt.dataset.email = c.email || '';
+                    opt.dataset.name = c.name || '';
+                    select.appendChild(opt);
+                });
+
+                // Populate recurring form dropdown
+                const recSelect = document.getElementById('recClientSelect');
+                if (recSelect) {
+                    recSelect.innerHTML = '<option value="">— Select —</option>';
+                    clients.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c.id;
+                        opt.textContent = c.company ? `${c.name} (${c.company})` : c.name;
+                        opt.dataset.name = c.name || '';
+                        recSelect.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load client dropdown:', err);
+            }
+        }
+
+        // Select client from dropdown
+        function selectClientFromDropdown() {
+            const select = document.getElementById('eventClientSelect');
+            const opt = select.options[select.selectedIndex];
+            if (opt.value) {
+                document.getElementById('eventClientId').value = opt.value;
+                document.getElementById('eventClient').value = opt.dataset.name || '';
+                if (opt.dataset.email) {
+                    document.getElementById('eventClientEmail').value = opt.dataset.email;
+                }
+            }
+        }
+
+        // Select recurring client from dropdown
+        function selectRecClientFromDropdown() {
+            const select = document.getElementById('recClientSelect');
+            const opt = select.options[select.selectedIndex];
+            if (opt.value) {
+                document.getElementById('recClientId').value = opt.value;
+                document.getElementById('recClient').value = opt.dataset.name || '';
+            }
+        }
+
 </script>
 
     <!-- Run Sheet Modal -->

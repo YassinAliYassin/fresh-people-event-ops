@@ -103,6 +103,34 @@
                 Check in another person →
             </button>
         </div>
+
+        <!-- Feedback Form (shown after check-in) -->
+        <div id="feedbackForm" class="hidden fade-in mt-6">
+            <div class="bg-gray-800 rounded-xl p-5 border border-gray-700">
+                <h3 class="font-semibold mb-3 text-center">💬 Rate Your Experience</h3>
+                <div class="flex justify-center gap-2 mb-3" id="feedbackStars">
+                    <button type="button" onclick="setFeedbackRating(1)" class="text-3xl text-gray-600 hover:text-yellow-400 transition-colors">★</button>
+                    <button type="button" onclick="setFeedbackRating(2)" class="text-3xl text-gray-600 hover:text-yellow-400 transition-colors">★</button>
+                    <button type="button" onclick="setFeedbackRating(3)" class="text-3xl text-gray-600 hover:text-yellow-400 transition-colors">★</button>
+                    <button type="button" onclick="setFeedbackRating(4)" class="text-3xl text-gray-600 hover:text-yellow-400 transition-colors">★</button>
+                    <button type="button" onclick="setFeedbackRating(5)" class="text-3xl text-gray-600 hover:text-yellow-400 transition-colors">★</button>
+                </div>
+                <input type="hidden" id="feedbackRating" value="0">
+                <div class="mb-3">
+                    <select id="feedbackCategory" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm">
+                        <option value="general">General Feedback</option>
+                        <option value="venue">Venue</option>
+                        <option value="staff">Staff Service</option>
+                        <option value="food">Food & Beverages</option>
+                        <option value="entertainment">Entertainment</option>
+                        <option value="logistics">Logistics & Setup</option>
+                    </select>
+                </div>
+                <textarea id="feedbackText" rows="3" class="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 mb-3" placeholder="Share your thoughts (optional)"></textarea>
+                <button onclick="submitFeedback()" class="w-full py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg text-sm">Submit Feedback</button>
+                <button onclick="skipFeedback()" class="w-full py-2 text-gray-500 hover:text-gray-400 text-xs mt-2">Skip</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -123,6 +151,7 @@
                 document.getElementById('eventTime').textContent = '🕐 ' + (data.event.time || 'TBD');
                 document.getElementById('eventLocation').textContent = '📍 ' + (data.event.location || 'TBD');
                 document.getElementById('checkinCount').textContent = data.event.check_in_count || 0;
+                currentEventId = data.event.id;
             } catch (e) {
                 document.getElementById('loading').classList.add('hidden');
                 document.getElementById('error').classList.remove('hidden');
@@ -131,6 +160,7 @@
 
         function resetForm() {
             document.getElementById('success').classList.add('hidden');
+            document.getElementById('feedbackForm').classList.add('hidden');
             document.getElementById('checkinForm').classList.remove('hidden');
             document.getElementById('form').reset();
             document.getElementById('submitBtn').disabled = false;
@@ -160,9 +190,18 @@
                 if (data.success) {
                     document.getElementById('checkinForm').classList.add('hidden');
                     document.getElementById('success').classList.remove('hidden');
+                    document.getElementById('feedbackForm').classList.remove('hidden');
                     document.getElementById('successName').textContent = data.person_name;
                     document.getElementById('successEvent').textContent = data.event;
                     document.getElementById('successTime').textContent = new Date(data.check_in_time).toLocaleString();
+                    // Reset feedback form
+                    feedbackRating = 0;
+                    document.getElementById('feedbackRating').value = 0;
+                    document.getElementById('feedbackText').value = '';
+                    document.querySelectorAll('#feedbackStars button').forEach(btn => {
+                        btn.classList.remove('text-yellow-400');
+                        btn.classList.add('text-gray-600');
+                    });
                 } else {
                     alert(data.error || 'Check-in failed');
                     btn.disabled = false;
@@ -177,6 +216,52 @@
 
         // Load event on page load
         loadEvent();
+
+        // ==================== FEEDBACK ====================
+        let feedbackRating = 0;
+        let currentEventId = null;
+
+        function setFeedbackRating(val) {
+            feedbackRating = val;
+            document.getElementById('feedbackRating').value = val;
+            const stars = document.querySelectorAll('#feedbackStars button');
+            stars.forEach((btn, i) => {
+                if (i < val) {
+                    btn.classList.remove('text-gray-600');
+                    btn.classList.add('text-yellow-400');
+                } else {
+                    btn.classList.remove('text-yellow-400');
+                    btn.classList.add('text-gray-600');
+                }
+            });
+        }
+
+        async function submitFeedback() {
+            const rating = parseInt(document.getElementById('feedbackRating').value) || 0;
+            if (rating < 1) {
+                // Allow skip
+                skipFeedback();
+                return;
+            }
+            try {
+                await fetch(`${API}/api/events/${currentEventId}/feedback`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        attendee_name: document.getElementById('personName').value.trim(),
+                        rating: rating,
+                        feedback: document.getElementById('feedbackText').value.trim(),
+                        category: document.getElementById('feedbackCategory').value
+                    })
+                });
+            } catch (e) { /* silent fail for feedback */ }
+            skipFeedback();
+        }
+
+        function skipFeedback() {
+            document.getElementById('feedbackForm').classList.add('hidden');
+            document.getElementById('success').classList.remove('hidden');
+        }
     </script>
 </body>
 </html>
