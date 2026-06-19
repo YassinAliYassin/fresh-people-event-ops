@@ -421,6 +421,150 @@ db.get(`SELECT COUNT(*) as count FROM equipment`, (err, row) => {
   }
 });
 
+// ==================== DAY OPERATIONS & EVENT TIMELINE ====================
+
+// Create event_day_timeline table for hour-by-hour event day schedule
+db.run(`CREATE TABLE IF NOT EXISTS event_day_timeline (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  time_slot TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  category TEXT DEFAULT 'general',
+  assigned_to TEXT DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create event_notifications log table
+db.run(`CREATE TABLE IF NOT EXISTS event_notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  notification_type TEXT DEFAULT 'whatsapp',
+  recipient_type TEXT DEFAULT 'staff',
+  recipient_name TEXT DEFAULT '',
+  recipient_phone TEXT DEFAULT '',
+  message TEXT DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  sent_at TIMESTAMP,
+  error TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create event_day_status table for tracking event day check-ins
+db.run(`CREATE TABLE IF NOT EXISTS event_day_status (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  venue_ready INTEGER DEFAULT 0,
+  staff_arrived INTEGER DEFAULT 0,
+  equipment_ready INTEGER DEFAULT 0,
+  catering_ready INTEGER DEFAULT 0,
+  audio_ready INTEGER DEFAULT 0,
+  client_arrived INTEGER DEFAULT 0,
+  event_started INTEGER DEFAULT 0,
+  event_completed INTEGER DEFAULT 0,
+  notes TEXT DEFAULT '',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Seed default timeline templates
+db.get(`SELECT COUNT(*) as count FROM event_day_timeline WHERE event_id = 'template'`, (err, row) => {
+  if (row && row.count === 0) {
+    const templates = [
+      ['template', '06:00', 'Venue Access / Load-in', 'Arrive at venue, unlock, begin load-in', 'setup', '', 'pending', 1],
+      ['template', '07:00', 'Equipment Setup', 'Set up sound, lighting, staging', 'setup', '', 'pending', 2],
+      ['template', '08:00', 'Catering Setup', 'Food & beverage stations ready', 'catering', '', 'pending', 3],
+      ['template', '09:00', 'Staff Briefing', 'Full team briefing and role assignments', 'coordination', '', 'pending', 4],
+      ['template', '09:30', 'Sound Check', 'Test all audio equipment', 'audio', '', 'pending', 5],
+      ['template', '10:00', 'Final Walkthrough', 'Complete venue inspection', 'coordination', '', 'pending', 6],
+      ['template', '10:30', 'Guest Doors Open', 'Welcome guests, begin registration', 'guest', '', 'pending', 7],
+      ['template', '11:00', 'Event Start', 'Official event commencement', 'event', '', 'pending', 8],
+      ['template', '13:00', 'Lunch Service', 'Midday meal service', 'catering', '', 'pending', 9],
+      ['template', '17:00', 'Event Wind-down', 'Begin closing activities', 'event', '', 'pending', 10],
+      ['template', '18:00', 'Guest Departure', 'See guests off', 'guest', '', 'pending', 11],
+      ['template', '19:00', 'Breakdown & Pack-up', 'Dismantle equipment and clean', 'cleanup', '', 'pending', 12],
+      ['template', '21:00', 'Venue Handback', 'Return keys, final inspection', 'cleanup', '', 'pending', 13],
+    ];
+    const stmt = db.prepare(`INSERT INTO event_day_timeline (event_id, time_slot, title, description, category, assigned_to, status, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+    templates.forEach(t => stmt.run(t));
+    stmt.finalize();
+    console.log(`Seeded ${templates.length} default timeline templates`);
+  }
+});
+
+
+// ==================== TASK & CHECKLIST MANAGEMENT ====================
+
+// Create event_tasks table
+db.run(`CREATE TABLE IF NOT EXISTS event_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  category TEXT DEFAULT 'general',
+  priority TEXT DEFAULT 'medium',
+  status TEXT DEFAULT 'pending',
+  assigned_to TEXT DEFAULT '',
+  due_time TEXT DEFAULT '',
+  completed INTEGER DEFAULT 0,
+  completed_at TIMESTAMP,
+  completed_by TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0,
+  created_by TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create task_templates table
+db.run(`CREATE TABLE IF NOT EXISTS task_templates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  category TEXT DEFAULT 'general',
+  description TEXT DEFAULT '',
+  priority TEXT DEFAULT 'medium',
+  default_assignee TEXT DEFAULT '',
+  event_type TEXT DEFAULT 'all',
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Add task columns to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN task_count INTEGER DEFAULT 0`, () => {});
+db.run(`ALTER TABLE events ADD COLUMN tasks_completed INTEGER DEFAULT 0`, () => {});
+
+// Seed default task templates if table is empty
+db.get(`SELECT COUNT(*) as count FROM task_templates`, (err, row) => {
+  if (row && row.count === 0) {
+    const defaultTemplates = [
+      ['Venue Setup', 'setup', 'Set up venue: tables, chairs, decorations', 'high', '', 'all', 1],
+      ['Sound Check', 'audio', 'Test all audio equipment and microphones', 'high', '', 'all', 2],
+      ['Catering Setup', 'catering', 'Coordinate with catering team for food setup', 'high', '', 'all', 3],
+      ['Staff Briefing', 'staffing', 'Brief all staff on event schedule and roles', 'high', '', 'all', 4],
+      ['AV Equipment Check', 'audio', 'Test projectors, screens, and presentation setup', 'medium', '', 'all', 5],
+      ['Guest Registration Setup', 'logistics', 'Set up registration/check-in table', 'medium', '', 'all', 6],
+      ['Floral Arrangements', 'decor', 'Arrange flowers and centerpieces', 'low', '', 'all', 7],
+      ['Bar Setup', 'catering', 'Set up bar area with drinks and glassware', 'medium', '', 'all', 8],
+      ['Security Check', 'safety', 'Review security plan and check emergency exits', 'high', '', 'all', 9],
+      ['Photography Setup', 'media', 'Set up photo area and test lighting', 'low', '', 'all', 10],
+      ['Post-Event Cleanup', 'cleanup', 'Clean venue and pack all equipment', 'medium', '', 'all', 11],
+      ['Equipment Return', 'cleanup', 'Return all rented/borrowed equipment', 'medium', '', 'all', 12],
+      ['Client Walkthrough', 'client', 'Walk through venue with client for final approval', 'high', '', 'all', 13],
+      ['Power & Lighting Check', 'technical', 'Test all power outlets and lighting setup', 'high', '', 'all', 14],
+      ['Wi-Fi & Network Check', 'technical', 'Test internet connectivity for event needs', 'low', '', 'all', 15],
+    ];
+    const stmt = db.prepare(`INSERT INTO task_templates (name, category, description, priority, default_assignee, event_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    defaultTemplates.forEach(t => stmt.run(t));
+    stmt.finalize();
+    console.log(`Seeded ${defaultTemplates.length} task templates`);
+  }
+});
+
 // ==================== VAPID / PUSH NOTIFICATIONS ====================
 
 // VAPID keys storage
@@ -625,6 +769,520 @@ app.post('/api/event-equipment/:id/checkin', (req, res) => {
         res.json({ success: true, message: 'Equipment checked in' });
       }
     );
+  });
+});
+
+
+// ==================== DAY OPERATIONS & EVENT TIMELINE API ====================
+
+// GET /api/events/:id/timeline - Get event day timeline
+app.get('/api/events/:id/timeline', (req, res) => {
+  const { id } = req.params;
+  db.all(
+    `SELECT * FROM event_day_timeline WHERE event_id = ? ORDER BY time_slot ASC, sort_order ASC`,
+    [id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, timeline: rows || [] });
+    }
+  );
+});
+
+// POST /api/events/:id/timeline - Add timeline item
+app.post('/api/events/:id/timeline', (req, res) => {
+  const { id } = req.params;
+  const { time_slot, title, description, category, assigned_to, sort_order } = req.body;
+  if (!time_slot || !title) return res.status(400).json({ error: 'time_slot and title required' });
+  db.run(
+    `INSERT INTO event_day_timeline (event_id, time_slot, title, description, category, assigned_to, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, time_slot, title, description || '', category || 'general', assigned_to || '', sort_order || 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT * FROM event_day_timeline WHERE id = ?`, [this.lastID], (err2, row) => {
+        if (row) broadcast({ type: 'timeline_update', eventId: id, item: row });
+        res.json({ success: true, item: row });
+      });
+    }
+  );
+});
+
+// PUT /api/events/:id/timeline/:itemId - Update timeline item
+app.put('/api/events/:id/timeline/:itemId', (req, res) => {
+  const { id, itemId } = req.params;
+  const { time_slot, title, description, category, assigned_to, status, sort_order } = req.body;
+  db.run(
+    `UPDATE event_day_timeline SET
+      time_slot = COALESCE(?, time_slot),
+      title = COALESCE(?, title),
+      description = COALESCE(?, description),
+      category = COALESCE(?, category),
+      assigned_to = COALESCE(?, assigned_to),
+      status = COALESCE(?, status),
+      sort_order = COALESCE(?, sort_order),
+      updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND event_id = ?`,
+    [time_slot, title, description, category, assigned_to, status, sort_order, itemId, id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT * FROM event_day_timeline WHERE id = ?`, [itemId], (err2, row) => {
+        if (row) broadcast({ type: 'timeline_update', eventId: id, item: row });
+        res.json({ success: true, item: row });
+      });
+    }
+  );
+});
+
+// DELETE /api/events/:id/timeline/:itemId - Remove timeline item
+app.delete('/api/events/:id/timeline/:itemId', (req, res) => {
+  const { id, itemId } = req.params;
+  db.run(`DELETE FROM event_day_timeline WHERE id = ? AND event_id = ?`, [itemId, id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    broadcast({ type: 'timeline_delete', eventId: id, itemId });
+    res.json({ success: true, deleted: this.changes });
+  });
+});
+
+// POST /api/events/:id/timeline/load-template - Load default template into event
+app.post('/api/events/:id/timeline/load-template', (req, res) => {
+  const { id } = req.params;
+  db.all(`SELECT * FROM event_day_timeline WHERE event_id = 'template' ORDER BY sort_order`, [], (err, templates) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!templates.length) return res.json({ success: true, loaded: 0 });
+
+    // Delete existing timeline items for this event
+    db.run(`DELETE FROM event_day_timeline WHERE event_id = ?`, [id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      const stmt = db.prepare(`INSERT INTO event_day_timeline (event_id, time_slot, title, description, category, assigned_to, status, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+      templates.forEach(t => stmt.run([id, t.time_slot, t.title, t.description, t.category, t.assigned_to, 'pending', t.sort_order]));
+      stmt.finalize();
+      res.json({ success: true, loaded: templates.length });
+    });
+  });
+});
+
+// GET /api/events/:id/day-status - Get event day status
+app.get('/api/events/:id/day-status', (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM event_day_status WHERE event_id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) {
+      // Auto-create default status
+      db.run(`INSERT OR IGNORE INTO event_day_status (event_id) VALUES (?)`, [id], function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        db.get(`SELECT * FROM event_day_status WHERE event_id = ?`, [id], (err3, newRow) => {
+          res.json({ success: true, status: newRow });
+        });
+      });
+    } else {
+      res.json({ success: true, status: row });
+    }
+  });
+});
+
+// PUT /api/events/:id/day-status - Update event day status
+app.put('/api/events/:id/day-status', (req, res) => {
+  const { id } = req.params;
+  const { venue_ready, staff_arrived, equipment_ready, catering_ready, audio_ready, client_arrived, event_started, event_completed, notes } = req.body;
+
+  db.get(`SELECT * FROM event_day_status WHERE event_id = ?`, [id], (err, existing) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const setClauses = [];
+    const params = [];
+    const fields = { venue_ready, staff_arrived, equipment_ready, catering_ready, audio_ready, client_arrived, event_started, event_completed, notes };
+    for (const [key, val] of Object.entries(fields)) {
+      if (val !== undefined) {
+        setClauses.push(`${key} = ?`);
+        params.push(val);
+      }
+    }
+    if (setClauses.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    setClauses.push('updated_at = CURRENT_TIMESTAMP');
+    params.push(id);
+
+    const sql = existing
+      ? `UPDATE event_day_status SET ${setClauses.join(', ')} WHERE event_id = ?`
+      : `INSERT INTO event_day_status (event_id, ${Object.keys(fields).filter(k => fields[k] !== undefined).join(', ')}) VALUES (?, ${Object.keys(fields).filter(k => fields[k] !== undefined).map(() => '?').join(', ')})`;
+
+    if (!existing) {
+      // For INSERT, params are just the values
+      params.length = 0;
+      params.push(id);
+      for (const [key, val] of Object.entries(fields)) {
+        if (val !== undefined) params.push(val);
+      }
+    }
+
+    db.run(sql, params, function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      db.get(`SELECT * FROM event_day_status WHERE event_id = ?`, [id], (err3, row) => {
+        if (row) broadcast({ type: 'day_status_update', eventId: id, status: row });
+        res.json({ success: true, status: row });
+      });
+    });
+  });
+});
+
+// POST /api/events/:id/notify - Send bulk notification to event staff
+app.post('/api/events/:id/notify', (req, res) => {
+  const { id } = req.params;
+  const { message, notification_type, recipient_type } = req.body;
+  if (!message) return res.status(400).json({ error: 'Message required' });
+
+  // Get event details
+  db.get(`SELECT * FROM events WHERE id = ?`, [id], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    let recipients = [];
+
+    if (recipient_type === 'staff' || !recipient_type) {
+      // Parse staff from event
+      let staffNames = [];
+      try { staffNames = JSON.parse(event.staff || '[]'); } catch(e) { staffNames = []; }
+
+      if (staffNames.length > 0) {
+        const placeholders = staffNames.map(() => '?').join(',');
+        db.all(`SELECT * FROM staff WHERE name IN (${placeholders}) AND active = 1`, staffNames, (err2, staffRows) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+          recipients = (staffRows || []).filter(s => s.phone && s.phone !== 'N/A');
+          saveAndQueueNotifications(id, recipients, message, notification_type || 'whatsapp', 'staff');
+        });
+      } else {
+        res.json({ success: true, queued: 0, message: 'No staff assigned to this event' });
+      }
+    } else if (recipient_type === 'all') {
+      db.all(`SELECT * FROM staff WHERE active = 1 AND phone IS NOT NULL AND phone != 'N/A'`, [], (err2, staffRows) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        recipients = staffRows || [];
+        saveAndQueueNotifications(id, recipients, message, notification_type || 'whatsapp', 'all');
+      });
+    }
+  });
+
+  function saveAndQueueNotifications(eventId, recipients, message, notifType, recipType) {
+    if (recipients.length === 0) {
+      return res.json({ success: true, queued: 0, message: 'No recipients with phone numbers found' });
+    }
+    const stmt = db.prepare(`INSERT INTO event_notifications (event_id, notification_type, recipient_type, recipient_name, recipient_phone, message, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')`);
+    recipients.forEach(r => stmt.run([eventId, notifType, recipType, r.name, r.phone, message]));
+    stmt.finalize();
+    broadcast({ type: 'notification_queued', eventId, count: recipients.length });
+    res.json({ success: true, queued: recipients.length, recipients: recipients.map(r => r.name) });
+  }
+});
+
+// GET /api/events/:id/notifications - Get notification log for event
+app.get('/api/events/:id/notifications', (req, res) => {
+  const { id } = req.params;
+  db.all(
+    `SELECT * FROM event_notifications WHERE event_id = ? ORDER BY created_at DESC`,
+    [id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, notifications: rows || [] });
+    }
+  );
+});
+
+// GET /api/notifications/pending - Get all pending notifications
+app.get('/api/notifications/pending', (req, res) => {
+  db.all(
+    `SELECT n.*, e.event as event_name, e.date as event_date FROM event_notifications n LEFT JOIN events e ON n.event_id = e.id WHERE n.status = 'pending' ORDER BY n.created_at ASC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, notifications: rows || [] });
+    }
+  );
+});
+
+// POST /api/notifications/:id/send - Mark notification as sent
+app.post('/api/notifications/:id/send', (req, res) => {
+  const { id } = req.params;
+  db.run(
+    `UPDATE event_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, sent: this.changes });
+    }
+  );
+});
+
+// POST /api/notifications/:id/fail - Mark notification as failed
+app.post('/api/notifications/:id/fail', (req, res) => {
+  const { id } = req.params;
+  const { error: failError } = req.body;
+  db.run(
+    `UPDATE event_notifications SET status = 'failed', error = ? WHERE id = ?`,
+    [failError || 'Unknown error', id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    }
+  );
+});
+
+
+// ==================== TASK & CHECKLIST API ENDPOINTS ====================
+
+// GET /api/tasks - List tasks with filters
+app.get('/api/tasks', (req, res) => {
+  const { event_id, status, priority, category, assigned_to, search } = req.query;
+  let sql = `SELECT t.*, e.event as event_name, e.date as event_date, e.location as event_location, e.status as event_status FROM event_tasks t LEFT JOIN events e ON t.event_id = e.id WHERE 1=1`;
+  const params = [];
+  if (event_id) { sql += ` AND t.event_id = ?`; params.push(event_id); }
+  if (status) { sql += ` AND t.status = ?`; params.push(status); }
+  if (priority) { sql += ` AND t.priority = ?`; params.push(priority); }
+  if (category) { sql += ` AND t.category = ?`; params.push(category); }
+  if (assigned_to) { sql += ` AND t.assigned_to LIKE ?`; params.push(`%${assigned_to}%`); }
+  if (search) { sql += ` AND (t.title LIKE ? OR t.description LIKE ?)`; params.push(`%${search}%`, `%${search}%`); }
+  sql += ` ORDER BY t.sort_order, t.priority DESC, t.created_at`;
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
+// GET /api/tasks/stats - Task statistics
+app.get('/api/tasks/stats', (req, res) => {
+  const { event_id } = req.query;
+  let where = '';
+  const params = [];
+  if (event_id) { where = ' WHERE event_id = ?'; params.push(event_id); }
+
+  db.get(`SELECT COUNT(*) as total FROM event_tasks${where}`, params, (err, total) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.get(`SELECT COUNT(*) as completed FROM event_tasks${where} AND completed = 1`, params, (err2, completed) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      db.get(`SELECT COUNT(*) as pending FROM event_tasks${where} AND status = 'pending'`, params, (err3, pending) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+        db.get(`SELECT COUNT(*) as in_progress FROM event_tasks${where} AND status = 'in_progress'`, params, (err4, inProgress) => {
+          if (err4) return res.status(500).json({ error: err4.message });
+          db.get(`SELECT COUNT(*) as overdue FROM event_tasks${where} AND completed = 0 AND due_time != '' AND due_time < datetime('now')`, params, (err5, overdue) => {
+            if (err5) return res.status(500).json({ error: err5.message });
+            db.all(`SELECT priority, COUNT(*) as count FROM event_tasks${where} GROUP BY priority`, params, (err6, byPriority) => {
+              if (err6) return res.status(500).json({ error: err6.message });
+              db.all(`SELECT category, COUNT(*) as count FROM event_tasks${where} GROUP BY category ORDER BY count DESC`, params, (err7, byCategory) => {
+                if (err7) return res.status(500).json({ error: err7.message });
+                res.json({
+                  total: total?.total || 0,
+                  completed: completed?.completed || 0,
+                  pending: pending?.pending || 0,
+                  inProgress: inProgress?.in_progress || 0,
+                  overdue: overdue?.overdue || 0,
+                  completionRate: total?.total > 0 ? Math.round((completed?.completed || 0) / total.total * 100) : 0,
+                  byPriority: byPriority || [],
+                  byCategory: byCategory || []
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+// GET /api/tasks/:id - Get single task
+app.get('/api/tasks/:id', (req, res) => {
+  db.get(
+    `SELECT t.*, e.event as event_name, e.date as event_date FROM event_tasks t LEFT JOIN events e ON t.event_id = e.id WHERE t.id = ?`,
+    [req.params.id],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!row) return res.status(404).json({ error: 'Task not found' });
+      res.json(row);
+    }
+  );
+});
+
+// POST /api/tasks - Create a new task
+app.post('/api/tasks', (req, res) => {
+  const { event_id, title, description, category, priority, assigned_to, due_time, sort_order } = req.body;
+  if (!event_id || !title) return res.status(400).json({ error: 'event_id and title required' });
+
+  db.run(
+    `INSERT INTO event_tasks (event_id, title, description, category, priority, assigned_to, due_time, sort_order, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [event_id, title, description || '', category || 'general', priority || 'medium', assigned_to || '', due_time || '', sort_order || 0, req.user?.username || 'system'],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT * FROM event_tasks WHERE id = ?`, [this.lastID], (err2, row) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        db.run(`UPDATE events SET task_count = (SELECT COUNT(*) FROM event_tasks WHERE event_id = ?) WHERE id = ?`, [event_id, event_id]);
+        broadcast({ type: 'task_created', task: row });
+        res.json({ success: true, task: row });
+      });
+    }
+  );
+});
+
+// PUT /api/tasks/:id - Update a task
+app.put('/api/tasks/:id', (req, res) => {
+  const { title, description, category, priority, assigned_to, due_time, status, sort_order } = req.body;
+  db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err, existing) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!existing) return res.status(404).json({ error: 'Task not found' });
+
+    db.run(
+      `UPDATE event_tasks SET
+        title = COALESCE(?, title),
+        description = COALESCE(?, description),
+        category = COALESCE(?, category),
+        priority = COALESCE(?, priority),
+        assigned_to = COALESCE(?, assigned_to),
+        due_time = COALESCE(?, due_time),
+        status = COALESCE(?, status),
+        sort_order = COALESCE(?, sort_order),
+        updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [title, description, category, priority, assigned_to, due_time, status, sort_order, req.params.id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err3, row) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+          broadcast({ type: 'task_updated', task: row });
+          res.json({ success: true, task: row });
+        });
+      }
+    );
+  });
+});
+
+// POST /api/tasks/:id/complete - Mark task as completed
+app.post('/api/tasks/:id/complete', (req, res) => {
+  db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err, task) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const completedBy = req.user?.username || 'system';
+    db.run(
+      `UPDATE event_tasks SET completed = 1, status = 'completed', completed_at = CURRENT_TIMESTAMP, completed_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [completedBy, req.params.id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err3, row) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+          db.run(`UPDATE events SET tasks_completed = (SELECT COUNT(*) FROM event_tasks WHERE event_id = ? AND completed = 1) WHERE id = ?`, [task.event_id, task.event_id]);
+          broadcast({ type: 'task_completed', task: row });
+          res.json({ success: true, task: row });
+        });
+      }
+    );
+  });
+});
+
+// POST /api/tasks/:id/reopen - Reopen a completed task
+app.post('/api/tasks/:id/reopen', (req, res) => {
+  db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err, task) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    db.run(
+      `UPDATE event_tasks SET completed = 0, status = 'pending', completed_at = NULL, completed_by = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [req.params.id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err3, row) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+          db.run(`UPDATE events SET tasks_completed = (SELECT COUNT(*) FROM event_tasks WHERE event_id = ? AND completed = 1) WHERE id = ?`, [task.event_id, task.event_id]);
+          broadcast({ type: 'task_reopened', task: row });
+          res.json({ success: true, task: row });
+        });
+      }
+    );
+  });
+});
+
+// DELETE /api/tasks/:id - Delete a task
+app.delete('/api/tasks/:id', (req, res) => {
+  db.get(`SELECT * FROM event_tasks WHERE id = ?`, [req.params.id], (err, task) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+
+    const eventId = task.event_id;
+    db.run(`DELETE FROM event_tasks WHERE id = ?`, [req.params.id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      db.run(`UPDATE events SET task_count = (SELECT COUNT(*) FROM event_tasks WHERE event_id = ?), tasks_completed = (SELECT COUNT(*) FROM event_tasks WHERE event_id = ? AND completed = 1) WHERE id = ?`, [eventId, eventId, eventId]);
+      broadcast({ type: 'task_deleted', taskId: parseInt(req.params.id) });
+      res.json({ success: true, deleted: this.changes });
+    });
+  });
+});
+
+// POST /api/tasks/batch - Create multiple tasks from templates
+app.post('/api/tasks/batch', (req, res) => {
+  const { event_id, template_ids } = req.body;
+  if (!event_id || !template_ids || !Array.isArray(template_ids) || template_ids.length === 0) {
+    return res.status(400).json({ error: 'event_id and template_ids array required' });
+  }
+
+  db.all(`SELECT * FROM task_templates WHERE id IN (${template_ids.map(() => '?').join(',')}) ORDER BY sort_order`, template_ids, (err, templates) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!templates || templates.length === 0) return res.status(400).json({ error: 'No matching templates found' });
+
+    const created = [];
+    let completed = 0;
+    const total = templates.length;
+    let hasError = false;
+
+    templates.forEach(tmpl => {
+      db.run(
+        `INSERT INTO event_tasks (event_id, title, description, category, priority, assigned_to, sort_order, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [event_id, tmpl.name, tmpl.description, tmpl.category, tmpl.priority, tmpl.default_assignee || '', tmpl.sort_order, req.user?.username || 'system'],
+        function(err2) {
+          if (hasError) return;
+          if (err2) { hasError = true; return res.status(500).json({ error: err2.message }); }
+          db.get(`SELECT * FROM event_tasks WHERE id = ?`, [this.lastID], (err3, row) => {
+            if (hasError) return;
+            if (row) created.push(row);
+            completed++;
+            if (completed === total) {
+              db.run(`UPDATE events SET task_count = (SELECT COUNT(*) FROM event_tasks WHERE event_id = ?) WHERE id = ?`, [event_id, event_id]);
+              broadcast({ type: 'tasks_batch_created', eventId: event_id, count: created.length });
+              res.json({ success: true, tasks: created, count: created.length });
+            }
+          });
+        }
+      );
+    });
+  });
+});
+
+// GET /api/task-templates - List task templates
+app.get('/api/task-templates', (req, res) => {
+  const { category, event_type } = req.query;
+  let sql = `SELECT * FROM task_templates WHERE 1=1`;
+  const params = [];
+  if (category) { sql += ` AND category = ?`; params.push(category); }
+  if (event_type) { sql += ` AND (event_type = ? OR event_type = 'all')`; params.push(event_type); }
+  sql += ` ORDER BY sort_order, category, name`;
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
+// POST /api/task-templates - Create a task template
+app.post('/api/task-templates', (req, res) => {
+  const { name, category, description, priority, default_assignee, event_type, sort_order } = req.body;
+  if (!name) return res.status(400).json({ error: 'Template name required' });
+  db.run(
+    `INSERT INTO task_templates (name, category, description, priority, default_assignee, event_type, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [name, category || 'general', description || '', priority || 'medium', default_assignee || '', event_type || 'all', sort_order || 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID });
+    }
+  );
+});
+
+// DELETE /api/task-templates/:id - Delete a task template
+app.delete('/api/task-templates/:id', (req, res) => {
+  db.run(`DELETE FROM task_templates WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, deleted: this.changes });
   });
 });
 
@@ -2954,6 +3612,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.16 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.17 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.16</title>
+    <title>Fresh People Event Ops v4.17</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -53,7 +53,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.12</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.17</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <button onclick="requestPushPermission()" id="pushBtn" class="text-gray-400 hover:text-blue-400 text-sm" title="Enable push notifications">🔔</button>
@@ -96,6 +96,8 @@
             <button onclick="switchTab('reviews')" id="tab-reviews" class="pb-2 font-semibold tab-inactive">📝 Reviews</button>
             <button onclick="switchTab('clients')" id="tab-clients" class="pb-2 font-semibold tab-inactive">🏢 Clients</button>
             <button onclick="switchTab('inventory')" id="tab-inventory" class="pb-2 font-semibold tab-inactive">🎒 Inventory</button>
+            <button onclick="switchTab('tasks')" id="tab-tasks" class="pb-2 font-semibold tab-inactive">✅ Tasks</button>
+            <button onclick="switchTab('dayops')" id="tab-dayops" class="pb-2 font-semibold tab-inactive">📋 Day Operations</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -2181,7 +2183,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2237,7 +2239,363 @@
                 loadClients();
                 loadClientStats();
             }
+            if (tab === 'tasks') {
+                loadTasks();
+                loadTaskStats();
+            }
         }
+
+
+        // ==================== TASK MANAGEMENT ====================
+        let allTasks = [];
+        let taskEvents = [];
+
+        async function loadTasks() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const [tasksRes, eventsRes] = await Promise.all([
+                    fetch(`${API}/tasks`, { headers }),
+                    fetch(`${API}/events`, { headers })
+                ]);
+                allTasks = await tasksRes.json() || [];
+                const eventsData = await eventsRes.json() || [];
+                taskEvents = Array.isArray(eventsData) ? eventsData : (eventsData.events || []);
+
+                // Populate event filter dropdown
+                const eventFilter = document.getElementById('taskFilterEvent');
+                if (eventFilter) {
+                    eventFilter.innerHTML = '<option value="">All Events</option>';
+                    taskEvents.forEach(ev => {
+                        eventFilter.innerHTML += `<option value="${ev.id}">${ev.event} (${ev.date})</option>`;
+                    });
+                }
+
+                // Populate event dropdown in form
+                const formEvent = document.getElementById('taskFormEvent');
+                if (formEvent) {
+                    formEvent.innerHTML = '<option value="">Select Event</option>';
+                    taskEvents.forEach(ev => {
+                        formEvent.innerHTML += `<option value="${ev.id}">${ev.event} (${ev.date})</option>`;
+                    });
+                }
+
+                // Populate template apply event dropdown
+                const templateEvent = document.getElementById('templateApplyEvent');
+                if (templateEvent) {
+                    templateEvent.innerHTML = '<option value="">Select Event</option>';
+                    taskEvents.forEach(ev => {
+                        templateEvent.innerHTML += `<option value="${ev.id}">${ev.event} (${ev.date})</option>`;
+                    });
+                }
+
+                renderTasks();
+            } catch (e) {
+                console.error('Error loading tasks:', e);
+            }
+        }
+
+        async function loadTaskStats() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/tasks/stats`, { headers });
+                const stats = await res.json();
+
+                document.getElementById('taskStatTotal').textContent = stats.total || 0;
+                document.getElementById('taskStatCompleted').textContent = stats.completed || 0;
+                document.getElementById('taskStatProgress').textContent = stats.inProgress || 0;
+                document.getElementById('taskStatOverdue').textContent = stats.overdue || 0;
+                document.getElementById('taskStatRate').textContent = (stats.completionRate || 0) + '%';
+            } catch (e) {
+                console.error('Error loading task stats:', e);
+            }
+        }
+
+        function filterTasks() {
+            renderTasks();
+        }
+
+        function renderTasks() {
+            const search = (document.getElementById('taskSearch')?.value || '').toLowerCase();
+            const eventFilter = document.getElementById('taskFilterEvent')?.value || '';
+            const statusFilter = document.getElementById('taskFilterStatus')?.value || '';
+            const priorityFilter = document.getElementById('taskFilterPriority')?.value || '';
+
+            let filtered = allTasks;
+            if (search) {
+                filtered = filtered.filter(t => (t.title || '').toLowerCase().includes(search) || (t.description || '').toLowerCase().includes(search));
+            }
+            if (eventFilter) {
+                filtered = filtered.filter(t => t.event_id === eventFilter);
+            }
+            if (statusFilter) {
+                filtered = filtered.filter(t => t.status === statusFilter);
+            }
+            if (priorityFilter) {
+                filtered = filtered.filter(t => t.priority === priorityFilter);
+            }
+
+            // Render Kanban columns
+            const pending = filtered.filter(t => t.status === 'pending');
+            const inProgress = filtered.filter(t => t.status === 'in_progress');
+            const completed = filtered.filter(t => t.status === 'completed');
+
+            document.getElementById('taskCountPending').textContent = pending.length;
+            document.getElementById('taskCountProgress').textContent = inProgress.length;
+            document.getElementById('taskCountCompleted').textContent = completed.length;
+
+            renderTaskColumn('taskListPending', pending);
+            renderTaskColumn('taskListProgress', inProgress);
+            renderTaskColumn('taskListCompleted', completed);
+
+            // Render table
+            const tbody = document.getElementById('taskTableBody');
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-gray-500">No tasks found</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filtered.map(t => {
+                const priorityColors = { high: 'text-red-400', medium: 'text-yellow-400', low: 'text-green-400' };
+                const statusColors = { pending: 'bg-yellow-600', in_progress: 'bg-blue-600', completed: 'bg-green-600' };
+                const isOverdue = !t.completed && t.due_time && new Date(t.due_time) < new Date();
+                return `<tr class="border-t border-gray-700 hover:bg-gray-750 ${t.completed ? 'opacity-60' : ''}">
+                    <td class="p-3">
+                        <div class="font-semibold ${t.completed ? 'line-through text-gray-500' : ''}">${escapeHtml(t.title)}</div>
+                        ${t.description ? `<div class="text-xs text-gray-400">${escapeHtml(t.description)}</div>` : ''}
+                    </td>
+                    <td class="p-3 text-sm">${escapeHtml(t.event_name || t.event_id)}</td>
+                    <td class="p-3 text-sm">${escapeHtml(t.category || '-')}</td>
+                    <td class="p-3 text-sm ${priorityColors[t.priority] || ''}">${t.priority || '-'}</td>
+                    <td class="p-3 text-sm">${escapeHtml(t.assigned_to || '-')}</td>
+                    <td class="p-3 text-sm ${isOverdue ? 'text-red-400 font-bold' : ''}">${t.due_time ? formatDateTime(t.due_time) : '-'}</td>
+                    <td class="p-3"><span class="px-2 py-1 rounded text-xs ${statusColors[t.status] || 'bg-gray-600'}">${(t.status || 'pending').replace('_', ' ')}</span></td>
+                    <td class="p-3">
+                        <div class="flex gap-1">
+                            ${!t.completed ? `<button onclick="completeTask('${t.id}')" class="text-green-400 hover:text-green-300 text-xs" title="Complete">✓</button>` : `<button onclick="reopenTask('${t.id}')" class="text-yellow-400 hover:text-yellow-300 text-xs" title="Reopen">↺</button>`}
+                            <button onclick="editTask('${t.id}')" class="text-blue-400 hover:text-blue-300 text-xs" title="Edit">✏️</button>
+                            <button onclick="deleteTask('${t.id}')" class="text-red-400 hover:text-red-300 text-xs" title="Delete">🗑️</button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function renderTaskColumn(containerId, tasks) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            if (tasks.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center py-4">No tasks</p>';
+                return;
+            }
+            container.innerHTML = tasks.map(t => {
+                const priorityColors = { high: 'border-l-red-500', medium: 'border-l-yellow-500', low: 'border-l-green-500' };
+                const isOverdue = !t.completed && t.due_time && new Date(t.due_time) < new Date();
+                return `<div class="bg-gray-700 rounded p-3 border-l-4 ${priorityColors[t.priority] || 'border-l-gray-500'} cursor-pointer hover:bg-gray-650" onclick="editTask('${t.id}')">
+                    <div class="font-semibold text-sm ${t.completed ? 'line-through text-gray-500' : ''}">${escapeHtml(t.title)}</div>
+                    <div class="flex items-center justify-between mt-2">
+                        <span class="text-xs text-gray-400">${escapeHtml(t.assigned_to || 'Unassigned')}</span>
+                        ${isOverdue ? '<span class="text-xs text-red-400 font-bold">OVERDUE</span>' : ''}
+                        ${t.due_time ? `<span class="text-xs text-gray-400">${formatDateTime(t.due_time)}</span>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function showAddTaskModal() {
+            document.getElementById('taskFormTitle').textContent = 'Add Task';
+            document.getElementById('taskFormId').value = '';
+            document.getElementById('taskFormTitle').value = '';
+            document.getElementById('taskFormEvent').value = '';
+            document.getElementById('taskFormDescription').value = '';
+            document.getElementById('taskFormCategory').value = 'general';
+            document.getElementById('taskFormPriority').value = 'medium';
+            document.getElementById('taskFormAssignee').value = '';
+            document.getElementById('taskFormDueTime').value = '';
+            document.getElementById('taskFormStatus').value = 'pending';
+            document.getElementById('taskFormModal').classList.remove('hidden');
+            document.getElementById('taskFormModal').classList.add('flex');
+        }
+
+        function closeTaskFormModal() {
+            document.getElementById('taskFormModal').classList.add('hidden');
+            document.getElementById('taskFormModal').classList.remove('flex');
+        }
+
+        async function saveTask() {
+            const id = document.getElementById('taskFormId').value;
+            const data = {
+                event_id: document.getElementById('taskFormEvent').value,
+                title: document.getElementById('taskFormTitle').value,
+                description: document.getElementById('taskFormDescription').value,
+                category: document.getElementById('taskFormCategory').value,
+                priority: document.getElementById('taskFormPriority').value,
+                assigned_to: document.getElementById('taskFormAssignee').value,
+                due_time: document.getElementById('taskFormDueTime').value,
+                status: document.getElementById('taskFormStatus').value,
+            };
+
+            if (!data.event_id || !data.title) {
+                showToast('Event and title are required', 'error');
+                return;
+            }
+
+            try {
+                const headers = getAuthHeaders();
+                let res;
+                if (id) {
+                    res = await fetch(`${API}/tasks/${id}`, { method: 'PUT', headers, body: JSON.stringify(data) });
+                } else {
+                    res = await fetch(`${API}/tasks`, { method: 'POST', headers, body: JSON.stringify(data) });
+                }
+                const result = await res.json();
+                if (result.success) {
+                    showToast(id ? 'Task updated' : 'Task created', 'success');
+                    closeTaskFormModal();
+                    loadTasks();
+                    loadTaskStats();
+                } else {
+                    showToast(result.error || 'Error saving task', 'error');
+                }
+            } catch (e) {
+                showToast('Error saving task: ' + e.message, 'error');
+            }
+        }
+
+        function editTask(id) {
+            const task = allTasks.find(t => t.id == id);
+            if (!task) return;
+            document.getElementById('taskFormTitle').textContent = 'Edit Task';
+            document.getElementById('taskFormId').value = task.id;
+            document.getElementById('taskFormTitle').value = task.title;
+            document.getElementById('taskFormEvent').value = task.event_id;
+            document.getElementById('taskFormDescription').value = task.description || '';
+            document.getElementById('taskFormCategory').value = task.category || 'general';
+            document.getElementById('taskFormPriority').value = task.priority || 'medium';
+            document.getElementById('taskFormAssignee').value = task.assigned_to || '';
+            document.getElementById('taskFormDueTime').value = task.due_time || '';
+            document.getElementById('taskFormStatus').value = task.status || 'pending';
+            document.getElementById('taskFormModal').classList.remove('hidden');
+            document.getElementById('taskFormModal').classList.add('flex');
+        }
+
+        async function completeTask(id) {
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/tasks/${id}/complete`, { method: 'POST', headers });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('Task completed!', 'success');
+                    loadTasks();
+                    loadTaskStats();
+                }
+            } catch (e) {
+                showToast('Error completing task', 'error');
+            }
+        }
+
+        async function reopenTask(id) {
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/tasks/${id}/reopen`, { method: 'POST', headers });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('Task reopened', 'info');
+                    loadTasks();
+                    loadTaskStats();
+                }
+            } catch (e) {
+                showToast('Error reopening task', 'error');
+            }
+        }
+
+        async function deleteTask(id) {
+            if (!confirm('Delete this task?')) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/tasks/${id}`, { method: 'DELETE', headers });
+                const result = await res.json();
+                if (result.success) {
+                    showToast('Task deleted', 'info');
+                    loadTasks();
+                    loadTaskStats();
+                }
+            } catch (e) {
+                showToast('Error deleting task', 'error');
+            }
+        }
+
+        // ==================== TASK TEMPLATES ====================
+        async function showTaskTemplatesModal() {
+            document.getElementById('taskTemplatesModal').classList.remove('hidden');
+            document.getElementById('taskTemplatesModal').classList.add('flex');
+            await loadTaskTemplates();
+        }
+
+        function closeTaskTemplatesModal() {
+            document.getElementById('taskTemplatesModal').classList.add('hidden');
+            document.getElementById('taskTemplatesModal').classList.remove('flex');
+        }
+
+        async function loadTaskTemplates() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/task-templates`, { headers });
+                const templates = await res.json() || [];
+                const container = document.getElementById('taskTemplatesList');
+                if (templates.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">No templates available</p>';
+                    return;
+                }
+                container.innerHTML = templates.map(t => {
+                    const priorityColors = { high: 'text-red-400', medium: 'text-yellow-400', low: 'text-green-400' };
+                    return `<label class="flex items-center gap-3 p-3 bg-gray-700 rounded hover:bg-gray-650 cursor-pointer">
+                        <input type="checkbox" class="task-template-check" value="${t.id}" class="w-4 h-4">
+                        <div class="flex-1">
+                            <div class="font-semibold text-sm">${escapeHtml(t.name)}</div>
+                            <div class="text-xs text-gray-400">${escapeHtml(t.description || '')}</div>
+                        </div>
+                        <span class="text-xs ${priorityColors[t.priority] || ''}">${t.priority}</span>
+                        <span class="text-xs text-gray-400">${t.category}</span>
+                    </label>`;
+                }).join('');
+            } catch (e) {
+                console.error('Error loading templates:', e);
+            }
+        }
+
+        async function applySelectedTemplates() {
+            const eventId = document.getElementById('templateApplyEvent').value;
+            if (!eventId) {
+                showToast('Please select an event', 'error');
+                return;
+            }
+            const checkboxes = document.querySelectorAll('.task-template-check:checked');
+            const templateIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            if (templateIds.length === 0) {
+                showToast('Please select at least one template', 'error');
+                return;
+            }
+
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/tasks/batch`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ event_id: eventId, template_ids: templateIds })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showToast(`Created ${result.count} tasks from templates`, 'success');
+                    closeTaskTemplatesModal();
+                    loadTasks();
+                    loadTaskStats();
+                } else {
+                    showToast(result.error || 'Error creating tasks', 'error');
+                }
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
 
         // Load all data
         async function loadData() {
@@ -5304,9 +5662,744 @@
         switchTab = function(tab) {
             originalSwitchTab(tab);
             if (tab === 'inventory') loadInventory();
+            if (tab === 'dayops') loadDayOpsEventList();
         };
 
+        // ==================== DAY OPERATIONS ====================
+
+        let currentDayOpsEventId = null;
+        let currentDayOpsEvent = null;
+
+        // Load event dropdown for Day Operations tab
+        async function loadDayOpsEventList() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events`, { headers });
+                const data = await res.json();
+                const events = data.events || data || [];
+                const select = document.getElementById('dayOpsEventSelect');
+                select.innerHTML = '<option value="">-- Select an event --</option>';
+                events.forEach(ev => {
+                    const opt = document.createElement('option');
+                    opt.value = ev.id;
+                    opt.textContent = `${ev.event || ev.name || 'Untitled'} — ${ev.date || 'No date'} ${ev.location ? '· ' + ev.location : ''}`;
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                console.error('Failed to load events for day ops:', err);
+            }
+        }
+
+        // Load selected event's day operations
+        async function loadDayOpsEvent(eventId) {
+            if (!eventId) {
+                document.getElementById('dayOpsNoEvent').classList.remove('hidden');
+                document.getElementById('dayOpsContent').classList.add('hidden');
+                document.getElementById('dayOpsEventInfo').classList.add('hidden');
+                return;
+            }
+
+            currentDayOpsEventId = eventId;
+            document.getElementById('dayOpsNoEvent').classList.add('hidden');
+            document.getElementById('dayOpsContent').classList.remove('hidden');
+            document.getElementById('dayOpsEventInfo').classList.remove('hidden');
+
+            try {
+                const headers = getAuthHeadersNoJSON();
+                // Load event details
+                const evRes = await fetch(`${API}/events/${eventId}`, { headers });
+                const evData = await evRes.json();
+                currentDayOpsEvent = evData;
+                document.getElementById('dayOpsEventName').textContent = evData.event || evData.name || 'Untitled';
+                document.getElementById('dayOpsEventDate').textContent = evData.date || '';
+                document.getElementById('dayOpsEventLocation').textContent = evData.location ? '📍 ' + evData.location : '';
+
+                // Load timeline
+                await loadDayOpsTimeline();
+                // Load status
+                await loadDayOpsStatus();
+                // Load notifications
+                await loadDayOpsNotifications();
+            } catch (err) {
+                console.error('Failed to load day ops event:', err);
+                showToast('Failed to load event details', 'error');
+            }
+        }
+
+        // Sub-tab switching
+        function switchDayOpsSubTab(subTab) {
+            ['timeline', 'status', 'notify'].forEach(t => {
+                document.getElementById(`dayops-sub-${t}`).classList.toggle('tab-active', t === subTab);
+                document.getElementById(`dayops-sub-${t}`).classList.toggle('tab-inactive', t !== subTab);
+                document.getElementById(`dayops-${t}-panel`).classList.toggle('hidden', t !== subTab);
+            });
+        }
+
+        // ---- TIMELINE ----
+
+        async function loadDayOpsTimeline() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${currentDayOpsEventId}/timeline`, { headers });
+                const data = await res.json();
+                const timeline = data.timeline || [];
+                const container = document.getElementById('dayOpsTimeline');
+
+                if (timeline.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">No timeline items yet. Load a template or add items manually.</p>';
+                    return;
+                }
+
+                const categoryColors = {
+                    setup: 'bg-blue-600', audio: 'bg-purple-600', catering: 'bg-orange-600',
+                    coordination: 'bg-teal-600', guest: 'bg-pink-600', event: 'bg-green-600', cleanup: 'bg-gray-600', general: 'bg-gray-600'
+                };
+
+                container.innerHTML = timeline.map(item => `
+                    <div class="bg-gray-800 rounded-lg p-3 border border-gray-700 flex items-center gap-3 group hover:border-gray-600 transition">
+                        <div class="text-lg font-mono text-blue-400 w-14 flex-shrink-0">${item.time_slot}</div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2">
+                                <span class="font-medium text-sm truncate">${escapeHtml(item.title)}</span>
+                                <span class="px-1.5 py-0.5 rounded text-xs ${categoryColors[item.category] || 'bg-gray-600'}">${item.category}</span>
+                                ${item.status === 'completed' ? '<span class="text-green-400 text-xs">✅</span>' : item.status === 'in_progress' ? '<span class="text-yellow-400 text-xs">🔄</span>' : ''}
+                            </div>
+                            ${item.description ? `<p class="text-xs text-gray-400 truncate">${escapeHtml(item.description)}</p>` : ''}
+                            ${item.assigned_to ? `<p class="text-xs text-blue-400">👤 ${escapeHtml(item.assigned_to)}</p>` : ''}
+                        </div>
+                        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                            <button onclick="editTimelineItem(${item.id})" class="text-gray-400 hover:text-white text-xs px-2 py-1 rounded bg-gray-700">✏️</button>
+                            <button onclick="deleteTimelineItem(${item.id})" class="text-gray-400 hover:text-red-400 text-xs px-2 py-1 rounded bg-gray-700">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load timeline:', err);
+            }
+        }
+
+        async function loadTimelineTemplate() {
+            if (!currentDayOpsEventId) return;
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${currentDayOpsEventId}/timeline/load-template`, { method: 'POST', headers });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Loaded ${data.loaded} timeline items from template`, 'success');
+                    await loadDayOpsTimeline();
+                }
+            } catch (err) {
+                showToast('Failed to load template', 'error');
+            }
+        }
+
+        function openAddTimelineItem() {
+            document.getElementById('timelineItemModalTitle').textContent = 'Add Timeline Item';
+            document.getElementById('timelineItemId').value = '';
+            document.getElementById('timelineItemTime').value = '';
+            document.getElementById('timelineItemTitle').value = '';
+            document.getElementById('timelineItemDesc').value = '';
+            document.getElementById('timelineItemCategory').value = 'general';
+            document.getElementById('timelineItemAssignee').value = '';
+            document.getElementById('timelineItemModal').classList.remove('hidden');
+            document.getElementById('timelineItemModal').classList.add('flex');
+        }
+
+        function editTimelineItem(itemId) {
+            // Fetch the item details
+            const headers = getAuthHeadersNoJSON();
+            fetch(`${API}/events/${currentDayOpsEventId}/timeline`, { headers })
+                .then(res => res.json())
+                .then(data => {
+                    const item = (data.timeline || []).find(t => t.id == itemId);
+                    if (!item) return;
+                    document.getElementById('timelineItemModalTitle').textContent = 'Edit Timeline Item';
+                    document.getElementById('timelineItemId').value = item.id;
+                    document.getElementById('timelineItemTime').value = item.time_slot;
+                    document.getElementById('timelineItemTitle').value = item.title;
+                    document.getElementById('timelineItemDesc').value = item.description || '';
+                    document.getElementById('timelineItemCategory').value = item.category || 'general';
+                    document.getElementById('timelineItemAssignee').value = item.assigned_to || '';
+                    document.getElementById('timelineItemModal').classList.remove('hidden');
+                    document.getElementById('timelineItemModal').classList.add('flex');
+                });
+        }
+
+        function closeTimelineItemModal() {
+            document.getElementById('timelineItemModal').classList.add('hidden');
+            document.getElementById('timelineItemModal').classList.remove('flex');
+        }
+
+        async function saveTimelineItem() {
+            const id = document.getElementById('timelineItemId').value;
+            const payload = {
+                time_slot: document.getElementById('timelineItemTime').value,
+                title: document.getElementById('timelineItemTitle').value,
+                description: document.getElementById('timelineItemDesc').value,
+                category: document.getElementById('timelineItemCategory').value,
+                assigned_to: document.getElementById('timelineItemAssignee').value
+            };
+            if (!payload.time_slot || !payload.title) {
+                showToast('Time and title are required', 'error');
+                return;
+            }
+
+            try {
+                const headers = getAuthHeadersJSON();
+                if (id) {
+                    // Update existing
+                    await fetch(`${API}/events/${currentDayOpsEventId}/timeline/${id}`, {
+                        method: 'PUT', headers,
+                        body: JSON.stringify(payload)
+                    });
+                    showToast('Timeline item updated', 'success');
+                } else {
+                    // Create new
+                    await fetch(`${API}/events/${currentDayOpsEventId}/timeline`, {
+                        method: 'POST', headers,
+                        body: JSON.stringify(payload)
+                    });
+                    showToast('Timeline item added', 'success');
+                }
+                closeTimelineItemModal();
+                await loadDayOpsTimeline();
+            } catch (err) {
+                showToast('Failed to save timeline item', 'error');
+            }
+        }
+
+        async function deleteTimelineItem(itemId) {
+            if (!confirm('Delete this timeline item?')) return;
+            try {
+                const headers = getAuthHeadersNoJSON();
+                await fetch(`${API}/events/${currentDayOpsEventId}/timeline/${itemId}`, { method: 'DELETE', headers });
+                showToast('Timeline item deleted', 'success');
+                await loadDayOpsTimeline();
+            } catch (err) {
+                showToast('Failed to delete item', 'error');
+            }
+        }
+
+        // ---- STATUS BOARD ----
+
+        async function loadDayOpsStatus() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${currentDayOpsEventId}/day-status`, { headers });
+                const data = await res.json();
+                const status = data.status || {};
+
+                const fields = ['venue_ready', 'staff_arrived', 'equipment_ready', 'catering_ready', 'audio_ready', 'client_arrived', 'event_started', 'event_completed'];
+                fields.forEach(f => {
+                    const el = document.getElementById(`ds-${f}`);
+                    if (el) {
+                        const val = status[f];
+                        el.textContent = val ? '✅ Done' : `❌ ${f.includes('ready') ? 'Not Ready' : 'Not Yet'}`;
+                        el.className = `mt-2 text-xs font-semibold ${val ? 'text-green-400' : 'text-red-400'}`;
+                    }
+                });
+
+                document.getElementById('dayStatusNotes').value = status.notes || '';
+            } catch (err) {
+                console.error('Failed to load day status:', err);
+            }
+        }
+
+        async function toggleDayStatus(field) {
+            try {
+                const headers = getAuthHeadersJSON();
+                // Get current status first
+                const res = await fetch(`${API}/events/${currentDayOpsEventId}/day-status`, { headers: getAuthHeadersNoJSON() });
+                const data = await res.json();
+                const current = data.status ? data.status[field] : 0;
+
+                const updateRes = await fetch(`${API}/events/${currentDayOpsEventId}/day-status`, {
+                    method: 'PUT', headers,
+                    body: JSON.stringify({ [field]: current ? 0 : 1 })
+                });
+                const updateData = await updateRes.json();
+                if (updateData.success) {
+                    await loadDayOpsStatus();
+                    showToast(`${field.replace(/_/g, ' ')} ${current ? 'unchecked' : 'checked'}`, 'success');
+                }
+            } catch (err) {
+                showToast('Failed to update status', 'error');
+            }
+        }
+
+        async function saveDayStatusNotes() {
+            const notes = document.getElementById('dayStatusNotes').value;
+            try {
+                const headers = getAuthHeadersJSON();
+                await fetch(`${API}/events/${currentDayOpsEventId}/day-status`, {
+                    method: 'PUT', headers,
+                    body: JSON.stringify({ notes })
+                });
+                showToast('Notes saved', 'success');
+            } catch (err) {
+                showToast('Failed to save notes', 'error');
+            }
+        }
+
+        // ---- NOTIFICATIONS ----
+
+        async function loadDayOpsNotifications() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${currentDayOpsEventId}/notifications`, { headers });
+                const data = await res.json();
+                const notifications = data.notifications || [];
+                const container = document.getElementById('dayOpsNotificationLog');
+
+                if (notifications.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm">No notifications sent yet.</p>';
+                    return;
+                }
+
+                container.innerHTML = notifications.map(n => `
+                    <div class="bg-gray-800 rounded p-2 border border-gray-700 flex items-center justify-between">
+                        <div>
+                            <div class="text-sm">${escapeHtml(n.recipient_name)} — ${escapeHtml(n.message).substring(0, 60)}${n.message.length > 60 ? '...' : ''}</div>
+                            <div class="text-xs text-gray-500">${new Date(n.created_at).toLocaleString()}</div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-xs ${n.status === 'sent' ? 'bg-green-900 text-green-300' : n.status === 'failed' ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}">${n.status}</span>
+                    </div>
+                `).join('');
+
+                // Update recipient count
+                if (currentDayOpsEvent) {
+                    let staffNames = [];
+                    try { staffNames = JSON.parse(currentDayOpsEvent.staff || '[]'); } catch(e) {}
+                    document.getElementById('notifyRecipientCount').textContent = `${staffNames.length} staff assigned to this event`;
+                }
+            } catch (err) {
+                console.error('Failed to load notifications:', err);
+            }
+        }
+
+        async function sendBulkNotification() {
+            const message = document.getElementById('notifyMessage').value;
+            const recipientType = document.getElementById('notifyRecipientType').value;
+            if (!message.trim()) {
+                showToast('Please enter a message', 'error');
+                return;
+            }
+
+            try {
+                const headers = getAuthHeadersJSON();
+                const res = await fetch(`${API}/events/${currentDayOpsEventId}/notify`, {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ message, recipient_type: recipientType })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Notification queued for ${data.queued} recipients`, 'success');
+                    document.getElementById('notifyMessage').value = '';
+                    await loadDayOpsNotifications();
+                } else {
+                    showToast(data.error || 'Failed to send', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to send notification', 'error');
+            }
+        }
+
 </script>
+
+
+    <!-- ==================== TASKS TAB ==================== -->
+    <div id="view-tasks" class="hidden">
+        <!-- Task Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Tasks</p>
+                <p id="taskStatTotal" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Completed</p>
+                <p id="taskStatCompleted" class="text-2xl font-bold text-green-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">In Progress</p>
+                <p id="taskStatProgress" class="text-2xl font-bold text-yellow-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Overdue</p>
+                <p id="taskStatOverdue" class="text-2xl font-bold text-red-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Completion</p>
+                <p id="taskStatRate" class="text-2xl font-bold text-purple-400">-</p>
+            </div>
+        </div>
+
+        <!-- Filters and Actions -->
+        <div class="flex flex-col md:flex-row gap-4 mb-6">
+            <div class="flex-1">
+                <input type="text" id="taskSearch" placeholder="🔍 Search tasks..."
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white"
+                    oninput="filterTasks()">
+            </div>
+            <select id="taskFilterEvent" onchange="filterTasks()"
+                class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white">
+                <option value="">All Events</option>
+            </select>
+            <select id="taskFilterStatus" onchange="filterTasks()"
+                class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white">
+                <option value="">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+            </select>
+            <select id="taskFilterPriority" onchange="filterTasks()"
+                class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white">
+                <option value="">All Priority</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+            </select>
+            <button onclick="showAddTaskModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold whitespace-nowrap">+ Add Task</button>
+            <button onclick="showTaskTemplatesModal()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold whitespace-nowrap">📋 Templates</button>
+        </div>
+
+        <!-- Task Board (Kanban-style columns) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <!-- Pending Column -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700">
+                <div class="p-3 border-b border-gray-700 flex items-center justify-between">
+                    <span class="font-semibold text-yellow-400">⏳ Pending</span>
+                    <span id="taskCountPending" class="bg-yellow-600 text-white text-xs px-2 py-1 rounded-full">0</span>
+                </div>
+                <div id="taskListPending" class="p-2 space-y-2 min-h-[200px] max-h-[500px] overflow-y-auto">
+                    <p class="text-gray-500 text-sm text-center py-4">No pending tasks</p>
+                </div>
+            </div>
+            <!-- In Progress Column -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700">
+                <div class="p-3 border-b border-gray-700 flex items-center justify-between">
+                    <span class="font-semibold text-blue-400">🔄 In Progress</span>
+                    <span id="taskCountProgress" class="bg-blue-600 text-white text-xs px-2 py-1 rounded-full">0</span>
+                </div>
+                <div id="taskListProgress" class="p-2 space-y-2 min-h-[200px] max-h-[500px] overflow-y-auto">
+                    <p class="text-gray-500 text-sm text-center py-4">No tasks in progress</p>
+                </div>
+            </div>
+            <!-- Completed Column -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700">
+                <div class="p-3 border-b border-gray-700 flex items-center justify-between">
+                    <span class="font-semibold text-green-400">✅ Completed</span>
+                    <span id="taskCountCompleted" class="bg-green-600 text-white text-xs px-2 py-1 rounded-full">0</span>
+                </div>
+                <div id="taskListCompleted" class="p-2 space-y-2 min-h-[200px] max-h-[500px] overflow-y-auto">
+                    <p class="text-gray-500 text-sm text-center py-4">No completed tasks</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Task List Table -->
+        <div class="bg-gray-800 rounded-lg border border-gray-700">
+            <div class="p-4 border-b border-gray-700">
+                <h3 class="font-semibold">All Tasks</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-gray-400 text-left">
+                            <th class="p-3">Task</th>
+                            <th class="p-3">Event</th>
+                            <th class="p-3">Category</th>
+                            <th class="p-3">Priority</th>
+                            <th class="p-3">Assigned To</th>
+                            <th class="p-3">Due Time</th>
+                            <th class="p-3">Status</th>
+                            <th class="p-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taskTableBody">
+                        <tr><td colspan="8" class="p-4 text-center text-gray-500">Loading tasks...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Task Modal -->
+    <div id="taskFormModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 id="taskFormTitle" class="text-lg font-bold">Add Task</h3>
+                <button onclick="closeTaskFormModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4 space-y-3">
+                <input type="hidden" id="taskFormId">
+                <div>
+                    <label class="text-xs text-gray-400">Title *</label>
+                    <input type="text" id="taskFormTitle" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Event *</label>
+                    <select id="taskFormEvent" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="">Select Event</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Description</label>
+                    <textarea id="taskFormDescription" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Category</label>
+                        <select id="taskFormCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="general">General</option>
+                            <option value="setup">Setup</option>
+                            <option value="audio">Audio/Visual</option>
+                            <option value="catering">Catering</option>
+                            <option value="staffing">Staffing</option>
+                            <option value="logistics">Logistics</option>
+                            <option value="decor">Decor</option>
+                            <option value="safety">Safety</option>
+                            <option value="media">Media</option>
+                            <option value="cleanup">Cleanup</option>
+                            <option value="client">Client</option>
+                            <option value="technical">Technical</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Priority</label>
+                        <select id="taskFormPriority" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Assigned To</label>
+                        <input type="text" id="taskFormAssignee" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Staff name">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Due Time</label>
+                        <input type="datetime-local" id="taskFormDueTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Status</label>
+                    <select id="taskFormStatus" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closeTaskFormModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
+                <button onclick="saveTask()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold">Save Task</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== DAY OPERATIONS TAB ==================== -->
+    <div id="view-dayops" class="hidden">
+        <!-- Event Selector -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+            <div class="flex flex-col md:flex-row gap-4 items-end">
+                <div class="flex-1">
+                    <label class="text-xs text-gray-400">Select Event</label>
+                    <select id="dayOpsEventSelect" onchange="loadDayOpsEvent(this.value)" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">-- Select an event --</option>
+                    </select>
+                </div>
+                <div id="dayOpsEventInfo" class="hidden flex-1 text-sm">
+                    <span id="dayOpsEventName" class="font-semibold text-white"></span>
+                    <span id="dayOpsEventDate" class="text-gray-400 ml-2"></span>
+                    <span id="dayOpsEventLocation" class="text-gray-500 ml-2"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- No Event Selected Message -->
+        <div id="dayOpsNoEvent" class="text-center py-12 text-gray-500">
+            <p class="text-4xl mb-4">📋</p>
+            <p class="text-lg">Select an event above to view Day Operations</p>
+            <p class="text-sm mt-2">Manage event day timeline, status tracking, and staff notifications</p>
+        </div>
+
+        <!-- Day Operations Content (hidden until event selected) -->
+        <div id="dayOpsContent" class="hidden">
+            <!-- Sub-tabs -->
+            <div class="flex gap-4 mb-6 border-b border-gray-700 pb-2">
+                <button onclick="switchDayOpsSubTab('timeline')" id="dayops-sub-timeline" class="pb-2 font-semibold text-sm tab-active">⏰ Timeline</button>
+                <button onclick="switchDayOpsSubTab('status')" id="dayops-sub-status" class="pb-2 font-semibold text-sm tab-inactive">✅ Status Board</button>
+                <button onclick="switchDayOpsSubTab('notify')" id="dayops-sub-notify" class="pb-2 font-semibold text-sm tab-inactive">📢 Notify Staff</button>
+            </div>
+
+            <!-- Timeline Sub-tab -->
+            <div id="dayops-timeline-panel">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold">Event Day Timeline</h3>
+                    <div class="flex gap-2">
+                        <button onclick="loadTimelineTemplate()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded text-sm">📋 Load Template</button>
+                        <button onclick="openAddTimelineItem()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm">+ Add Item</button>
+                    </div>
+                </div>
+                <div id="dayOpsTimeline" class="space-y-2">
+                    <p class="text-gray-500 text-sm text-center py-8">No timeline items yet. Load a template or add items manually.</p>
+                </div>
+            </div>
+
+            <!-- Status Board Sub-tab -->
+            <div id="dayops-status-panel" class="hidden">
+                <h3 class="font-semibold mb-4">Event Day Status Board</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('venue_ready')">
+                        <div class="text-3xl mb-2">🏛️</div>
+                        <div class="text-sm text-gray-400">Venue Ready</div>
+                        <div id="ds-venue_ready" class="mt-2 text-xs font-semibold text-red-400">❌ Not Ready</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('staff_arrived')">
+                        <div class="text-3xl mb-2">👥</div>
+                        <div class="text-sm text-gray-400">Staff Arrived</div>
+                        <div id="ds-staff_arrived" class="mt-2 text-xs font-semibold text-red-400">❌ Not Yet</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('equipment_ready')">
+                        <div class="text-3xl mb-2">🎒</div>
+                        <div class="text-sm text-gray-400">Equipment Ready</div>
+                        <div id="ds-equipment_ready" class="mt-2 text-xs font-semibold text-red-400">❌ Not Ready</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('catering_ready')">
+                        <div class="text-3xl mb-2">🍽️</div>
+                        <div class="text-sm text-gray-400">Catering Ready</div>
+                        <div id="ds-catering_ready" class="mt-2 text-xs font-semibold text-red-400">❌ Not Ready</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('audio_ready')">
+                        <div class="text-3xl mb-2">🔊</div>
+                        <div class="text-sm text-gray-400">Audio Ready</div>
+                        <div id="ds-audio_ready" class="mt-2 text-xs font-semibold text-red-400">❌ Not Ready</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('client_arrived')">
+                        <div class="text-3xl mb-2">🤝</div>
+                        <div class="text-sm text-gray-400">Client Arrived</div>
+                        <div id="ds-client_arrived" class="mt-2 text-xs font-semibold text-red-400">❌ Not Yet</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('event_started')">
+                        <div class="text-3xl mb-2">🎬</div>
+                        <div class="text-sm text-gray-400">Event Started</div>
+                        <div id="ds-event_started" class="mt-2 text-xs font-semibold text-red-400">❌ Not Yet</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 text-center cursor-pointer hover:border-green-500 transition" onclick="toggleDayStatus('event_completed')">
+                        <div class="text-3xl mb-2">🏁</div>
+                        <div class="text-sm text-gray-400">Event Completed</div>
+                        <div id="ds-event_completed" class="mt-2 text-xs font-semibold text-red-400">❌ Not Yet</div>
+                    </div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <label class="text-xs text-gray-400">Status Notes</label>
+                    <textarea id="dayStatusNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1 text-sm" rows="3" placeholder="Add notes about event day status..."></textarea>
+                    <button onclick="saveDayStatusNotes()" class="mt-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm">Save Notes</button>
+                </div>
+            </div>
+
+            <!-- Notify Staff Sub-tab -->
+            <div id="dayops-notify-panel" class="hidden">
+                <h3 class="font-semibold mb-4">Send Bulk Notification</h3>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-4">
+                    <div class="mb-4">
+                        <label class="text-xs text-gray-400">Recipients</label>
+                        <select id="notifyRecipientType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="staff">Assigned Event Staff</option>
+                            <option value="all">All Active Staff</option>
+                        </select>
+                    </div>
+                    <div class="mb-4">
+                        <label class="text-xs text-gray-400">Message</label>
+                        <textarea id="notifyMessage" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" rows="4" placeholder="Type your message to staff..."></textarea>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-500" id="notifyRecipientCount">Select an event to see recipient count</span>
+                        <button onclick="sendBulkNotification()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-semibold">📢 Send Notification</button>
+                    </div>
+                </div>
+                <h4 class="font-semibold mb-2">Notification Log</h4>
+                <div id="dayOpsNotificationLog" class="space-y-2">
+                    <p class="text-gray-500 text-sm">No notifications sent yet.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Timeline Item Modal -->
+    <div id="timelineItemModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold" id="timelineItemModalTitle">Add Timeline Item</h3>
+                <button onclick="closeTimelineItemModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <input type="hidden" id="timelineItemId">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400">Time</label>
+                    <input type="time" id="timelineItemTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Title</label>
+                    <input type="text" id="timelineItemTitle" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="e.g., Sound Check">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Description</label>
+                    <textarea id="timelineItemDesc" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" rows="2" placeholder="Optional details..."></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Category</label>
+                        <select id="timelineItemCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="general">General</option>
+                            <option value="setup">Setup</option>
+                            <option value="audio">Audio</option>
+                            <option value="catering">Catering</option>
+                            <option value="coordination">Coordination</option>
+                            <option value="guest">Guest</option>
+                            <option value="event">Event</option>
+                            <option value="cleanup">Cleanup</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Assigned To</label>
+                        <input type="text" id="timelineItemAssignee" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="Staff name">
+                    </div>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-4">
+                <button onclick="closeTimelineItemModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded">Cancel</button>
+                <button onclick="saveTimelineItem()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Templates Modal -->
+    <div id="taskTemplatesModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold">📋 Task Templates</h3>
+                <button onclick="closeTaskTemplatesModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4">
+                <div class="mb-4">
+                    <label class="text-xs text-gray-400">Apply to Event</label>
+                    <select id="templateApplyEvent" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">Select Event</option>
+                    </select>
+                </div>
+                <div id="taskTemplatesList" class="space-y-2">
+                    <p class="text-gray-500 text-sm">Loading templates...</p>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closeTaskTemplatesModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Close</button>
+                <button onclick="applySelectedTemplates()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Apply Selected</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Run Sheet Modal -->
     <div id="runSheetModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
