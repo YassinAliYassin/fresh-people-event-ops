@@ -98,6 +98,7 @@
             <button onclick="switchTab('inventory')" id="tab-inventory" class="pb-2 font-semibold tab-inactive">🎒 Inventory</button>
             <button onclick="switchTab('tasks')" id="tab-tasks" class="pb-2 font-semibold tab-inactive">✅ Tasks</button>
             <button onclick="switchTab('dayops')" id="tab-dayops" class="pb-2 font-semibold tab-inactive">📋 Day Operations</button>
+            <button onclick="switchTab('venues')" id="tab-venues" class="pb-2 font-semibold tab-inactive">🏛️ Venues</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -180,6 +181,13 @@
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Location</label>
                             <input type="text" id="eventLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">Venue</label>
+                            <select id="eventVenue" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" onchange="selectVenueForEvent()">
+                                <option value="0">— No Venue —</option>
+                            </select>
+                            <p class="text-xs text-gray-500 mt-1">Link to a managed venue</p>
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Client</label>
@@ -1399,8 +1407,11 @@
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm text-gray-400 mb-1">Location</label>
-                    <input type="text" id="editLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    <label class="block text-sm text-gray-400 mb-1">Venue</label>
+                    <select id="editVenue" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" onchange="selectVenueForEdit()">
+                        <option value="0">— No Venue —</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Current venue of event</p>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-400 mb-1">Client</label>
@@ -2183,7 +2194,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');

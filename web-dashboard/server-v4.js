@@ -339,6 +339,65 @@ db.get(`SELECT id FROM email_settings WHERE id = 1`, (err, row) => {
   }
 });
 
+// ==================== VENUE MANAGEMENT ====================
+
+// Create venues table
+db.run(`CREATE TABLE IF NOT EXISTS venues (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  address TEXT DEFAULT '',
+  city TEXT DEFAULT '',
+  province TEXT DEFAULT '',
+  postal_code TEXT DEFAULT '',
+  country TEXT DEFAULT 'South Africa',
+  capacity INTEGER DEFAULT 0,
+  venue_type TEXT DEFAULT 'indoor',
+  contact_name TEXT DEFAULT '',
+  contact_phone TEXT DEFAULT '',
+  contact_email TEXT DEFAULT '',
+  website TEXT DEFAULT '',
+  parking_spots INTEGER DEFAULT 0,
+  has_parking INTEGER DEFAULT 0,
+  has_wifi INTEGER DEFAULT 0,
+  has_catering INTEGER DEFAULT 0,
+  has_av_equipment INTEGER DEFAULT 0,
+  has_stage INTEGER DEFAULT 0,
+  has_dance_floor INTEGER DEFAULT 0,
+  rate_per_day REAL DEFAULT 0,
+  rate_per_hour REAL DEFAULT 0,
+  currency TEXT DEFAULT 'ZAR',
+  notes TEXT DEFAULT '',
+  tags TEXT DEFAULT '[]',
+  is_active INTEGER DEFAULT 1,
+  total_events INTEGER DEFAULT 0,
+  rating REAL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Add venue_id to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN venue_id INTEGER DEFAULT 0`, () => {});
+
+// Seed default venues if table is empty
+db.get(`SELECT COUNT(*) as count FROM venues`, (err, row) => {
+  if (row && row.count === 0) {
+    const defaultVenues = [
+      ['The Venue at Rosebank', '191 Jan Smuts Avenue', 'Johannesburg', 'Gauteng', '2196', 'South Africa', 500, 'indoor', 'Thabo Mokoena', '011 555 0101', 'bookings@rosebankvenue.co.za', 'https://rosebankvenue.co.za', 80, 1, 1, 1, 1, 1, 1, 15000, 2000, 'ZAR', 'Premium event space in Rosebank with full AV setup', '["premium", "corporate", "gala"]', 1, 0, 4.5],
+      ['Sandton Convention Centre', '161 Maude Street', 'Sandton', 'Gauteng', '2196', 'South Africa', 3000, 'indoor', 'Nadia Petersen', '011 555 0202', 'events@sandtonconv.co.za', 'https://sandtonconv.co.za', 500, 1, 1, 1, 1, 1, 0, 45000, 6000, 'ZAR', 'Large convention centre, ideal for conferences and exhibitions', '["conference", "exhibition", "large"]', 1, 0, 4.8],
+      ['The Garden Estate', '42 Kloof Road', 'Cape Town', 'Western Cape', '8005', 'South Africa', 250, 'outdoor', 'Sarah van der Berg', '021 555 0303', 'info@thegardenestate.co.za', 'https://thegardenestate.co.za', 60, 1, 1, 1, 0, 0, 0, 12000, 1500, 'ZAR', 'Beautiful garden venue perfect for weddings and outdoor events', '["wedding", "outdoor", "garden"]', 1, 0, 4.7],
+      ['The Warehouse', '77 Industrial Road', 'Durban', 'KwaZulu-Natal', '4001', 'South Africa', 800, 'indoor', 'Raj Naidoo', '031 555 0404', 'bookings@thewarehouse.co.za', '', 100, 1, 1, 0, 1, 1, 1, 18000, 2500, 'ZAR', 'Industrial-chic warehouse space for concerts and large events', '["concert", "industrial", "party"]', 1, 0, 4.3],
+      ['Stellenbosch Wine Farm', 'Helshoogte Pass', 'Stellenbosch', 'Western Cape', '7600', 'South Africa', 150, 'outdoor', 'Pieter Botha', '021 555 0505', 'events@stellenboschwine.co.za', 'https://stellenboschwine.co.za', 40, 1, 0, 1, 0, 0, 0, 20000, 3000, 'ZAR', 'Scenic wine farm with vineyard views, ideal for intimate events', '["wine", "scenic", "intimate"]', 1, 0, 4.9],
+      ['The Rooftop Lounge', '5th Floor, 200 Commissioner Street', 'Johannesburg', 'Gauteng', '2001', 'South Africa', 200, 'indoor', 'Amira Osman', '011 555 0606', 'hello@rooftoplounge.co.za', 'https://rooftoplounge.co.za', 30, 1, 1, 1, 1, 0, 1, 10000, 1500, 'ZAR', 'Trendy rooftop venue with city skyline views', '["rooftop", "cocktail", "city-view"]', 1, 0, 4.4],
+      ['Pretoria Country Club', 'Waterkloof Road', 'Pretoria', 'Gauteng', '0002', 'South Africa', 400, 'both', 'Johan de Wet', '012 555 0707', 'events@pretoriaclub.co.za', 'https://pretoriaclub.co.za', 120, 1, 1, 1, 1, 1, 1, 22000, 3000, 'ZAR', 'Versatile country club with indoor and outdoor options', '["versatile", "club", "golf"]', 1, 0, 4.6],
+      ['The Boardwalk Casino', 'Marine Drive', 'Port Elizabeth', 'Eastern Cape', '6001', 'South Africa', 600, 'indoor', 'Lindiwe Mthembu', '041 555 0808', 'events@boardwalk.co.za', 'https://boardwalk.co.za', 200, 1, 1, 1, 1, 1, 0, 25000, 3500, 'ZAR', 'Casino and entertainment complex with multiple event spaces', '["casino", "entertainment", "complex"]', 1, 0, 4.2]
+    ];
+    const stmt = db.prepare(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, parking_spots, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active, total_events, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    defaultVenues.forEach(v => stmt.run(v));
+    stmt.finalize();
+    console.log(`Seeded ${defaultVenues.length} default venues`);
+  }
+});
+
 // ==================== INVENTORY / EQUIPMENT MANAGEMENT ====================
 
 // Create equipment inventory table
@@ -588,6 +647,205 @@ async function initVapidKeys() {
   );
 }
 initVapidKeys().catch(console.error);
+
+// ==================== VENUE API ENDPOINTS ====================
+
+// GET /api/venues - List all venues with optional filters
+app.get('/api/venues', (req, res) => {
+  const { search, city, venue_type, is_active, min_capacity, max_rate, sort } = req.query;
+  let sql = `SELECT v.*, 
+    (SELECT COUNT(*) FROM events e WHERE e.venue_id = v.id) as event_count
+    FROM venues v WHERE 1=1`;
+  const params = [];
+
+  if (search) {
+    sql += ` AND (v.name LIKE ? OR v.address LIKE ? OR v.city LIKE ? OR v.contact_name LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (city) {
+    sql += ` AND v.city = ?`;
+    params.push(city);
+  }
+  if (venue_type) {
+    sql += ` AND v.venue_type = ?`;
+    params.push(venue_type);
+  }
+  if (is_active !== undefined) {
+    sql += ` AND v.is_active = ?`;
+    params.push(parseInt(is_active));
+  }
+  if (min_capacity) {
+    sql += ` AND v.capacity >= ?`;
+    params.push(parseInt(min_capacity));
+  }
+  if (max_rate) {
+    sql += ` AND v.rate_per_day <= ?`;
+    params.push(parseFloat(max_rate));
+  }
+
+  const allowedSorts = { 'name': 'v.name ASC', 'capacity': 'v.capacity DESC', 'rating': 'v.rating DESC', 'events': 'event_count DESC', 'rate': 'v.rate_per_day ASC', 'city': 'v.city ASC', 'created': 'v.created_at DESC' };
+  sql += ` ORDER BY ${allowedSorts[sort] || 'v.name ASC'}`;
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// GET /api/venues/:id - Get single venue with event history
+app.get('/api/venues/:id', (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT v.*, 
+    (SELECT COUNT(*) FROM events e WHERE e.venue_id = v.id) as event_count
+    FROM venues v WHERE v.id = ?`, [id], (err, venue) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!venue) return res.status(404).json({ error: 'Venue not found' });
+
+    // Get event history for this venue
+    db.all(`SELECT id, event, client, date, time, status, estimated_cost, actual_cost, guests 
+      FROM events WHERE venue_id = ? ORDER BY date DESC LIMIT 20`, [id], (err2, events) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      venue.events = events || [];
+
+      // Get upcoming events
+      const today = new Date().toISOString().slice(0, 10);
+      db.all(`SELECT id, event, client, date, time, status FROM events 
+        WHERE venue_id = ? AND date >= ? ORDER BY date ASC LIMIT 5`, [id, today], (err3, upcoming) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+        venue.upcoming_events = upcoming || [];
+        res.json(venue);
+      });
+    });
+  });
+});
+
+// GET /api/venues/stats/summary - Venue statistics
+app.get('/api/venues/stats/summary', (req, res) => {
+  db.get(`SELECT 
+    COUNT(*) as total_venues,
+    SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_venues,
+    SUM(capacity) as total_capacity,
+    AVG(rate_per_day) as avg_rate_per_day,
+    AVG(rating) as avg_rating
+    FROM venues`, (err, stats) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    db.all(`SELECT v.city, COUNT(*) as count FROM venues v WHERE v.is_active = 1 GROUP BY v.city ORDER BY count DESC`, (err2, byCity) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      db.all(`SELECT v.venue_type, COUNT(*) as count FROM venues v WHERE v.is_active = 1 GROUP BY v.venue_type`, (err3, byType) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+
+        // Top venues by event count
+        db.all(`SELECT v.id, v.name, v.city, v.capacity, v.rating,
+          COUNT(e.id) as event_count
+          FROM venues v LEFT JOIN events e ON e.venue_id = v.id
+          GROUP BY v.id ORDER BY event_count DESC LIMIT 5`, (err4, topVenues) => {
+          if (err4) return res.status(500).json({ error: err4.message });
+
+          res.json({ ...stats, by_city: byCity, by_type: byType, top_venues: topVenues });
+        });
+      });
+    });
+  });
+});
+
+// GET /api/venues/cities/list - List unique cities for filter
+app.get('/api/venues/cities/list', (req, res) => {
+  db.all(`SELECT DISTINCT city FROM venues WHERE is_active = 1 AND city != '' ORDER BY city ASC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows.map(r => r.city));
+  });
+});
+
+// POST /api/venues - Create new venue
+app.post('/api/venues', (req, res) => {
+  const { name, address, city, province, postal_code, country, capacity, venue_type, 
+    contact_name, contact_phone, contact_email, website, parking_spots, has_parking,
+    has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor,
+    rate_per_day, rate_per_hour, currency, notes, tags } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Venue name is required' });
+
+  const sql = `INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, 
+    contact_name, contact_phone, contact_email, website, parking_spots, has_parking,
+    has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor,
+    rate_per_day, rate_per_hour, currency, notes, tags) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  const params = [name, address||'', city||'', province||'', postal_code||'', country||'South Africa', 
+    capacity||0, venue_type||'indoor', contact_name||'', contact_phone||'', contact_email||'', website||'', 
+    parking_spots||0, has_parking?1:0, has_wifi?1:0, has_catering?1:0, has_av_equipment?1:0, 
+    has_stage?1:0, has_dance_floor?1:0, rate_per_day||0, rate_per_hour||0, currency||'ZAR', notes||'', 
+    tags||'[]'];
+
+  db.run(sql, params, function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    db.get(`SELECT * FROM venues WHERE id = ?`, [this.lastID], (err2, row) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      if (app.broadcast) app.broadcast({ type: 'venue_created', venue: row });
+      res.status(201).json(row);
+    });
+  });
+});
+
+// PUT /api/venues/:id - Update venue
+app.put('/api/venues/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, address, city, province, postal_code, country, capacity, venue_type, 
+    contact_name, contact_phone, contact_email, website, parking_spots, has_parking,
+    has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor,
+    rate_per_day, rate_per_hour, currency, notes, tags, is_active, rating } = req.body;
+
+  if (!name) return res.status(400).json({ error: 'Venue name is required' });
+
+  const sql = `UPDATE venues SET name=?, address=?, city=?, province=?, postal_code=?, country=?, 
+    capacity=?, venue_type=?, contact_name=?, contact_phone=?, contact_email=?, website=?, 
+    parking_spots=?, has_parking=?, has_wifi=?, has_catering=?, has_av_equipment=?, has_stage=?, 
+    has_dance_floor=?, rate_per_day=?, rate_per_hour=?, currency=?, notes=?, tags=?, 
+    is_active=?, rating=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`;
+  const params = [name, address||'', city||'', province||'', postal_code||'', country||'South Africa', 
+    capacity||0, venue_type||'indoor', contact_name||'', contact_phone||'', contact_email||'', website||'', 
+    parking_spots||0, has_parking?1:0, has_wifi?1:0, has_catering?1:0, has_av_equipment?1:0, 
+    has_stage?1:0, has_dance_floor?1:0, rate_per_day||0, rate_per_hour||0, currency||'ZAR', notes||'', 
+    tags||'[]', is_active!==undefined?(is_active?1:0):1, rating||0, id];
+
+  db.run(sql, params, function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Venue not found' });
+    db.get(`SELECT * FROM venues WHERE id = ?`, [id], (err2, row) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      if (app.broadcast) app.broadcast({ type: 'venue_updated', venue: row });
+      res.json(row);
+    });
+  });
+});
+
+// DELETE /api/venues/:id - Delete venue
+app.delete('/api/venues/:id', (req, res) => {
+  const { id } = req.params;
+  // Check if any events use this venue
+  db.get(`SELECT COUNT(*) as count FROM events WHERE venue_id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (row.count > 0) {
+      // Unlink events instead of preventing deletion
+      db.run(`UPDATE events SET venue_id = 0 WHERE venue_id = ?`, [id], (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        _deleteVenue(id, res);
+      });
+    } else {
+      _deleteVenue(id, res);
+    }
+  });
+});
+
+function _deleteVenue(id, res) {
+  db.run(`DELETE FROM venues WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Venue not found' });
+    if (app.broadcast) app.broadcast({ type: 'venue_deleted', venueId: parseInt(id) });
+    res.json({ message: 'Venue deleted', id: parseInt(id) });
+  });
+}
 
 // ==================== INVENTORY / EQUIPMENT API ENDPOINTS ====================
 
@@ -1701,7 +1959,7 @@ app.get('/api/events', (req, res) => {
 // POST /api/events (with staff shortage warning)
 app.post('/api/events', async (req, res) => {
   try {
-    const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time } = req.body;
+    const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time, venue_id } = req.body;
     const id = await generateEventID(date);
     const staffList = staff || [];
     const activeStaffCount = await getActiveStaffCount();
@@ -1723,13 +1981,14 @@ app.post('/api/events', async (req, res) => {
     const cliId = client_id || 0;
     const guestCount = guests || 0;
     const endTime = end_time || '';
+    const venId = venue_id || 0;
     
     db.run(
-      `INSERT INTO events (id, event, date, time, end_time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [id, event, date, time, endTime, location, client, cliId, cliEmail, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget, guestCount],
+      `INSERT INTO events (id, event, date, time, end_time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, venue_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, event, date, time, endTime, location, client, cliId, cliEmail, services, staffJSON, fullNotes, estCost, actCost, curr, evtBudget, guestCount, venId],
       async function(err) {
         if (err) return res.status(500).json({error: err.message});
-        const newEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, client_email: cliEmail, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount};
+        const newEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, client_email: cliEmail, services, staff: staffList, notes: fullNotes, warnings, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount, venue_id: venId};
         const icsContent = generateICS(newEvent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
         await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(newEvent, null, 2));
@@ -1743,6 +2002,13 @@ app.post('/api/events', async (req, res) => {
             db.run(`UPDATE clients SET total_events = total_events + 1, last_event_date = ?, updated_at = ? WHERE id = ?`,
               [date, new Date().toISOString(), cliId]);
           } catch(e) { console.error('Client stats update failed:', e); }
+        }
+        // Update venue event count if linked
+        if (venId > 0) {
+          try {
+            db.run(`UPDATE venues SET total_events = total_events + 1, updated_at = ? WHERE id = ?`,
+              [new Date().toISOString(), venId]);
+          } catch(e) { console.error('Venue stats update failed:', e); }
         }
         // Send push notification
         try { sendPushNotification(`New Event: ${event}`, `${date} at ${time} - ${location}`, '/'); } catch(e) { console.error('Push notify failed:', e); }
@@ -1758,7 +2024,7 @@ app.post('/api/events', async (req, res) => {
 
 // PUT /api/events/:id
 app.put('/api/events/:id', (req, res) => {
-  const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time } = req.body;
+  const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time, venue_id } = req.body;
   const id = req.params.id;
   const staffJSON = JSON.stringify(staff || []);
   const estCost = estimated_cost || 0;
@@ -1768,13 +2034,14 @@ app.put('/api/events/:id', (req, res) => {
   const cliId = client_id || 0;
   const guestCount = guests || 0;
   const endTime = end_time || '';
+  const venId = venue_id || 0;
   db.run(
-    `UPDATE events SET event=?, date=?, time=?, end_time=?, location=?, client=?, client_id=?, client_email=?, services=?, staff=?, notes=?, estimated_cost=?, actual_cost=?, currency=?, budget=?, guests=? WHERE id=?`,
-    [event, date, time, endTime, location, client, cliId, client_email || '', services, staffJSON, notes, estCost, actCost, curr, evtBudget, guestCount, id],
+    `UPDATE events SET event=?, date=?, time=?, end_time=?, location=?, client=?, client_id=?, client_email=?, services=?, staff=?, notes=?, estimated_cost=?, actual_cost=?, currency=?, budget=?, guests=?, venue_id=? WHERE id=?`,
+    [event, date, time, endTime, location, client, cliId, client_email || '', services, staffJSON, notes, estCost, actCost, curr, evtBudget, guestCount, venId, id],
     async function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
-      const updatedEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, services, staff: JSON.parse(staffJSON), notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount};
+      const updatedEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, services, staff: JSON.parse(staffJSON), notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount, venue_id: venId};
       const icsContent = generateICS(updatedEvent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(updatedEvent, null, 2));
@@ -2673,7 +2940,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.16.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.18.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -3612,6 +3879,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.17 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.18 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
