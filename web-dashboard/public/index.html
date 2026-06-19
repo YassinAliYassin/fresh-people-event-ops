@@ -100,6 +100,7 @@
             <button onclick="switchTab('dayops')" id="tab-dayops" class="pb-2 font-semibold tab-inactive">📋 Day Operations</button>
             <button onclick="switchTab('venues')" id="tab-venues" class="pb-2 font-semibold tab-inactive">🏛️ Venues</button>
             <button onclick="switchTab('payroll')" id="tab-payroll" class="pb-2 font-semibold tab-inactive">💵 Payroll</button>
+            <button onclick="switchTab('suppliers')" id="tab-suppliers" class="pb-2 font-semibold tab-inactive">🏪 Suppliers</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -2234,7 +2235,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2298,6 +2299,13 @@
                 loadPayrollSummary();
                 loadTimesheetEntries();
                 populatePayrollStaffSelect();
+            }
+            if (tab === 'suppliers') {
+                loadSuppliers();
+                loadSupplierStats();
+                loadPurchaseOrders();
+                loadPOSummary();
+                populateSupplierCategoryFilter();
             }
         }
 
@@ -3904,6 +3912,8 @@
             renderStaffAssignment();
             showToast(`✅ Applied ${names.length} staff to event form`, 'success');
             switchTab('dashboard');
+            // Attach PO line item listeners on load
+            document.querySelectorAll('.po-line-item').forEach(el => attachPOItemListeners(el));
         }
 
         // ==================== STAFF AVAILABILITY ====================
@@ -6770,6 +6780,489 @@
         </div>
     </div>
 
+
+        // ==================== SUPPLIER / VENDOR MANAGEMENT JS ====================
+
+        let allSuppliers = [];
+        let currentSupplierDetail = null;
+        let allPOs = [];
+        let poEvents = [];
+
+        function switchSupplierSubTab(sub) {
+            const tabs = ['suppliers', 'purchase-orders'];
+            tabs.forEach(t => {
+                const view = document.getElementById('supplier-view-' + t);
+                const btn = document.getElementById('supplier-sub-' + t);
+                if (view) view.classList.toggle('hidden', t !== sub);
+                if (btn) {
+                    btn.classList.toggle('text-purple-400', t === sub);
+                    btn.classList.toggle('border-purple-400', t === sub);
+                    btn.classList.toggle('text-gray-400', t !== sub);
+                    btn.classList.toggle('border-b-2', t === sub);
+                }
+            });
+        }
+
+        async function loadSuppliers() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const search = document.getElementById('supplierSearch')?.value || '';
+                const category = document.getElementById('supplierFilterCategory')?.value || '';
+                const status = document.getElementById('supplierFilterStatus')?.value || '';
+                const sort = document.getElementById('supplierSortBy')?.value || 'name';
+                let url = `${API}/suppliers?sort=${sort}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+                if (category) url += `&category=${encodeURIComponent(category)}`;
+                if (status) url += `&status=${encodeURIComponent(status)}`;
+                const res = await fetch(url, { headers });
+                const data = await res.json();
+                allSuppliers = data.data || [];
+                renderSuppliers();
+            } catch (e) {
+                console.error('Error loading suppliers:', e);
+            }
+        }
+
+        async function loadSupplierStats() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/suppliers/stats/summary`, { headers });
+                const data = await res.json();
+                const s = data.summary || {};
+                document.getElementById('supplierStatTotal').textContent = s.total_suppliers || 0;
+                document.getElementById('supplierStatActive').textContent = s.active_suppliers || 0;
+                document.getElementById('supplierStatSpent').textContent = 'R ' + Number(s.total_spent || 0).toLocaleString();
+                document.getElementById('supplierStatOrders').textContent = s.total_orders || 0;
+                document.getElementById('supplierStatRating').textContent = Number(s.avg_rating || 0).toFixed(1);
+            } catch (e) {
+                console.error('Error loading supplier stats:', e);
+            }
+        }
+
+        async function populateSupplierCategoryFilter() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/suppliers/categories`, { headers });
+                const categories = await res.json();
+                const select = document.getElementById('supplierFilterCategory');
+                if (select) {
+                    select.innerHTML = '<option value="">All Categories</option>';
+                    categories.forEach(cat => {
+                        select.innerHTML += `<option value="${cat}">${cat.charAt(0).toUpperCase() + cat.slice(1)}</option>`;
+                    });
+                }
+            } catch (e) {
+                console.error('Error loading categories:', e);
+            }
+        }
+
+        function renderSuppliers() {
+            const grid = document.getElementById('suppliersGrid');
+            if (!grid) return;
+            if (allSuppliers.length === 0) {
+                grid.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No suppliers found. Click &quot;Add Supplier&quot; to get started.</div>';
+                return;
+            }
+            grid.innerHTML = allSuppliers.map(s => {
+                const ratingStars = '★'.repeat(Math.round(s.rating || 0)) + '☆'.repeat(5 - Math.round(s.rating || 0));
+                return `
+                <div class="bg-gray-800 rounded-lg p-4 border ${s.is_active ? 'border-gray-700' : 'border-red-800 opacity-60'} cursor-pointer hover:border-purple-500 transition-colors" onclick="openSupplierDetail(${s.id})">
+                    <div class="flex items-start justify-between mb-2">
+                        <div>
+                            <h3 class="font-bold text-sm">${escapeHtml(s.name)}</h3>
+                            <p class="text-xs text-gray-400">${escapeHtml(s.company || '')}</p>
+                        </div>
+                        <span class="text-xs px-2 py-0.5 rounded ${s.is_active ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${s.is_active ? 'Active' : 'Inactive'}</span>
+                    </div>
+                    <div class="text-xs text-gray-400 space-y-1">
+                        ${s.contact_name ? `<div>👤 ${escapeHtml(s.contact_name)}</div>` : ''}
+                        ${s.email ? `<div>📧 ${escapeHtml(s.email)}</div>` : ''}
+                        ${s.phone ? `<div>📱 ${escapeHtml(s.phone)}</div>` : ''}
+                    </div>
+                    <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-700">
+                        <span class="text-xs text-yellow-400">${ratingStars}</span>
+                        <span class="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">${s.category || 'general'}</span>
+                    </div>
+                    <div class="flex items-center justify-between mt-2 text-xs text-gray-500">
+                        <span>${s.total_orders || 0} orders</span>
+                        <span>R ${Number(s.total_spent || 0).toLocaleString()}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function openSupplierModal(supplier = null) {
+            document.getElementById('supplierModalTitle').textContent = supplier ? 'Edit Supplier' : 'Add Supplier';
+            document.getElementById('supplierFormId').value = supplier?.id || '';
+            document.getElementById('supplierFormName').value = supplier?.name || '';
+            document.getElementById('supplierFormCompany').value = supplier?.company || '';
+            document.getElementById('supplierFormCategory').value = supplier?.category || 'general';
+            document.getElementById('supplierFormContactName').value = supplier?.contact_name || '';
+            document.getElementById('supplierFormEmail').value = supplier?.email || '';
+            document.getElementById('supplierFormPhone').value = supplier?.phone || '';
+            document.getElementById('supplierFormAddress').value = supplier?.address || '';
+            document.getElementById('supplierFormCity').value = supplier?.city || '';
+            document.getElementById('supplierFormProvince').value = supplier?.province || '';
+            document.getElementById('supplierFormPostalCode').value = supplier?.postal_code || '';
+            document.getElementById('supplierFormCountry').value = supplier?.country || 'South Africa';
+            document.getElementById('supplierFormWebsite').value = supplier?.website || '';
+            document.getElementById('supplierFormTaxId').value = supplier?.tax_id || '';
+            document.getElementById('supplierFormPaymentTerms').value = supplier?.payment_terms || '30 days';
+            document.getElementById('supplierFormRating').value = supplier?.rating || 0;
+            document.getElementById('supplierFormNotes').value = supplier?.notes || '';
+            document.getElementById('supplierFormActive').checked = supplier ? !!supplier.is_active : true;
+            document.getElementById('supplierModal').classList.remove('hidden');
+            document.getElementById('supplierModal').classList.add('flex');
+        }
+
+        function closeSupplierModal() {
+            document.getElementById('supplierModal').classList.add('hidden');
+            document.getElementById('supplierModal').classList.remove('flex');
+        }
+
+        async function saveSupplier() {
+            const id = document.getElementById('supplierFormId').value;
+            const body = {
+                name: document.getElementById('supplierFormName').value,
+                company: document.getElementById('supplierFormCompany').value,
+                category: document.getElementById('supplierFormCategory').value,
+                contact_name: document.getElementById('supplierFormContactName').value,
+                email: document.getElementById('supplierFormEmail').value,
+                phone: document.getElementById('supplierFormPhone').value,
+                address: document.getElementById('supplierFormAddress').value,
+                city: document.getElementById('supplierFormCity').value,
+                province: document.getElementById('supplierFormProvince').value,
+                postal_code: document.getElementById('supplierFormPostalCode').value,
+                country: document.getElementById('supplierFormCountry').value,
+                website: document.getElementById('supplierFormWebsite').value,
+                tax_id: document.getElementById('supplierFormTaxId').value,
+                payment_terms: document.getElementById('supplierFormPaymentTerms').value,
+                rating: parseFloat(document.getElementById('supplierFormRating').value) || 0,
+                notes: document.getElementById('supplierFormNotes').value,
+                is_active: document.getElementById('supplierFormActive').checked,
+            };
+            if (!body.name) return showToast('Supplier name is required', 'error');
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(id ? `${API}/suppliers/${id}` : `${API}/suppliers`, {
+                    method: id ? 'PUT' : 'POST',
+                    headers,
+                    body: JSON.stringify(body),
+                });
+                if (!res.ok) throw new Error((await res.json()).error || 'Failed to save');
+                showToast(id ? 'Supplier updated' : 'Supplier created', 'success');
+                closeSupplierModal();
+                loadSuppliers();
+                loadSupplierStats();
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function openSupplierDetail(id) {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/suppliers/${id}`, { headers });
+                const data = await res.json();
+                currentSupplierDetail = data.supplier;
+                const s = data.supplier;
+                const orders = data.purchase_orders || [];
+                const ratingStars = '★'.repeat(Math.round(s.rating || 0)) + '☆'.repeat(5 - Math.round(s.rating || 0));
+                document.getElementById('supplierDetailTitle').textContent = s.name;
+                document.getElementById('supplierDetailContent').innerHTML = `
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div class="space-y-2">
+                            <div><span class="text-gray-400 text-xs">Company:</span> <span class="text-sm">${escapeHtml(s.company || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Category:</span> <span class="text-sm px-2 py-0.5 rounded bg-gray-700">${s.category || 'general'}</span></div>
+                            <div><span class="text-gray-400 text-xs">Contact:</span> <span class="text-sm">${escapeHtml(s.contact_name || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Email:</span> <span class="text-sm">${escapeHtml(s.email || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Phone:</span> <span class="text-sm">${escapeHtml(s.phone || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Website:</span> <span class="text-sm">${s.website ? `<a href="${s.website}" target="_blank" class="text-purple-400 hover:underline">${s.website}</a>` : '—'}</span></div>
+                        </div>
+                        <div class="space-y-2">
+                            <div><span class="text-gray-400 text-xs">Address:</span> <span class="text-sm">${escapeHtml([s.address, s.city, s.province, s.postal_code, s.country].filter(Boolean).join(', ') || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Tax ID:</span> <span class="text-sm">${escapeHtml(s.tax_id || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Payment Terms:</span> <span class="text-sm">${escapeHtml(s.payment_terms || '—')}</span></div>
+                            <div><span class="text-gray-400 text-xs">Rating:</span> <span class="text-sm text-yellow-400">${ratingStars} (${Number(s.rating || 0).toFixed(1)})</span></div>
+                            <div><span class="text-gray-400 text-xs">Status:</span> <span class="text-sm ${s.is_active ? 'text-green-400' : 'text-red-400'}">${s.is_active ? 'Active' : 'Inactive'}</span></div>
+                            <div><span class="text-gray-400 text-xs">Total Orders:</span> <span class="text-sm">${s.total_orders || 0}</span></div>
+                            <div><span class="text-gray-400 text-xs">Total Spent:</span> <span class="text-sm text-green-400">R ${Number(s.total_spent || 0).toLocaleString()}</span></div>
+                        </div>
+                    </div>
+                    ${s.notes ? `<div class="mb-4"><span class="text-gray-400 text-xs">Notes:</span><p class="text-sm mt-1">${escapeHtml(s.notes)}</p></div>` : ''}
+                    <div class="border-t border-gray-700 pt-4">
+                        <h4 class="font-semibold text-sm mb-2">Recent Purchase Orders (${orders.length})</h4>
+                        ${orders.length === 0 ? '<p class="text-gray-500 text-sm">No purchase orders yet.</p>' : `
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="bg-gray-700">
+                                    <tr><th class="px-3 py-1 text-left">PO #</th><th class="px-3 py-1 text-left">Date</th><th class="px-3 py-1 text-left">Total</th><th class="px-3 py-1 text-left">Status</th></tr>
+                                </thead>
+                                <tbody>
+                                    ${orders.slice(0, 10).map(o => `<tr class="border-b border-gray-700"><td class="px-3 py-1">${escapeHtml(o.po_number)}</td><td class="px-3 py-1">${o.order_date || '—'}</td><td class="px-3 py-1">R ${Number(o.total || 0).toLocaleString()}</td><td class="px-3 py-1"><span class="text-xs px-2 py-0.5 rounded ${o.status === 'delivered' ? 'bg-green-900 text-green-300' : o.status === 'approved' ? 'bg-blue-900 text-blue-300' : 'bg-gray-700 text-gray-300'}">${o.status}</span></td></tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>`}
+                    </div>
+                `;
+                document.getElementById('supplierDetailModal').classList.remove('hidden');
+                document.getElementById('supplierDetailModal').classList.add('flex');
+            } catch (e) {
+                showToast('Error loading supplier: ' + e.message, 'error');
+            }
+        }
+
+        function closeSupplierDetailModal() {
+            document.getElementById('supplierDetailModal').classList.add('hidden');
+            document.getElementById('supplierDetailModal').classList.remove('flex');
+            currentSupplierDetail = null;
+        }
+
+        function editSupplierFromDetail() {
+            if (currentSupplierDetail) {
+                closeSupplierDetailModal();
+                openSupplierModal(currentSupplierDetail);
+            }
+        }
+
+        // ==================== PURCHASE ORDER JS ====================
+
+        async function loadPurchaseOrders() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const status = document.getElementById('poFilterStatus')?.value || '';
+                const payment = document.getElementById('poFilterPayment')?.value || '';
+                let url = `${API}/purchase-orders`;
+                const params = [];
+                if (status) params.push(`status=${encodeURIComponent(status)}`);
+                if (payment) params.push(`payment_status=${encodeURIComponent(payment)}`);
+                if (params.length) url += '?' + params.join('&');
+                const res = await fetch(url, { headers });
+                const data = await res.json();
+                allPOs = data.data || [];
+                renderPurchaseOrders();
+            } catch (e) {
+                console.error('Error loading POs:', e);
+            }
+        }
+
+        async function loadPOSummary() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/purchase-orders/summary`, { headers });
+                const data = await res.json();
+                const s = data.summary || {};
+                document.getElementById('poStatTotalValue').textContent = 'R ' + Number(s.total_value || 0).toLocaleString();
+                document.getElementById('poStatUnpaid').textContent = 'R ' + Number(s.unpaid_total || 0).toLocaleString();
+                document.getElementById('poStatDraft').textContent = s.draft_count || 0;
+                document.getElementById('poStatDelivered').textContent = s.delivered_count || 0;
+            } catch (e) {
+                console.error('Error loading PO summary:', e);
+            }
+        }
+
+        function renderPurchaseOrders() {
+            const tbody = document.getElementById('poTableBody');
+            if (!tbody) return;
+            if (allPOs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No purchase orders found</td></tr>';
+                return;
+            }
+            tbody.innerHTML = allPOs.map(o => `
+                <tr class="border-b border-gray-700 hover:bg-gray-750">
+                    <td class="px-4 py-2 font-mono text-xs">${escapeHtml(o.po_number)}</td>
+                    <td class="px-4 py-2">${escapeHtml(o.supplier_name || '—')}</td>
+                    <td class="px-4 py-2 text-xs">${escapeHtml(o.event_name || '—')}</td>
+                    <td class="px-4 py-2 text-xs">${o.order_date || '—'}</td>
+                    <td class="px-4 py-2 font-semibold">R ${Number(o.total || 0).toLocaleString()}</td>
+                    <td class="px-4 py-2"><span class="text-xs px-2 py-0.5 rounded ${o.status === 'delivered' ? 'bg-green-900 text-green-300' : o.status === 'approved' ? 'bg-blue-900 text-blue-300' : o.status === 'cancelled' ? 'bg-red-900 text-red-300' : 'bg-gray-700 text-gray-300'}">${o.status}</span></td>
+                    <td class="px-4 py-2"><span class="text-xs px-2 py-0.5 rounded ${o.payment_status === 'paid' ? 'bg-green-900 text-green-300' : o.payment_status === 'partial' ? 'bg-yellow-900 text-yellow-300' : 'bg-red-900 text-red-300'}">${o.payment_status}</span></td>
+                    <td class="px-4 py-2">
+                        <button onclick="viewPO(${o.id})" class="text-purple-400 hover:text-purple-300 text-xs mr-2">View</button>
+                        <button onclick="deletePO(${o.id})" class="text-red-400 hover:text-red-300 text-xs">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function openPOModal(po = null) {
+            document.getElementById('poModalTitle').textContent = po ? 'Edit Purchase Order' : 'New Purchase Order';
+            document.getElementById('poFormId').value = po?.id || '';
+            document.getElementById('poFormOrderDate').value = po?.order_date || new Date().toISOString().split('T')[0];
+            document.getElementById('poFormDeliveryDate').value = po?.delivery_date || '';
+            document.getElementById('poFormCategory').value = po?.category || 'general';
+            document.getElementById('poFormTaxRate').value = po?.tax_rate || 15;
+            document.getElementById('poFormDescription').value = po?.description || '';
+            document.getElementById('poFormNotes').value = po?.notes || '';
+            const supplierSelect = document.getElementById('poFormSupplier');
+            supplierSelect.innerHTML = '<option value="">Select Supplier</option>';
+            allSuppliers.filter(s => s.is_active).forEach(s => {
+                supplierSelect.innerHTML += `<option value="${s.id}" ${po?.supplier_id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`;
+            });
+            const headers = getAuthHeadersNoJSON();
+            if (poEvents.length === 0) {
+                try {
+                    const evRes = await fetch(`${API}/events`, { headers });
+                    const evData = await evRes.json();
+                    poEvents = Array.isArray(evData) ? evData : (evData.events || []);
+                } catch(e) {}
+            }
+            const eventSelect = document.getElementById('poFormEvent');
+            eventSelect.innerHTML = '<option value="">General (No Event)</option>';
+            poEvents.forEach(ev => {
+                eventSelect.innerHTML += `<option value="${ev.id}" ${po?.event_id === ev.id ? 'selected' : ''}>${escapeHtml(ev.event)} (${ev.date})</option>`;
+            });
+            const lineItemsContainer = document.getElementById('poLineItems');
+            if (po && po.items && po.items.length > 0) {
+                lineItemsContainer.innerHTML = po.items.map(item => `
+                    <div class="flex gap-2 items-center po-line-item">
+                        <input type="text" placeholder="Description" value="${escapeHtml(item.description)}" class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-desc">
+                        <input type="number" placeholder="Qty" value="${item.quantity}" min="1" class="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-qty">
+                        <input type="number" placeholder="Price" value="${item.unit_price}" step="0.01" class="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-price">
+                        <span class="text-sm text-gray-400 po-item-total w-20 text-right">R ${Number(item.total_price || 0).toFixed(2)}</span>
+                        <button onclick="removePOLineItem(this)" class="text-red-400 hover:text-red-300 text-sm">&times;</button>
+                    </div>
+                `).join('');
+            } else {
+                lineItemsContainer.innerHTML = `
+                    <div class="flex gap-2 items-center po-line-item">
+                        <input type="text" placeholder="Description" class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-desc">
+                        <input type="number" placeholder="Qty" value="1" min="1" class="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-qty">
+                        <input type="number" placeholder="Price" step="0.01" class="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-price">
+                        <span class="text-sm text-gray-400 po-item-total w-20 text-right">R 0.00</span>
+                        <button onclick="removePOLineItem(this)" class="text-red-400 hover:text-red-300 text-sm">&times;</button>
+                    </div>`;
+            }
+            calcPOTotals();
+            document.getElementById('poModal').classList.remove('hidden');
+            document.getElementById('poModal').classList.add('flex');
+        }
+
+        function closePOModal() {
+            document.getElementById('poModal').classList.add('hidden');
+            document.getElementById('poModal').classList.remove('flex');
+        }
+
+        function addPOLineItem() {
+            const container = document.getElementById('poLineItems');
+            const div = document.createElement('div');
+            div.className = 'flex gap-2 items-center po-line-item';
+            div.innerHTML = `
+                <input type="text" placeholder="Description" class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-desc">
+                <input type="number" placeholder="Qty" value="1" min="1" class="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-qty">
+                <input type="number" placeholder="Price" step="0.01" class="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-price">
+                <span class="text-sm text-gray-400 po-item-total w-20 text-right">R 0.00</span>
+                <button onclick="removePOLineItem(this)" class="text-red-400 hover:text-red-300 text-sm">&times;</button>
+            `;
+            container.appendChild(div);
+            attachPOItemListeners(div);
+        }
+
+        function removePOLineItem(btn) {
+            const items = document.querySelectorAll('.po-line-item');
+            if (items.length > 1) {
+                btn.closest('.po-line-item').remove();
+                calcPOTotals();
+            }
+        }
+
+        function attachPOItemListeners(el) {
+            const qtyInput = el.querySelector('.po-item-qty');
+            const priceInput = el.querySelector('.po-item-price');
+            [qtyInput, priceInput].forEach(input => {
+                input.addEventListener('input', () => {
+                    const qty = parseFloat(qtyInput.value) || 1;
+                    const price = parseFloat(priceInput.value) || 0;
+                    el.querySelector('.po-item-total').textContent = 'R ' + (qty * price).toFixed(2);
+                    calcPOTotals();
+                });
+            });
+        }
+
+        function calcPOTotals() {
+            let subtotal = 0;
+            document.querySelectorAll('.po-line-item').forEach(el => {
+                const qty = parseFloat(el.querySelector('.po-item-qty')?.value) || 1;
+                const price = parseFloat(el.querySelector('.po-item-price')?.value) || 0;
+                subtotal += qty * price;
+            });
+            const taxRate = parseFloat(document.getElementById('poFormTaxRate')?.value) || 0;
+            const tax = Math.round(subtotal * taxRate / 100 * 100) / 100;
+            const total = Math.round((subtotal + tax) * 100) / 100;
+            document.getElementById('poSubtotal').textContent = 'R ' + subtotal.toFixed(2);
+            document.getElementById('poTax').textContent = 'R ' + tax.toFixed(2);
+            document.getElementById('poTotal').textContent = 'R ' + total.toFixed(2);
+        }
+
+        async function savePurchaseOrder() {
+            const id = document.getElementById('poFormId').value;
+            const supplierId = document.getElementById('poFormSupplier').value;
+            if (!supplierId) return showToast('Please select a supplier', 'error');
+            const items = [];
+            document.querySelectorAll('.po-line-item').forEach(el => {
+                const desc = el.querySelector('.po-item-desc')?.value;
+                const qty = parseInt(el.querySelector('.po-item-qty')?.value) || 1;
+                const price = parseFloat(el.querySelector('.po-item-price')?.value) || 0;
+                if (desc) items.push({ description: desc, quantity: qty, unit_price: price });
+            });
+            const body = {
+                supplier_id: parseInt(supplierId),
+                event_id: document.getElementById('poFormEvent').value,
+                description: document.getElementById('poFormDescription').value,
+                category: document.getElementById('poFormCategory').value,
+                order_date: document.getElementById('poFormOrderDate').value,
+                delivery_date: document.getElementById('poFormDeliveryDate').value,
+                tax_rate: parseFloat(document.getElementById('poFormTaxRate').value) || 0,
+                notes: document.getElementById('poFormNotes').value,
+                items,
+            };
+            try {
+                const headers = getAuthHeaders();
+                let res;
+                if (id) {
+                    res = await fetch(`${API}/purchase-orders/${id}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+                } else {
+                    res = await fetch(`${API}/purchase-orders`, { method: 'POST', headers, body: JSON.stringify(body) });
+                }
+                if (!res.ok) throw new Error((await res.json()).error || 'Failed to save');
+                showToast(id ? 'Purchase order updated' : 'Purchase order created', 'success');
+                closePOModal();
+                loadPurchaseOrders();
+                loadPOSummary();
+                loadSupplierStats();
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function viewPO(id) {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/purchase-orders/${id}`, { headers });
+                const data = await res.json();
+                const po = data.purchase_order;
+                const items = data.items || [];
+                alert(`PO: ${po.po_number}\nSupplier: ${po.supplier_name}\nTotal: R ${Number(po.total).toLocaleString()}\nStatus: ${po.status}\n\nItems:\n${items.map(i => `• ${i.description} x${i.quantity} @ R${i.unit_price} = R${i.total_price}`).join('\n')}`);
+            } catch (e) {
+                showToast('Error loading PO: ' + e.message, 'error');
+            }
+        }
+
+        async function deletePO(id) {
+            if (!confirm('Delete this purchase order?')) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/purchase-orders/${id}`, { method: 'DELETE', headers });
+                if (!res.ok) throw new Error('Failed to delete');
+                showToast('Purchase order deleted', 'success');
+                loadPurchaseOrders();
+                loadPOSummary();
+                loadSupplierStats();
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
     <!-- ==================== VENUES TAB ==================== -->
     <div id="view-venues" class="hidden">
         <!-- Venue Stats -->
@@ -7047,6 +7540,347 @@
             <div class="flex justify-end gap-3 mt-4">
                 <button onclick="closeEditRateModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
                 <button onclick="saveStaffRate()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Save</button>
+            </div>
+        </div>
+    </div>
+
+
+        <!-- Suppliers Tab -->
+        <div id="suppliers-view" class="hidden">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold">🏪 Supplier & Vendor Management</h2>
+                <button onclick="openSupplierModal()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">+ Add Supplier</button>
+            </div>
+
+            <!-- Supplier Stats Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Total Suppliers</div>
+                    <div class="text-2xl font-bold mt-1" id="supplierStatTotal">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Active</div>
+                    <div class="text-2xl font-bold mt-1 text-green-400" id="supplierStatActive">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Total Spent</div>
+                    <div class="text-2xl font-bold mt-1 text-blue-400" id="supplierStatSpent">R 0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Purchase Orders</div>
+                    <div class="text-2xl font-bold mt-1 text-yellow-400" id="supplierStatOrders">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Avg Rating</div>
+                    <div class="text-2xl font-bold mt-1 text-purple-400" id="supplierStatRating">0.0</div>
+                </div>
+            </div>
+
+            <!-- Sub Tabs: Suppliers | Purchase Orders -->
+            <div class="flex gap-4 mb-4 border-b border-gray-700 pb-2">
+                <button onclick="switchSupplierSubTab('suppliers')" id="supplier-sub-suppliers" class="pb-2 font-semibold text-sm text-purple-400 border-b-2 border-purple-400">🏪 Suppliers</button>
+                <button onclick="switchSupplierSubTab('purchase-orders')" id="supplier-sub-purchase-orders" class="pb-2 font-semibold text-sm text-gray-400">📦 Purchase Orders</button>
+            </div>
+
+            <!-- Suppliers Sub-Tab -->
+            <div id="supplier-view-suppliers">
+                <!-- Search & Filters -->
+                <div class="flex flex-wrap items-center gap-3 mb-4">
+                    <input type="text" id="supplierSearch" placeholder="Search suppliers..." class="flex-1 min-w-48 bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" oninput="loadSuppliers()">
+                    <select id="supplierFilterCategory" onchange="loadSuppliers()" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="">All Categories</option>
+                    </select>
+                    <select id="supplierFilterStatus" onchange="loadSuppliers()" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                    <select id="supplierSortBy" onchange="loadSuppliers()" class="bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                        <option value="name">Sort by Name</option>
+                        <option value="rating">Sort by Rating</option>
+                        <option value="total_spent">Sort by Spent</option>
+                        <option value="total_orders">Sort by Orders</option>
+                        <option value="category">Sort by Category</option>
+                    </select>
+                </div>
+
+                <!-- Suppliers Grid -->
+                <div id="suppliersGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="col-span-full text-center text-gray-500 py-8">Loading suppliers...</div>
+                </div>
+            </div>
+
+            <!-- Purchase Orders Sub-Tab -->
+            <div id="supplier-view-purchase-orders" class="hidden">
+                <!-- PO Stats -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs">Total Value</div>
+                        <div class="text-xl font-bold text-green-400" id="poStatTotalValue">R 0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs">Unpaid</div>
+                        <div class="text-xl font-bold text-red-400" id="poStatUnpaid">R 0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs">Draft</div>
+                        <div class="text-xl font-bold text-gray-400" id="poStatDraft">0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs">Delivered</div>
+                        <div class="text-xl font-bold text-blue-400" id="poStatDelivered">0</div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex gap-2">
+                        <select id="poFilterStatus" onchange="loadPurchaseOrders()" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                            <option value="">All Status</option>
+                            <option value="draft">Draft</option>
+                            <option value="sent">Sent</option>
+                            <option value="approved">Approved</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <select id="poFilterPayment" onchange="loadPurchaseOrders()" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                            <option value="">All Payment</option>
+                            <option value="unpaid">Unpaid</option>
+                            <option value="paid">Paid</option>
+                            <option value="partial">Partial</option>
+                        </select>
+                    </div>
+                    <button onclick="openPOModal()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold text-sm">+ New Purchase Order</button>
+                </div>
+
+                <!-- PO Table -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-700">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">PO Number</th>
+                                    <th class="px-4 py-2 text-left">Supplier</th>
+                                    <th class="px-4 py-2 text-left">Event</th>
+                                    <th class="px-4 py-2 text-left">Date</th>
+                                    <th class="px-4 py-2 text-left">Total</th>
+                                    <th class="px-4 py-2 text-left">Status</th>
+                                    <th class="px-4 py-2 text-left">Payment</th>
+                                    <th class="px-4 py-2 text-left">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="poTableBody">
+                                <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No purchase orders found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    <!-- Add/Edit Supplier Modal -->
+    <div id="supplierModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold" id="supplierModalTitle">Add Supplier</h3>
+                <button onclick="closeSupplierModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4">
+                <input type="hidden" id="supplierFormId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Supplier Name *</label>
+                        <input type="text" id="supplierFormName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="e.g., Perfect Sound Audio">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Company</label>
+                        <input type="text" id="supplierFormCompany" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="Company name">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Category</label>
+                        <select id="supplierFormCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="general">General</option>
+                            <option value="audio">Audio & Sound</option>
+                            <option value="visual">Visual & Lighting</option>
+                            <option value="catering">Catering & Food</option>
+                            <option value="florist">Florist & Decor</option>
+                            <option value="structures">Structures & Tents</option>
+                            <option value="security">Security</option>
+                            <option value="cleaning">Cleaning</option>
+                            <option value="hire">Equipment Hire</option>
+                            <option value="transport">Transport</option>
+                            <option value="photography">Photography</option>
+                            <option value="entertainment">Entertainment</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Contact Name</label>
+                        <input type="text" id="supplierFormContactName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Email</label>
+                        <input type="email" id="supplierFormEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Phone</label>
+                        <input type="text" id="supplierFormPhone" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Address</label>
+                        <input type="text" id="supplierFormAddress" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">City</label>
+                        <input type="text" id="supplierFormCity" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Province</label>
+                        <input type="text" id="supplierFormProvince" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Postal Code</label>
+                        <input type="text" id="supplierFormPostalCode" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Country</label>
+                        <input type="text" id="supplierFormCountry" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" value="South Africa">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Website</label>
+                        <input type="url" id="supplierFormWebsite" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Tax ID / VAT</label>
+                        <input type="text" id="supplierFormTaxId" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Payment Terms</label>
+                        <select id="supplierFormPaymentTerms" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="7 days">7 days</option>
+                            <option value="14 days">14 days</option>
+                            <option value="30 days">30 days</option>
+                            <option value="60 days">60 days</option>
+                            <option value="on delivery">On Delivery</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Rating (0-5)</label>
+                        <input type="number" id="supplierFormRating" min="0" max="5" step="0.1" value="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Notes</label>
+                        <textarea id="supplierFormNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 mt-3">
+                    <input type="checkbox" id="supplierFormActive" checked class="rounded bg-gray-700 border-gray-600">
+                    <label for="supplierFormActive" class="text-sm text-gray-400">Active</label>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closeSupplierModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
+                <button onclick="saveSupplier()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Supplier Detail Modal -->
+    <div id="supplierDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold" id="supplierDetailTitle">Supplier Details</h3>
+                <button onclick="closeSupplierDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div id="supplierDetailContent" class="p-4">
+                <p class="text-gray-500 text-sm">Loading...</p>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closeSupplierDetailModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Close</button>
+                <button id="supplierDetailEditBtn" onclick="editSupplierFromDetail()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">✏️ Edit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purchase Order Modal -->
+    <div id="poModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold" id="poModalTitle">New Purchase Order</h3>
+                <button onclick="closePOModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4">
+                <input type="hidden" id="poFormId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    <div>
+                        <label class="text-xs text-gray-400">Supplier *</label>
+                        <select id="poFormSupplier" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1"></select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Event</label>
+                        <select id="poFormEvent" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="">General (No Event)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Order Date</label>
+                        <input type="date" id="poFormOrderDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Delivery Date</label>
+                        <input type="date" id="poFormDeliveryDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Category</label>
+                        <select id="poFormCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="general">General</option>
+                            <option value="audio">Audio & Sound</option>
+                            <option value="visual">Visual & Lighting</option>
+                            <option value="catering">Catering & Food</option>
+                            <option value="florist">Florist & Decor</option>
+                            <option value="structures">Structures & Tents</option>
+                            <option value="security">Security</option>
+                            <option value="cleaning">Cleaning</option>
+                            <option value="hire">Equipment Hire</option>
+                            <option value="transport">Transport</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Tax Rate (%)</label>
+                        <input type="number" id="poFormTaxRate" value="15" min="0" max="100" step="0.5" oninput="calcPOTotals()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="text-xs text-gray-400">Description</label>
+                        <input type="text" id="poFormDescription" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" placeholder="Brief description of the order">
+                    </div>
+                </div>
+                <!-- Line Items -->
+                <div class="mb-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-semibold text-sm">Line Items</h4>
+                        <button onclick="addPOLineItem()" class="text-sm text-purple-400 hover:text-purple-300">+ Add Item</button>
+                    </div>
+                    <div id="poLineItems" class="space-y-2">
+                        <div class="flex gap-2 items-center po-line-item">
+                            <input type="text" placeholder="Description" class="flex-1 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-desc">
+                            <input type="number" placeholder="Qty" value="1" min="1" class="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-qty">
+                            <input type="number" placeholder="Price" step="0.01" class="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white text-sm po-item-price">
+                            <span class="text-sm text-gray-400 po-item-total w-20 text-right">R 0.00</span>
+                            <button onclick="removePOLineItem(this)" class="text-red-400 hover:text-red-300 text-sm">&times;</button>
+                        </div>
+                    </div>
+                    <div class="flex justify-end mt-2 pt-2 border-t border-gray-700">
+                        <div class="text-sm text-gray-400 mr-4">Subtotal: <span id="poSubtotal" class="text-white font-semibold">R 0.00</span></div>
+                        <div class="text-sm text-gray-400 mr-4">Tax: <span id="poTax" class="text-white font-semibold">R 0.00</span></div>
+                        <div class="text-sm text-gray-400">Total: <span id="poTotal" class="text-white font-bold">R 0.00</span></div>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="text-xs text-gray-400">Notes</label>
+                    <textarea id="poFormNotes" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1" rows="2"></textarea>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closePOModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
+                <button onclick="savePurchaseOrder()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Save Order</button>
             </div>
         </div>
     </div>

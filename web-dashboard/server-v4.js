@@ -687,6 +687,99 @@ db.get(`SELECT COUNT(*) as count FROM task_templates`, (err, row) => {
   }
 });
 
+
+// ==================== SUPPLIER / VENDOR MANAGEMENT ====================
+
+// Create suppliers table
+db.run(`CREATE TABLE IF NOT EXISTS suppliers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  company TEXT DEFAULT '',
+  category TEXT DEFAULT 'general',
+  contact_name TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  city TEXT DEFAULT '',
+  province TEXT DEFAULT '',
+  postal_code TEXT DEFAULT '',
+  country TEXT DEFAULT 'South Africa',
+  website TEXT DEFAULT '',
+  tax_id TEXT DEFAULT '',
+  payment_terms TEXT DEFAULT '30 days',
+  currency TEXT DEFAULT 'ZAR',
+  rating REAL DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  notes TEXT DEFAULT '',
+  tags TEXT DEFAULT '[]',
+  total_orders INTEGER DEFAULT 0,
+  total_spent REAL DEFAULT 0,
+  last_order_date TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Create purchase_orders table
+db.run(`CREATE TABLE IF NOT EXISTS purchase_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  po_number TEXT NOT NULL,
+  supplier_id INTEGER NOT NULL,
+  event_id TEXT DEFAULT '',
+  description TEXT DEFAULT '',
+  category TEXT DEFAULT 'general',
+  status TEXT DEFAULT 'draft',
+  order_date TEXT DEFAULT '',
+  delivery_date TEXT DEFAULT '',
+  subtotal REAL DEFAULT 0,
+  tax_rate REAL DEFAULT 0,
+  tax_amount REAL DEFAULT 0,
+  total REAL DEFAULT 0,
+  currency TEXT DEFAULT 'ZAR',
+  payment_status TEXT DEFAULT 'unpaid',
+  payment_date TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_by TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+)`);
+
+// Create purchase_order_items table
+db.run(`CREATE TABLE IF NOT EXISTS purchase_order_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  po_id INTEGER NOT NULL,
+  description TEXT NOT NULL,
+  quantity INTEGER DEFAULT 1,
+  unit_price REAL DEFAULT 0,
+  total_price REAL DEFAULT 0,
+  notes TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0,
+  FOREIGN KEY (po_id) REFERENCES purchase_orders(id)
+)`);
+
+// Add supplier_id to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN supplier_id INTEGER DEFAULT 0`, () => {});
+
+// Seed default suppliers if table is empty
+db.get(`SELECT COUNT(*) as count FROM suppliers`, (err, row) => {
+  if (row && row.count === 0) {
+    const defaultSuppliers = [
+      ['Perfect Sound Audio', 'Perfect Sound (Pty) Ltd', 'audio', 'Mike Johnson', 'mike@perfectsound.co.za', '+27 21 555 0101', '45 Industrial Rd', 'Cape Town', 'Western Cape', '7441', 'South Africa', 'https://perfectsound.co.za', '', '30 days', 'ZAR', 4.5, 1, 'Professional audio equipment rental and engineering', '["audio","sound","PA"]', 0, 0, ''],
+      ['Elegant Catering Co', 'Elegant Catering', 'catering', 'Sarah Williams', 'sarah@elegantcatering.co.za', '+27 21 555 0202', '12 Harbor St', 'Cape Town', 'Western Cape', '8001', 'South Africa', 'https://elegantcatering.co.za', '', '14 days', 'ZAR', 4.8, 1, 'Premium event catering - canapés, buffets, plated service', '["catering","food","beverages"]', 0, 0, ''],
+      ['Bloom Florists', 'Bloom (Pty) Ltd', 'florist', 'Anna van der Berg', 'anna@bloomflorists.co.za', '+27 21 555 0303', '88 Long St', 'Cape Town', 'Western Cape', '8001', 'South Africa', 'https://bloomflorists.co.za', '', '7 days', 'ZAR', 4.2, 1, 'Event floral arrangements and centerpieces', '["florist","decor","flowers"]', 0, 0, ''],
+      ['Bright Lights AV', 'Bright Lights Visuals', 'visual', 'David Nkosi', 'david@brightlights.co.za', '+27 21 555 0404', '200 Tech Park', 'Cape Town', 'Western Cape', '7441', 'South Africa', 'https://brightlights.co.za', '', '30 days', 'ZAR', 4.0, 1, 'Projectors, LED screens, lighting rigs', '["visual","lighting","LED"]', 0, 0, ''],
+      ['Tent & Structure Co', 'TentPro (Pty) Ltd', 'structures', 'John Smith', 'john@tentpro.co.za', '+27 21 555 0505', '5 Industrial Ave', 'Cape Town', 'Western Cape', '7441', 'South Africa', 'https://tentpro.co.za', '', '14 days', 'ZAR', 4.3, 1, 'Marquees, tents, staging, temporary structures', '["structures","tents","staging"]', 0, 0, ''],
+      ['SafeGuard Security', 'SafeGuard (Pty) Ltd', 'security', 'Thabo Mokoena', 'thabo@safeguard.co.za', '+27 21 555 0606', '33 Security Rd', 'Cape Town', 'Western Cape', '7441', 'South Africa', 'https://safeguard.co.za', '', '30 days', 'ZAR', 4.6, 1, 'Event security, crowd management, VIP protection', '["security","safety","crowd"]', 0, 0, ''],
+      ['QuickClean Services', 'QuickClean CC', 'cleaning', 'Lisa Brown', 'lisa@quickclean.co.za', '+27 21 555 0707', '10 Service Lane', 'Cape Town', 'Western Cape', '7441', 'South Africa', 'https://quickclean.co.za', '', '7 days', 'ZAR', 3.9, 1, 'Pre and post event cleaning services', '["cleaning","cleanup","venue"]', 0, 0, ''],
+      ['Party Hire Express', 'Party Hire (Pty) Ltd', 'hire', 'Kevin Daniels', 'kevin@partyhire.co.za', '+27 21 555 0808', '77 Rental St', 'Cape Town', 'Western Cape', '7441', 'South Africa', 'https://partyhire.co.za', '', '7 days', 'ZAR', 4.1, 1, 'Tables, chairs, glassware, cutlery, linens rental', '["hire","furniture","tableware"]', 0, 0, ''],
+    ];
+    const stmt = db.prepare(`INSERT INTO suppliers (name, company, category, contact_name, email, phone, address, city, province, postal_code, country, website, tax_id, payment_terms, currency, rating, is_active, notes, tags, total_orders, total_spent, last_order_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    defaultSuppliers.forEach(s => stmt.run(s));
+    stmt.finalize();
+    console.log(`Seeded ${defaultSuppliers.length} default suppliers`);
+  }
+});
+
 // ==================== VAPID / PUSH NOTIFICATIONS ====================
 
 // VAPID keys storage
@@ -3289,7 +3382,7 @@ app.get('/api/payroll/staff/:id', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.19.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.20.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -3366,6 +3459,248 @@ app.post('/api/events/recurring', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+
+// ==================== SUPPLIER / VENDOR API ENDPOINTS ====================
+
+// GET /api/suppliers - List suppliers with search, filter, sort
+app.get('/api/suppliers', (req, res) => {
+  const { search, category, status, sort = 'name', order = 'asc', page = 1, limit = 50 } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (search) {
+    where.push('(name LIKE ? OR company LIKE ? OR contact_name LIKE ? OR email LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (category) { where.push('category = ?'); params.push(category); }
+  if (status === 'active') { where.push('is_active = 1'); }
+  if (status === 'inactive') { where.push('is_active = 0'); }
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const allowedSorts = ['name', 'company', 'category', 'rating', 'total_orders', 'total_spent', 'created_at', 'last_order_date'];
+  const sortCol = allowedSorts.includes(sort) ? sort : 'name';
+  const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
+  db.get(`SELECT COUNT(*) as total FROM suppliers WHERE ${where.join(' AND ')}`, params, (err, countRow) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT * FROM suppliers WHERE ${where.join(' AND ')} ORDER BY ${sortCol} ${sortOrder} LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ data: rows, total: countRow ? countRow.total : 0, page: parseInt(page), limit: parseInt(limit) });
+      });
+  });
+});
+
+// GET /api/suppliers/categories - Get unique categories
+app.get('/api/suppliers/categories', (req, res) => {
+  db.all(`SELECT DISTINCT category FROM suppliers WHERE is_active = 1 ORDER BY category`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows.map(r => r.category));
+  });
+});
+
+// GET /api/suppliers/stats/summary - Supplier statistics
+app.get('/api/suppliers/stats/summary', (req, res) => {
+  db.get(`SELECT COUNT(*) as total_suppliers, COALESCE(SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END), 0) as active_suppliers, COALESCE(SUM(total_spent), 0) as total_spent, COALESCE(SUM(total_orders), 0) as total_orders, COALESCE(AVG(rating), 0) as avg_rating FROM suppliers`, (err, summary) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT category, COUNT(*) as count, COALESCE(SUM(total_spent), 0) as total_spent FROM suppliers WHERE is_active = 1 GROUP BY category ORDER BY total_spent DESC`, (err2, byCategory) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      db.all(`SELECT id, name, company, rating, total_spent, total_orders FROM suppliers WHERE is_active = 1 ORDER BY total_spent DESC LIMIT 5`, (err3, topSuppliers) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+        res.json({ summary, by_category: byCategory || [], top_suppliers: topSuppliers || [] });
+      });
+    });
+  });
+});
+
+// GET /api/suppliers/:id - Get single supplier with PO history
+app.get('/api/suppliers/:id', (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT * FROM suppliers WHERE id = ?`, [id], (err, supplier) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!supplier) return res.status(404).json({ error: 'Supplier not found' });
+    db.all(`SELECT po.*, e.event as event_name FROM purchase_orders po LEFT JOIN events e ON po.event_id = e.id WHERE po.supplier_id = ? ORDER BY po.created_at DESC LIMIT 50`, [id], (err2, orders) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ supplier, purchase_orders: orders || [] });
+    });
+  });
+});
+
+// POST /api/suppliers - Create new supplier
+app.post('/api/suppliers', (req, res) => {
+  const { name, company, category, contact_name, email, phone, address, city, province, postal_code, country, website, tax_id, payment_terms, currency, rating, notes, tags } = req.body;
+  if (!name) return res.status(400).json({ error: 'Supplier name is required' });
+  const tagsJSON = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]');
+  db.run(`INSERT INTO suppliers (name, company, category, contact_name, email, phone, address, city, province, postal_code, country, website, tax_id, payment_terms, currency, rating, notes, tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [name, company || '', category || 'general', contact_name || '', email || '', phone || '', address || '', city || '', province || '', postal_code || '', country || 'South Africa', website || '', tax_id || '', payment_terms || '30 days', currency || 'ZAR', rating || 0, notes || '', tagsJSON],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID, name, company, category: category || 'general', contact_name, email, phone, rating: rating || 0, is_active: 1 });
+    });
+});
+
+// PUT /api/suppliers/:id - Update supplier
+app.put('/api/suppliers/:id', (req, res) => {
+  const id = req.params.id;
+  const { name, company, category, contact_name, email, phone, address, city, province, postal_code, country, website, tax_id, payment_terms, currency, rating, is_active, notes, tags } = req.body;
+  if (!name) return res.status(400).json({ error: 'Supplier name is required' });
+  const tagsJSON = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]');
+  db.run(`UPDATE suppliers SET name=?, company=?, category=?, contact_name=?, email=?, phone=?, address=?, city=?, province=?, postal_code=?, country=?, website=?, tax_id=?, payment_terms=?, currency=?, rating=?, is_active=?, notes=?, tags=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+    [name, company || '', category || 'general', contact_name || '', email || '', phone || '', address || '', city || '', province || '', postal_code || '', country || 'South Africa', website || '', tax_id || '', payment_terms || '30 days', currency || 'ZAR', rating || 0, is_active ? 1 : 0, notes || '', tagsJSON, id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Supplier not found' });
+      res.json({ success: true, id, name, company, category: category || 'general', rating: rating || 0, is_active: is_active ? 1 : 0 });
+    });
+});
+
+// DELETE /api/suppliers/:id - Delete supplier
+app.delete('/api/suppliers/:id', (req, res) => {
+  const id = req.params.id;
+  db.run(`DELETE FROM suppliers WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Supplier not found' });
+    res.json({ success: true });
+  });
+});
+
+// ==================== PURCHASE ORDER API ENDPOINTS ====================
+
+// GET /api/purchase-orders - List POs with filters
+app.get('/api/purchase-orders', (req, res) => {
+  const { supplier_id, event_id, status, payment_status, from, to, page = 1, limit = 50 } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (supplier_id) { where.push('po.supplier_id = ?'); params.push(supplier_id); }
+  if (event_id) { where.push('po.event_id = ?'); params.push(event_id); }
+  if (status) { where.push('po.status = ?'); params.push(status); }
+  if (payment_status) { where.push('po.payment_status = ?'); params.push(payment_status); }
+  if (from) { where.push('po.order_date >= ?'); params.push(from); }
+  if (to) { where.push('po.order_date <= ?'); params.push(to); }
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  db.get(`SELECT COUNT(*) as total FROM purchase_orders po WHERE ${where.join(' AND ')}`, params, (err, countRow) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT po.*, s.name as supplier_name, s.company as supplier_company, s.category as supplier_category, e.event as event_name
+      FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id LEFT JOIN events e ON po.event_id = e.id
+      WHERE ${where.join(' AND ')} ORDER BY po.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ data: rows, total: countRow ? countRow.total : 0, page: parseInt(page), limit: parseInt(limit) });
+      });
+  });
+});
+
+// GET /api/purchase-orders/summary - PO statistics
+app.get('/api/purchase-orders/summary', (req, res) => {
+  const { from, to } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (from) { where.push('order_date >= ?'); params.push(from); }
+  if (to) { where.push('order_date <= ?'); params.push(to); }
+  db.get(`SELECT COUNT(*) as total_pos, COALESCE(SUM(total), 0) as total_value, COALESCE(SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END), 0) as draft_count, COALESCE(SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END), 0) as sent_count, COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved_count, COALESCE(SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END), 0) as delivered_count, COALESCE(SUM(CASE WHEN payment_status = 'unpaid' THEN total ELSE 0 END), 0) as unpaid_total, COALESCE(SUM(CASE WHEN payment_status = 'paid' THEN total ELSE 0 END), 0) as paid_total FROM purchase_orders WHERE ${where.join(' AND ')}`, params, (err, summary) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ summary });
+  });
+});
+
+// GET /api/purchase-orders/:id - Get single PO with items
+app.get('/api/purchase-orders/:id', (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT po.*, s.name as supplier_name, s.company as supplier_company, s.email as supplier_email, s.phone as supplier_phone, s.address as supplier_address, e.event as event_name, e.date as event_date FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id LEFT JOIN events e ON po.event_id = e.id WHERE po.id = ?`, [id], (err, po) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+    db.all(`SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY sort_order`, [id], (err2, items) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ purchase_order: po, items: items || [] });
+    });
+  });
+});
+
+// POST /api/purchase-orders - Create PO
+app.post('/api/purchase-orders', (req, res) => {
+  const { supplier_id, event_id, description, category, order_date, delivery_date, items, tax_rate, notes, created_by } = req.body;
+  if (!supplier_id) return res.status(400).json({ error: 'Supplier is required' });
+  // Generate PO number
+  const poNum = 'PO-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substr(2, 4).toUpperCase();
+  const itemsList = Array.isArray(items) ? items : [];
+  const subtotal = itemsList.reduce((sum, item) => sum + (item.quantity || 1) * (item.unit_price || 0), 0);
+  const tax = Math.round(subtotal * (tax_rate || 0) / 100 * 100) / 100;
+  const total = Math.round((subtotal + tax) * 100) / 100;
+  db.run(`INSERT INTO purchase_orders (po_number, supplier_id, event_id, description, category, order_date, delivery_date, subtotal, tax_rate, tax_amount, total, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [poNum, supplier_id, event_id || '', description || '', category || 'general', order_date || new Date().toISOString().split('T')[0], delivery_date || '', subtotal, tax_rate || 0, tax, total, notes || '', created_by || ''],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      const poId = this.lastID;
+      // Insert items
+      if (itemsList.length > 0) {
+        const stmt = db.prepare(`INSERT INTO purchase_order_items (po_id, description, quantity, unit_price, total_price, notes, sort_order) VALUES (?,?,?,?,?,?,?)`);
+        itemsList.forEach((item, i) => {
+          const itemTotal = Math.round((item.quantity || 1) * (item.unit_price || 0) * 100) / 100;
+          stmt.run(poId, item.description || '', item.quantity || 1, item.unit_price || 0, itemTotal, item.notes || '', i);
+        });
+        stmt.finalize();
+      }
+      // Update supplier stats
+      db.run(`UPDATE suppliers SET total_orders = total_orders + 1, total_spent = total_spent + ?, last_order_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [total, order_date || new Date().toISOString().split('T')[0], supplier_id]);
+      res.json({ id: poId, po_number: poNum, supplier_id, total, status: 'draft' });
+    });
+});
+
+// PUT /api/purchase-orders/:id - Update PO
+app.put('/api/purchase-orders/:id', (req, res) => {
+  const id = req.params.id;
+  const { supplier_id, event_id, description, category, status, order_date, delivery_date, tax_rate, notes, payment_status, payment_date } = req.body;
+  db.get(`SELECT * FROM purchase_orders WHERE id = ?`, [id], (err, existing) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!existing) return res.status(404).json({ error: 'Purchase order not found' });
+    const newStatus = status || existing.status;
+    const newPaymentStatus = payment_status || existing.payment_status;
+    db.run(`UPDATE purchase_orders SET supplier_id=?, event_id=?, description=?, category=?, status=?, order_date=?, delivery_date=?, tax_rate=?, notes=?, payment_status=?, payment_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+      [supplier_id || existing.supplier_id, event_id || existing.event_id, description || existing.description, category || existing.category, newStatus, order_date || existing.order_date, delivery_date || existing.delivery_date, tax_rate || existing.tax_rate, notes || existing.notes, newPaymentStatus, payment_date || existing.payment_date, id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, id, status: newStatus, payment_status: newPaymentStatus });
+      });
+  });
+});
+
+// DELETE /api/purchase-orders/:id - Delete PO
+app.delete('/api/purchase-orders/:id', (req, res) => {
+  const id = req.params.id;
+  db.run(`DELETE FROM purchase_order_items WHERE po_id = ?`, [id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.run(`DELETE FROM purchase_orders WHERE id = ?`, [id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Purchase order not found' });
+      res.json({ success: true });
+    });
+  });
+});
+
+// PUT /api/purchase-orders/:id/items - Update PO items
+app.put('/api/purchase-orders/:id/items', (req, res) => {
+  const id = req.params.id;
+  const { items } = req.body;
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'Items array required' });
+  db.run(`DELETE FROM purchase_order_items WHERE po_id = ?`, [id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const stmt = db.prepare(`INSERT INTO purchase_order_items (po_id, description, quantity, unit_price, total_price, notes, sort_order) VALUES (?,?,?,?,?,?,?)`);
+    let subtotal = 0;
+    items.forEach((item, i) => {
+      const itemTotal = Math.round((item.quantity || 1) * (item.unit_price || 0) * 100) / 100;
+      subtotal += itemTotal;
+      stmt.run(id, item.description || '', item.quantity || 1, item.unit_price || 0, itemTotal, item.notes || '', i);
+    });
+    stmt.finalize();
+    db.get(`SELECT tax_rate FROM purchase_orders WHERE id = ?`, [id], (err2, po) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      const tax = Math.round(subtotal * (po ? po.tax_rate : 0) / 100 * 100) / 100;
+      const total = Math.round((subtotal + tax) * 100) / 100;
+      db.run(`UPDATE purchase_orders SET subtotal=?, tax_amount=?, total=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, [subtotal, tax, total, id], function(err3) {
+        if (err3) return res.status(500).json({ error: err3.message });
+        res.json({ success: true, subtotal, tax_amount: tax, total });
+      });
+    });
+  });
 });
 
 // ==================== QR CODE CHECK-IN SYSTEM ====================
@@ -4228,6 +4563,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.19 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.20 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
