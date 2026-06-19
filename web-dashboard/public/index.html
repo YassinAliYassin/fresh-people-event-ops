@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.13</title>
+    <title>Fresh People Event Ops v4.14</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -119,6 +119,17 @@
                 <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
                     <div class="text-gray-400 text-xs">Alerts</div>
                     <div class="text-2xl font-bold text-orange-400" id="alertCount">0</div>
+                </div>
+            </div>
+
+            <!-- Today's Events -->
+            <div id="todaysEventsPanel" class="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold">📅 Today's Events</h2>
+                    <span class="text-sm text-gray-400" id="upcomingWeekBadge"></span>
+                </div>
+                <div id="todaysEventsList" class="space-y-3">
+                    <p class="text-gray-500 text-sm">Loading...</p>
                 </div>
             </div>
 
@@ -1878,8 +1889,42 @@
                 renderAlerts(alertsData);
                 renderBackups(backups);
                 populateTemplates();
+                loadTodaysEvents();
             } catch (err) {
                 console.error('Failed to load data:', err);
+            }
+        }
+
+        // Load today's events widget
+        async function loadTodaysEvents() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/todays-events`, { headers });
+                const data = await res.json();
+
+                const listEl = document.getElementById('todaysEventsList');
+                const badgeEl = document.getElementById('upcomingWeekBadge');
+
+                if (data.upcomingWeek !== undefined) {
+                    badgeEl.textContent = `${data.upcomingWeek} events in next 7 days`;
+                }
+
+                if (data.events && data.events.length > 0) {
+                    listEl.innerHTML = data.events.map(ev => `
+                        <div class="flex items-center justify-between bg-gray-700 rounded-lg p-3 cursor-pointer hover:bg-gray-600" onclick="openRunSheet('${ev.id}')">
+                            <div>
+                                <div class="font-medium text-sm">${ev.event || 'Untitled'}</div>
+                                <div class="text-xs text-gray-400">${ev.time || ''} · ${ev.location || 'TBD'} · ${ev.staff_count} staff</div>
+                            </div>
+                            <span class="px-2 py-0.5 rounded text-xs font-semibold ${ev.status === 'confirmed' ? 'bg-green-600' : ev.status === 'completed' ? 'bg-blue-600' : ev.status === 'cancelled' ? 'bg-red-600' : 'bg-yellow-600'}">${ev.status || 'pending'}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    const todayStr = new Date().toLocaleDateString('en-ZA', { weekday: 'long', month: 'long', day: 'numeric' });
+                    listEl.innerHTML = `<p class="text-gray-500 text-sm">No events today (${todayStr})</p>`;
+                }
+            } catch (err) {
+                console.error('Failed to load today\'s events:', err);
             }
         }
 
@@ -2787,8 +2832,9 @@
                     <button onclick="closeEventDetailModal(); openEditModal('${event.id}')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold text-sm">Edit Event</button>
                     <button onclick="exportEventPDF('${event.id}')" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold text-sm">📄 PDF</button>
                     <button onclick="duplicateEvent('${event.id}')" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded font-semibold text-sm">📋 Duplicate</button>
+                    <button onclick="closeEventDetailModal(); openRunSheet('${event.id}')" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded font-semibold text-sm">📃 Run Sheet</button>
                     ${(event.status || 'pending') === 'pending' ? `<button onclick="closeEventDetailModal(); updateStatus('${event.id}','confirmed')" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold text-sm">Confirm</button>` : ''}
-                    ${(event.status || '') === 'completed' ? `<button onclick="closeEventDetailModal(); openReviewModal('${event.id}', '${(event.event || '').replace(/'/g, "\\'")}', '${event.date || ''}')" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded font-semibold text-sm">📝 Review</button>` : ''}
+                    ${(event.status || '') === 'completed' ? `<button onclick="closeEventDetailModal(); openReviewModal('${event.id}', '${(event.event || '').replace(/'/g, "\\\\'")}', '${event.date || ''}')" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded font-semibold text-sm">📝 Review</button>` : ''}
                 </div>
             `;
             document.getElementById('eventDetailModal').classList.remove('hidden');
@@ -4128,14 +4174,159 @@
         }
 
         // Close modals on outside click
-        ['reviewModal', 'viewReviewsModal'].forEach(modalId => {
+        ['reviewModal', 'viewReviewsModal', 'runSheetModal'].forEach(modalId => {
             document.getElementById(modalId).addEventListener('click', (e) => {
                 if (e.target.id === modalId) {
                     if (modalId === 'reviewModal') closeReviewModal();
                     if (modalId === 'viewReviewsModal') closeViewReviewsModal();
+                    if (modalId === 'runSheetModal') closeRunSheetModal();
                 }
             });
         });
+
+        // ==================== RUN SHEET ====================
+
+        async function openRunSheet(eventId) {
+            const modal = document.getElementById('runSheetModal');
+            const content = document.getElementById('runSheetContent');
+            content.innerHTML = '<p class="text-gray-400 text-center py-8">Loading run sheet...</p>';
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${eventId}/runsheet`, { headers });
+                const data = await res.json();
+
+                if (!data.success || !data.runSheet) {
+                    content.innerHTML = '<p class="text-red-400 text-center">Failed to load run sheet</p>';
+                    return;
+                }
+
+                const rs = data.runSheet;
+                const ev = rs.event;
+                const dateStr = ev.date ? new Date(ev.date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : 'TBD';
+
+                let staffHtml = '';
+                if (rs.staff.length > 0) {
+                    staffHtml = `
+                        <h4 class="font-semibold text-gray-300 mb-2 mt-4">👥 Assigned Staff (${rs.staff.length})</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            ${rs.staff.map(s => `
+                                <div class="bg-gray-700 rounded p-2">
+                                    <div class="font-medium text-sm">${s.name}</div>
+                                    <div class="text-xs text-gray-400">${s.role}${s.phone && s.phone !== 'N/A' ? ' · ' + s.phone : ''}</div>
+                                    ${s.skills ? `<div class="text-xs text-blue-400 mt-1">${JSON.parse(s.skills || '[]').slice(0, 3).join(', ')}</div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                } else {
+                    staffHtml = '<h4 class="font-semibold text-gray-300 mb-2 mt-4">👥 Assigned Staff</h4><p class="text-yellow-400 text-sm">No staff assigned</p>';
+                }
+
+                let prevHtml = '';
+                if (rs.previousEvents && rs.previousEvents.length > 0) {
+                    prevHtml = `
+                        <h4 class="font-semibold text-gray-300 mb-2 mt-4">📅 Previous Events at This Location</h4>
+                        <div class="space-y-1">
+                            ${rs.previousEvents.map(pe => `
+                                <div class="flex justify-between text-xs text-gray-400">
+                                    <span>${pe.event}</span>
+                                    <span>${pe.date || '-'}</span>
+                                    <span class="${pe.status === 'completed' ? 'text-green-400' : 'text-yellow-400'}">${pe.status || '-'}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+
+                let nextHtml = '';
+                if (rs.nextEvent) {
+                    nextHtml = `
+                        <div class="bg-blue-900 bg-opacity-30 border border-blue-700 rounded p-2 mt-3">
+                            <div class="text-xs text-blue-400">Next Event</div>
+                            <div class="text-sm font-medium">${rs.nextEvent.event} — ${rs.nextEvent.date || ''}</div>
+                        </div>
+                    `;
+                }
+
+                const costInfo = [];
+                if (ev.estimated_cost > 0) costInfo.push(`Estimated: R${ev.estimated_cost.toLocaleString()}`);
+                if (ev.actual_cost > 0) costInfo.push(`Actual: R${ev.actual_cost.toLocaleString()}`);
+                if (ev.budget > 0) costInfo.push(`Budget: R${ev.budget.toLocaleString()}`);
+
+                content.innerHTML = `
+                    <div class="text-center mb-4">
+                        <h3 class="text-xl font-bold">${ev.name || 'Untitled Event'}</h3>
+                        <p class="text-gray-400 text-sm">${dateStr}${ev.time ? ' · ' + ev.time : ''}</p>
+                        <span class="inline-block mt-1 px-2 py-0.5 rounded text-xs font-semibold ${ev.status === 'confirmed' ? 'bg-green-600' : ev.status === 'completed' ? 'bg-blue-600' : ev.status === 'cancelled' ? 'bg-red-600' : 'bg-yellow-600'}">${ev.status || 'pending'}</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="bg-gray-700 rounded p-2">
+                            <div class="text-xs text-gray-400">📍 Location</div>
+                            <div class="text-sm font-medium">${ev.location || 'TBD'}</div>
+                        </div>
+                        <div class="bg-gray-700 rounded p-2">
+                            <div class="text-xs text-gray-400">👤 Client</div>
+                            <div class="text-sm font-medium">${ev.client || 'TBD'}</div>
+                        </div>
+                        <div class="bg-gray-700 rounded p-2">
+                            <div class="text-xs text-gray-400">🛎️ Services</div>
+                            <div class="text-sm font-medium">${ev.services || 'Standard'}</div>
+                        </div>
+                        ${ev.guests > 0 ? `<div class="bg-gray-700 rounded p-2">
+                            <div class="text-xs text-gray-400">👥 Guests</div>
+                            <div class="text-sm font-medium">${ev.guests}</div>
+                        </div>` : ''}
+                        ${costInfo.length > 0 ? `<div class="bg-gray-700 rounded p-2">
+                            <div class="text-xs text-gray-400">💰 Cost</div>
+                            <div class="text-sm font-medium">${costInfo.join(' | ')}</div>
+                        </div>` : ''}
+                    </div>
+
+                    ${staffHtml}
+                    ${prevHtml}
+                    ${nextHtml}
+
+                    ${ev.notes ? `
+                        <div class="mt-4 bg-gray-700 rounded p-3">
+                            <h4 class="font-semibold text-gray-300 text-sm mb-1">📝 Notes</h4>
+                            <p class="text-sm text-gray-400 whitespace-pre-wrap">${ev.notes}</p>
+                        </div>
+                    ` : ''}
+
+                    <div class="flex gap-2 mt-4">
+                        <button onclick="window.print()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded font-semibold text-sm">🖨️ Print</button>
+                        <button onclick="closeRunSheetModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold text-sm">Close</button>
+                    </div>
+
+                    <div class="text-xs text-gray-500 text-center mt-3">Generated: ${new Date(rs.generatedAt).toLocaleString()}</div>
+                `;
+            } catch (err) {
+                content.innerHTML = `<p class="text-red-400 text-center">Error loading run sheet: ${err.message}</p>`;
+            }
+        }
+
+        function closeRunSheetModal() {
+            const modal = document.getElementById('runSheetModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
 </script>
+
+    <!-- Run Sheet Modal -->
+    <div id="runSheetModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-2xl border border-gray-700 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">📃 Event Run Sheet</h3>
+                <button onclick="closeRunSheetModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div id="runSheetContent">
+                <p class="text-gray-500 text-sm">Loading...</p>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

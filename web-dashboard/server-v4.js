@@ -1700,7 +1700,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.13.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.14.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -2168,6 +2168,163 @@ app.get('/api/reviews/summary', (req, res) => {
   );
 });
 
+// ==================== EVENT RUN SHEET ====================
+
+// GET /api/events/:id/runsheet - Generate event run sheet data
+app.get('/api/events/:id/runsheet', (req, res) => {
+  const { id } = req.params;
+
+  db.get(
+    `SELECT * FROM events WHERE id = ?`,
+    [id],
+    (err, event) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!event) return res.status(404).json({ error: 'Event not found' });
+
+      // Parse staff JSON array and resolve staff details
+      let staffNames = [];
+      try {
+        staffNames = JSON.parse(event.staff || '[]');
+      } catch(e) {
+        staffNames = [];
+      }
+
+      if (staffNames.length === 0) {
+        // No staff assigned - return event data only
+        return res.json({
+          success: true,
+          runSheet: {
+            event: {
+              id: event.id,
+              name: event.event,
+              date: event.date,
+              time: event.time || '',
+              location: event.location || '',
+              client: event.client || '',
+              client_email: event.client_email || '',
+              services: event.services || '',
+              notes: event.notes || '',
+              status: event.status || 'pending',
+              estimated_cost: event.estimated_cost || 0,
+              actual_cost: event.actual_cost || 0,
+              budget: event.budget || 0,
+              guests: event.guests || 0,
+              },
+              staff: [],
+              previousEvents: [],
+              nextEvent: null,
+            generatedAt: new Date().toISOString(),
+          }
+        });
+      }
+
+      // Resolve staff details from staff table by name
+      const placeholders = staffNames.map(() => '?').join(',');
+      db.all(
+        `SELECT name, role, phone, email, skills FROM staff WHERE name IN (${placeholders})`,
+        staffNames,
+        (err2, staffDetails) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          // Get previous events at same location for reference
+          db.all(
+            `SELECT id, event, date, status FROM events
+             WHERE location = ? AND id != ? AND date <= ?
+             ORDER BY date DESC LIMIT 3`,
+            [event.location || '', id, event.date || ''],
+            (err3, prevEvents) => {
+              if (err3) return res.status(500).json({ error: err3.message });
+
+              // Get next event (if any)
+              db.get(
+                `SELECT id, event, date FROM events
+                 WHERE date >= ? AND id != ?
+                 ORDER BY date ASC LIMIT 1`,
+                [event.date || '', id],
+                (err4, nextEvent) => {
+                  if (err4) return res.status(500).json({ error: err4.message });
+
+                  res.json({
+                    success: true,
+                    runSheet: {
+                      event: {
+                        id: event.id,
+                        name: event.event,
+                        date: event.date,
+                        time: event.time || '',
+                        location: event.location || '',
+                        client: event.client || '',
+                        client_email: event.client_email || '',
+                        services: event.services || '',
+                        notes: event.notes || '',
+                        status: event.status || 'pending',
+                        estimated_cost: event.estimated_cost || 0,
+                        actual_cost: event.actual_cost || 0,
+                        budget: event.budget || 0,
+                        guests: event.guests || 0,
+                      },
+                      staff: staffDetails || [],
+                      previousEvents: prevEvents || [],
+                      nextEvent: nextEvent || null,
+                      generatedAt: new Date().toISOString(),
+                    }
+                  });
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// GET /api/todays-events - Get today's events for dashboard widget
+app.get('/api/todays-events', (req, res) => {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+  db.all(
+    `SELECT id, event, time, end_time, location, status, client, staff
+     FROM events
+     WHERE date = ?
+     ORDER BY time ASC`,
+    [today],
+    (err, events) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Parse staff counts from JSON array
+      events = events.map(e => {
+        let staffCount = 0;
+        try {
+          staffCount = JSON.parse(e.staff || '[]').length;
+        } catch(_) {}
+        return { ...e, staff_count: staffCount };
+      });
+
+      // Get upcoming 7 days count
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      const nextWeekStr = nextWeek.toISOString().split('T')[0];
+
+      db.get(
+        `SELECT COUNT(*) as count FROM events
+         WHERE date >= ? AND date <= ? AND status != 'cancelled'`,
+        [today, nextWeekStr],
+        (err2, upcoming) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          res.json({
+            success: true,
+            date: today,
+            events: events || [],
+            upcomingWeek: upcoming?.count || 0,
+          });
+        }
+      );
+    }
+  );
+});
+
 // ==================== WEBSOCKET SERVER ====================
 
 const { WebSocketServer } = require('ws');
@@ -2229,6 +2386,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.13 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.14 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
