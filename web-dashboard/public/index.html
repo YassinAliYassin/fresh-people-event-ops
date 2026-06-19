@@ -107,6 +107,61 @@
             <button onclick="switchTab('comms')" id="tab-comms" class="pb-2 font-semibold tab-inactive">💬 Comms</button>
             <button onclick="switchTab('calendar')" id="tab-calendar" class="pb-2 font-semibold tab-inactive">📅 Calendar</button>
             <button onclick="switchTab('import-export')" id="tab-import-export" class="pb-2 font-semibold tab-inactive">📦 Import/Export</button>
+            <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
+            <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
+        </div>
+
+        <!-- ==================== ARCHIVE TAB ==================== -->
+        <div id="view-archive" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-white">🗃️ Event Archive</h2>
+                <div class="flex gap-2">
+                    <input type="text" id="archiveSearch" placeholder="Search archived events..." class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600 focus:border-blue-500 outline-none" oninput="loadArchive()">
+                    <select id="archiveStatusFilter" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadArchive()">
+                        <option value="">All Statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+            </div>
+            <div id="archiveStats" class="grid grid-cols-3 gap-4 mb-4"></div>
+            <div id="archiveList" class="bg-gray-800 rounded-lg p-4">
+                <p class="text-gray-400">Loading archived events...</p>
+            </div>
+        </div>
+
+        <!-- ==================== AUDIT LOG TAB ==================== -->
+        <div id="view-audit" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-white">🔍 Activity Audit Log</h2>
+                <div class="flex gap-2">
+                    <input type="text" id="auditSearch" placeholder="Search logs..." class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600 focus:border-blue-500 outline-none" oninput="loadAuditLog()">
+                    <select id="auditEntityFilter" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadAuditLog()">
+                        <option value="">All Entities</option>
+                        <option value="event">Events</option>
+                        <option value="staff">Staff</option>
+                        <option value="client">Clients</option>
+                        <option value="equipment">Equipment</option>
+                        <option value="document">Documents</option>
+                    </select>
+                    <select id="auditActionFilter" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadAuditLog()">
+                        <option value="">All Actions</option>
+                        <option value="create">Create</option>
+                        <option value="update">Update</option>
+                        <option value="delete">Delete</option>
+                        <option value="archive">Archive</option>
+                        <option value="restore">Restore</option>
+                        <option value="status_change">Status Change</option>
+                        <option value="delete_permanent">Permanent Delete</option>
+                    </select>
+                </div>
+            </div>
+            <div id="auditStats" class="grid grid-cols-4 gap-4 mb-4"></div>
+            <div id="auditList" class="bg-gray-800 rounded-lg p-4">
+                <p class="text-gray-400">Loading audit log...</p>
+            </div>
         </div>
 
         <!-- ==================== CALENDAR TAB ==================== -->
@@ -3962,6 +4017,7 @@
                     <button onclick="closeEventDetailModal(); openRunSheet('${event.id}')" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded font-semibold text-sm">📃 Run Sheet</button>
                     ${(event.status || 'pending') === 'pending' ? `<button onclick="closeEventDetailModal(); updateStatus('${event.id}','confirmed')" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold text-sm">Confirm</button>` : ''}
                     ${(event.status || '') === 'completed' ? `<button onclick="closeEventDetailModal(); openReviewModal('${event.id}', '${(event.event || '').replace(/'/g, "\\\\'")}', '${event.date || ''}')" class="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded font-semibold text-sm">📝 Review</button>` : ''}
+                    <button onclick="closeEventDetailModal(); archiveEvent('${event.id}')" class="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-2 rounded font-semibold text-sm">🗃️ Archive</button>
                 </div>
             `;
             document.getElementById('eventDetailModal').classList.remove('hidden');
@@ -9224,5 +9280,161 @@ function updateImportHistory() {
         </div>
     </div>
     <!-- ==================== END IMPORT/EXPORT TAB ==================== -->
+
+    <!-- ==================== ARCHIVE FUNCTIONS ==================== -->
+
+    function loadArchive() {
+        const search = document.getElementById('archiveSearch')?.value || '';
+        const status = document.getElementById('archiveStatusFilter')?.value || '';
+        let url = `${API}/events/archived?limit=50`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (status) url += `&status=${status}`;
+        fetch(url, { headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    renderArchiveStats(data.events);
+                    renderArchiveList(data.events);
+                }
+            })
+            .catch(err => {
+                document.getElementById('archiveList').innerHTML = `<p class="text-red-400">Error: ${err.message}</p>`;
+            });
+    }
+
+    function renderArchiveStats(events) {
+        const stats = { total: events.length, cancelled: 0, completed: 0 };
+        events.forEach(e => { if (e.status === 'cancelled') stats.cancelled++; if (e.status === 'completed') stats.completed++; });
+        document.getElementById('archiveStats').innerHTML = `
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-white">${stats.total}</div><div class="text-xs text-gray-400">Archived Events</div></div>
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-red-400">${stats.cancelled}</div><div class="text-xs text-gray-400">Cancelled</div></div>
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-blue-400">${stats.completed}</div><div class="text-xs text-gray-400">Completed</div></div>
+        `;
+    }
+
+    function renderArchiveList(events) {
+        const container = document.getElementById('archiveList');
+        if (!events.length) {
+            container.innerHTML = '<p class="text-gray-400">No archived events found.</p>';
+            return;
+        }
+        container.innerHTML = `<table class="w-full text-sm">
+            <thead><tr class="text-left text-gray-400 border-b border-gray-700">
+                <th>Event</th><th>Date</th><th>Location</th><th>Status</th><th>Archived</th><th>Actions</th>
+            </tr></thead>
+            <tbody>${events.map(e => `
+                <tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
+                    <td class="py-2 text-white font-medium">${escapeHtml(e.event)}</td>
+                    <td class="py-2 text-gray-300">${e.date || '-'}</td>
+                    <td class="py-2 text-gray-300">${escapeHtml(e.location || '-')}</td>
+                    <td class="py-2"><span class="px-2 py-0.5 rounded text-xs ${getStatusClass(e.status)}">${e.status}</span></td>
+                    <td class="py-2 text-gray-400 text-xs">${e.archived_at ? new Date(e.archived_at).toLocaleString() : '-'}</td>
+                    <td class="py-2">
+                        <button onclick="restoreEvent('${e.id}')" class="text-green-400 hover:text-green-300 text-xs mr-2" title="Restore">↩ Restore</button>
+                        <button onclick="permanentDeleteEvent('${e.id}')" class="text-red-400 hover:text-red-300 text-xs" title="Delete Permanently">🗑 Delete</button>
+                    </td>
+                </tr>
+            `).join('')}</tbody>
+        </table>`;
+    }
+
+    function restoreEvent(id) {
+        if (!confirm('Restore this event from archive?')) return;
+        fetch(`${API}/events/${id}/restore`, { method: 'POST', headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { showToast('success', data.message); loadArchive(); }
+                else { showToast('error', data.error); }
+            });
+    }
+
+    function permanentDeleteEvent(id) {
+        if (!confirm('⚠️ WARNING: This will PERMANENTLY delete this event. This cannot be undone. Continue?')) return;
+        fetch(`${API}/events/${id}/permanent`, { method: 'DELETE', headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) { showToast('success', data.message); loadArchive(); }
+                else { showToast('error', data.error); }
+            });
+    }
+
+    // ==================== AUDIT LOG FUNCTIONS ====================
+
+    function loadAuditLog() {
+        const search = document.getElementById('auditSearch')?.value || '';
+        const entityType = document.getElementById('auditEntityFilter')?.value || '';
+        const action = document.getElementById('auditActionFilter')?.value || '';
+        let url = `${API}/audit-log?limit=50`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (entityType) url += `&entity_type=${entityType}`;
+        if (action) url += `&action=${action}`;
+        fetch(url, { headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    renderAuditStats(data);
+                    renderAuditList(data.logs);
+                }
+            })
+            .catch(err => {
+                document.getElementById('auditList').innerHTML = `<p class="text-red-400">Error: ${err.message}</p>`;
+            });
+    }
+
+    function renderAuditStats(data) {
+        const stats = { total: data.total || 0, today: data.today || 0, actions: data.byAction?.length || 0, entities: data.byEntity?.length || 0 };
+        document.getElementById('auditStats').innerHTML = `
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-white">${stats.total}</div><div class="text-xs text-gray-400">Total Logs</div></div>
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-yellow-400">${stats.today}</div><div class="text-xs text-gray-400">Today</div></div>
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-blue-400">${stats.actions}</div><div class="text-xs text-gray-400">Action Types</div></div>
+            <div class="bg-gray-700 rounded-lg p-3 text-center"><div class="text-2xl font-bold text-green-400">${stats.entities}</div><div class="text-xs text-gray-400">Entity Types</div></div>
+        `;
+    }
+
+    function renderAuditList(logs) {
+        const container = document.getElementById('auditList');
+        if (!logs || !logs.length) {
+            container.innerHTML = '<p class="text-gray-400">No audit log entries found.</p>';
+            return;
+        }
+        container.innerHTML = `<table class="w-full text-sm">
+            <thead><tr class="text-left text-gray-400 border-b border-gray-700">
+                <th>Time</th><th>User</th><th>Action</th><th>Entity</th><th>Name</th><th>Details</th>
+            </tr></thead>
+            <tbody>${logs.map(l => `
+                <tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
+                    <td class="py-2 text-gray-400 text-xs whitespace-nowrap">${new Date(l.created_at).toLocaleString()}</td>
+                    <td class="py-2 text-blue-400">${escapeHtml(l.username)}</td>
+                    <td class="py-2"><span class="px-2 py-0.5 rounded text-xs ${getAuditActionClass(l.action)}">${l.action}</span></td>
+                    <td class="py-2 text-gray-300">${l.entity_type}</td>
+                    <td class="py-2 text-white font-medium">${escapeHtml(l.entity_name || '-')}</td>
+                    <td class="py-2 text-gray-400 text-xs">${escapeHtml(l.details || '')}</td>
+                </tr>
+            `).join('')}</tbody>
+        </table>`;
+    }
+
+    function getStatusClass(status) {
+        const classes = { pending: 'bg-yellow-500/20 text-yellow-400', confirmed: 'bg-green-500/20 text-green-400', completed: 'bg-blue-500/20 text-blue-400', cancelled: 'bg-red-500/20 text-red-400' };
+        return classes[status] || 'bg-gray-500/20 text-gray-400';
+    }
+
+    function getAuditActionClass(action) {
+        const classes = { create: 'bg-green-500/20 text-green-400', update: 'bg-blue-500/20 text-blue-400', delete: 'bg-red-500/20 text-red-400', archive: 'bg-yellow-500/20 text-yellow-400', restore: 'bg-purple-500/20 text-purple-400', status_change: 'bg-cyan-500/20 text-cyan-400', delete_permanent: 'bg-red-700/30 text-red-300' };
+        return classes[action] || 'bg-gray-500/20 text-gray-400';
+    }
+
+    function getHeaders() {
+        const token = localStorage.getItem('sessionToken') || '';
+        return { 'Content-Type': 'application/json', 'X-Session-Token': token };
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
 </body>
 </html>

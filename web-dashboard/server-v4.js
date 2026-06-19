@@ -107,6 +107,19 @@ function authMiddleware(req, res, next) {
 
 app.use(authMiddleware);
 
+// ==================== AUDIT LOG HELPER ====================
+
+function logAudit(action, entityType, entityId, entityName, details, req) {
+  const username = req?.user?.username || 'system';
+  const ip = req?.ip || req?.connection?.remoteAddress || '';
+  const ua = req?.headers?.user-agent || '';
+  db.run(
+    `INSERT INTO audit_log (username, action, entity_type, entity_id, entity_name, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [username, action, entityType, String(entityId || ''), entityName || '', details || '', ip, ua],
+    (err) => { if (err) console.error('Audit log error:', err.message); }
+  );
+}
+
 // Serve PWA public assets
 app.use('/manifest.json', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'manifest.json'), {
@@ -210,6 +223,29 @@ db.run(`ALTER TABLE staff ADD COLUMN hourly_rate REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE staff ADD COLUMN overtime_rate REAL DEFAULT 0`, () => {});
 // Add pay_type column to staff table (migration) - 'hourly' or 'flat'
 db.run(`ALTER TABLE staff ADD COLUMN pay_type TEXT DEFAULT 'hourly'`, () => {});
+
+// Add archived_at column to events table (migration for archive/restore)
+db.run(`ALTER TABLE events ADD COLUMN archived_at TIMESTAMP DEFAULT NULL`, () => {});
+
+// ==================== ACTIVITY AUDIT LOG ====================
+
+db.run(`CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER DEFAULT 0,
+  username TEXT DEFAULT 'system',
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT DEFAULT '',
+  entity_name TEXT DEFAULT '',
+  details TEXT DEFAULT '',
+  ip_address TEXT DEFAULT '',
+  user_agent TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Index for faster audit log queries
+db.run(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id)`, () => {});
+db.run(`CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC)`, () => {});
 
 // ==================== STAFF TIMESHEET & PAYROLL ====================
 
@@ -2384,7 +2420,7 @@ async function autoNotifyEvent(event, staffList) {
 
 // GET /api/events
 app.get('/api/events', (req, res) => {
-  db.all(`SELECT * FROM events ORDER BY date DESC, time DESC`, [], (err, rows) => {
+  db.all(`SELECT * FROM events WHERE archived_at IS NULL ORDER BY date DESC, time DESC`, [], (err, rows) => {
     if (err) return res.status(500).json({error: err.message});
     res.json(rows);
   });
@@ -2448,6 +2484,8 @@ app.post('/api/events', async (req, res) => {
         try { sendPushNotification(`New Event: ${event}`, `${date} at ${time} - ${location}`, '/'); } catch(e) { console.error('Push notify failed:', e); }
         // Broadcast real-time update
         try { broadcast({ type: 'event_created', event: newEvent }); } catch(e) { console.error('Broadcast failed:', e); }
+        // Audit log
+        try { logAudit('create', 'event', newEvent.id, event, `Created event on ${date} at ${location}`, req); } catch(e) {}
         res.json(newEvent);
       }
     );
@@ -2481,6 +2519,8 @@ app.put('/api/events/:id', (req, res) => {
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(updatedEvent, null, 2));
       // Broadcast real-time update
       try { broadcast({ type: 'event_updated', event: updatedEvent }); } catch(e) { console.error('Broadcast failed:', e); }
+      // Audit log
+      try { logAudit('update', 'event', id, event, `Updated event details`, req); } catch(e) {}
       res.json(updatedEvent);
     }
   );
@@ -2498,6 +2538,7 @@ app.patch('/api/events/:id/status', (req, res) => {
     if (err) return res.status(500).json({error: err.message});
     if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
     try { broadcast({ type: 'event_status_changed', eventId: id, status }); } catch(e) { console.error('Broadcast failed:', e); }
+    try { logAudit('status_change', 'event', id, '', `Status changed to ${status}`, req); } catch(e) {}
     res.json({ success: true, id, status });
   });
 });
@@ -2505,12 +2546,15 @@ app.patch('/api/events/:id/status', (req, res) => {
 // DELETE /api/events/:id
 app.delete('/api/events/:id', (req, res) => {
   const id = req.params.id;
-  db.run(`DELETE FROM events WHERE id=?`, [id], async function(err) {
-    if (err) return res.status(500).json({error: err.message});
-    if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
-    try { await fs.unlink(path.join(CALENDAR_DIR, `${id}.ics`)); } catch(e) {}
-    try { await fs.unlink(path.join(CALENDAR_DIR, `${id}.json`)); } catch(e) {}
-    res.json({success: true, id});
+  db.get(`SELECT event FROM events WHERE id = ?`, [id], (err, event) => {
+    db.run(`DELETE FROM events WHERE id=?`, [id], async function(err) {
+      if (err) return res.status(500).json({error: err.message});
+      if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
+      try { await fs.unlink(path.join(CALENDAR_DIR, `${id}.ics`)); } catch(e) {}
+      try { await fs.unlink(path.join(CALENDAR_DIR, `${id}.json`)); } catch(e) {}
+      try { logAudit('delete', 'event', id, event?.event || '', 'Event permanently deleted', req); } catch(e) {}
+      res.json({success: true, id});
+    });
   });
 });
 
@@ -4121,9 +4165,9 @@ app.get('/api/export/schema', (req, res) => {
 
 // GET /api/export/full-backup - Full JSON backup of all data
 app.get('/api/export/full-backup', (req, res) => {
-  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings'];
+  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.24.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.25.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4140,9 +4184,153 @@ app.get('/api/export/full-backup', (req, res) => {
 
 // ==================== END DATA IMPORT/EXPORT ====================
 
+// ==================== EVENT ARCHIVE/RESTORE ====================
+
+// GET /api/events/archived - List archived events
+app.get('/api/events/archived', (req, res) => {
+  const { search, status, limit, offset } = req.query;
+  let sql = `SELECT * FROM events WHERE archived_at IS NOT NULL`;
+  const params = [];
+  if (search) {
+    sql += ` AND (event LIKE ? OR location LIKE ? OR client LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (status) {
+    sql += ` AND status = ?`;
+    params.push(status);
+  }
+  sql += ` ORDER BY archived_at DESC`;
+  if (limit) {
+    sql += ` LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), parseInt(offset) || 0);
+  }
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, events: rows, count: rows.length });
+  });
+});
+
+// POST /api/events/:id/archive - Soft-delete an event
+app.post('/api/events/:id/archive', (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM events WHERE id = ?`, [id], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (event.archived_at) return res.status(400).json({ error: 'Event is already archived' });
+
+    db.run(`UPDATE events SET archived_at = CURRENT_TIMESTAMP WHERE id = ?`, [id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      logAudit('archive', 'event', id, event.event, 'Event archived', req);
+      res.json({ success: true, message: `Event "${event.event}" archived` });
+    });
+  });
+});
+
+// POST /api/events/:id/restore - Restore an archived event
+app.post('/api/events/:id/restore', (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM events WHERE id = ?`, [id], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (!event.archived_at) return res.status(400).json({ error: 'Event is not archived' });
+
+    db.run(`UPDATE events SET archived_at = NULL WHERE id = ?`, [id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      logAudit('restore', 'event', id, event.event, 'Event restored from archive', req);
+      res.json({ success: true, message: `Event "${event.event}" restored` });
+    });
+  });
+});
+
+// DELETE /api/events/:id/permanent - Permanently delete an archived event
+app.delete('/api/events/:id/permanent', (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM events WHERE id = ?`, [id], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (!event.archived_at) return res.status(400).json({ error: 'Event must be archived before permanent deletion' });
+
+    db.run(`DELETE FROM events WHERE id = ?`, [id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      logAudit('delete_permanent', 'event', id, event.event, 'Event permanently deleted', req);
+      res.json({ success: true, message: `Event "${event.event}" permanently deleted` });
+    });
+  });
+});
+
+// ==================== AUDIT LOG API ====================
+
+// GET /api/audit-log - List audit log entries with filters
+app.get('/api/audit-log', (req, res) => {
+  const { entity_type, action, search, limit, offset, from, to } = req.query;
+  let sql = `SELECT * FROM audit_log WHERE 1=1`;
+  const params = [];
+
+  if (entity_type) {
+    sql += ` AND entity_type = ?`;
+    params.push(entity_type);
+  }
+  if (action) {
+    sql += ` AND action = ?`;
+    params.push(action);
+  }
+  if (search) {
+    sql += ` AND (entity_name LIKE ? OR details LIKE ? OR username LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+  }
+  if (from) {
+    sql += ` AND created_at >= ?`;
+    params.push(from);
+  }
+  if (to) {
+    sql += ` AND created_at <= ?`;
+    params.push(to);
+  }
+
+  sql += ` ORDER BY created_at DESC`;
+
+  const lim = parseInt(limit) || 50;
+  const off = parseInt(offset) || 0;
+  sql += ` LIMIT ? OFFSET ?`;
+  params.push(lim, off);
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    // Get total count
+    db.get(`SELECT COUNT(*) as total FROM audit_log`, [], (err2, row) => {
+      res.json({ success: true, logs: rows, total: row?.total || 0, limit: lim, offset: off });
+    });
+  });
+});
+
+// GET /api/audit-log/stats - Audit log statistics
+app.get('/api/audit-log/stats', (req, res) => {
+  db.get(`SELECT COUNT(*) as total FROM audit_log`, [], (err, total) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT action, COUNT(*) as count FROM audit_log GROUP BY action ORDER BY count DESC`, [], (err2, byAction) => {
+      db.all(`SELECT entity_type, COUNT(*) as count FROM audit_log GROUP BY entity_type ORDER BY count DESC`, [], (err3, byEntity) => {
+        db.all(`SELECT username, COUNT(*) as count FROM audit_log GROUP BY username ORDER BY count DESC LIMIT 10`, [], (err4, byUser) => {
+          db.get(`SELECT COUNT(*) as today FROM audit_log WHERE date(created_at) = date('now')`, [], (err5, today) => {
+            res.json({
+              success: true,
+              total: total?.total || 0,
+              today: today?.today || 0,
+              byAction: byAction || [],
+              byEntity: byEntity || [],
+              byUser: byUser || []
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+// ==================== END AUDIT LOG ====================
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.24.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.25.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
