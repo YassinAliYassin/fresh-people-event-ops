@@ -688,6 +688,61 @@ db.get(`SELECT COUNT(*) as count FROM task_templates`, (err, row) => {
 });
 
 
+// ==================== TEAM COMMUNICATION & ANNOUNCEMENTS ====================
+
+// Create announcements table
+db.run(`CREATE TABLE IF NOT EXISTS announcements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  body TEXT DEFAULT '',
+  priority TEXT DEFAULT 'normal',
+  category TEXT DEFAULT 'general',
+  target_role TEXT DEFAULT 'all',
+  created_by TEXT DEFAULT '',
+  is_pinned INTEGER DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  expires_at TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Create event_comments table for event-specific discussions
+db.run(`CREATE TABLE IF NOT EXISTS event_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  user TEXT DEFAULT '',
+  message TEXT NOT NULL,
+  parent_id INTEGER DEFAULT 0,
+  is_internal INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create notification_center table for in-app notifications
+db.run(`CREATE TABLE IF NOT EXISTS notification_center (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user TEXT DEFAULT '',
+  title TEXT NOT NULL,
+  body TEXT DEFAULT '',
+  type TEXT DEFAULT 'info',
+  link TEXT DEFAULT '',
+  is_read INTEGER DEFAULT 0,
+  source TEXT DEFAULT '',
+  source_id TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Seed default announcement if table is empty
+db.get(`SELECT COUNT(*) as count FROM announcements`, (err, row) => {
+  if (row && row.count === 0) {
+    db.run(`INSERT INTO announcements (title, body, priority, category, target_role, created_by, is_pinned) VALUES (?,?,?,?,?,?,?)`,
+      ['Welcome to Fresh People Event Ops', 'This is the team communication hub. Post announcements, discuss events, and stay updated.', 'normal', 'general', 'all', 'system', 1]);
+    console.log('Seeded default announcement');
+  }
+});
+
+
 // ==================== SUPPLIER / VENDOR MANAGEMENT ====================
 
 // Create suppliers table
@@ -779,6 +834,229 @@ db.get(`SELECT COUNT(*) as count FROM suppliers`, (err, row) => {
     console.log(`Seeded ${defaultSuppliers.length} default suppliers`);
   }
 });
+
+// ==================== DOCUMENT MANAGEMENT ====================
+
+// Create documents table
+db.run(`CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  category TEXT DEFAULT 'other',
+  file_name TEXT DEFAULT '',
+  file_path TEXT DEFAULT '',
+  file_size INTEGER DEFAULT 0,
+  file_type TEXT DEFAULT '',
+  event_id TEXT DEFAULT '',
+  client_id INTEGER DEFAULT 0,
+  supplier_id INTEGER DEFAULT 0,
+  tags TEXT DEFAULT '[]',
+  is_confidential INTEGER DEFAULT 0,
+  uploaded_by TEXT DEFAULT '',
+  version TEXT DEFAULT '1.0',
+  expiry_date TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Seed sample documents
+db.get(`SELECT COUNT(*) as count FROM documents`, (err, row) => {
+  if (!row || row.count === 0) {
+    const sampleDocs = [
+      ['Event Liability Insurance 2026', 'Annual public liability insurance certificate', 'insurance', 'liability-insurance-2026.pdf', '', 245000, 'application/pdf', '', 0, 0, '["insurance","liability","annual"]', 0, 'system', '1.0', '2026-12-31'],
+      ['Venue Contract Template', 'Standard venue hire agreement template', 'contract', 'venue-contract-template.pdf', '', 180000, 'application/pdf', '', 0, 0, '["contract","venue","template"]', 0, 'system', '2.0', ''],
+      ['Health & Safety Compliance Certificate', 'Annual health and safety compliance certification', 'permit', 'h&s-compliance-2026.pdf', '', 320000, 'application/pdf', '', 0, 0, '["safety","compliance","certificate"]', 0, 'system', '1.0', '2026-09-30'],
+      ['Client NDA Template', 'Non-disclosure agreement template for clients', 'contract', 'client-nda-template.pdf', '', 95000, 'application/pdf', '', 0, 0, '["nda","confidentiality","template"]', 1, 'system', '1.0', ''],
+      ['Equipment Inventory List 2026', 'Complete equipment inventory with serial numbers', 'other', 'equipment-inventory-2026.xlsx', '', 156000, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '', 0, 0, '["equipment","inventory","assets"]', 0, 'system', '1.0', ''],
+      ['Staff Code of Conduct', 'Employee code of conduct and behavior guidelines', 'other', 'staff-code-of-conduct.pdf', '', 120000, 'application/pdf', '', 0, 0, '["hr","conduct","policy"]', 0, 'system', '3.0', ''],
+      ['Food Handling Certificate', 'Certificate of compliance for food handling at events', 'permit', 'food-handling-cert.pdf', '', 89000, 'application/pdf', '', 0, 0, '["food","catering","permit"]', 0, 'system', '1.0', '2026-08-15'],
+      ['Invoice Template', 'Standard invoice template for client billing', 'invoice', 'invoice-template.xlsx', '', 67000, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '', 0, 0, '["invoice","billing","template"]', 0, 'system', '2.0', ''],
+    ];
+    const stmt = db.prepare(`INSERT INTO documents (title, description, category, file_name, file_path, file_size, file_type, event_id, client_id, supplier_id, tags, is_confidential, uploaded_by, version, expiry_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    sampleDocs.forEach(d => stmt.run(d));
+    stmt.finalize();
+    console.log(`Seeded ${sampleDocs.length} default documents`);
+  }
+});
+
+// Ensure documents upload directory exists
+const DOCS_UPLOAD_DIR = path.join(__dirname, '..', 'documents');
+fsSync.mkdirSync(DOCS_UPLOAD_DIR, { recursive: true });
+
+// Multer config for document uploads
+const docsStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, DOCS_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    cb(null, `${Date.now()}-${uuidv4().slice(0, 8)}_${safeName}`);
+  }
+});
+const uploadDocs = multer({
+  storage: docsStorage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/jpeg', 'image/png', 'image/gif',
+      'text/plain', 'text/csv'
+    ];
+    cb(null, true); // Allow all for flexibility
+  }
+});
+
+// DOCUMENTS API ENDPOINTS
+
+// GET /api/documents - List/search/filter documents
+app.get('/api/documents', (req, res) => {
+  const { search, category, event_id, client_id, supplier_id, is_confidential, sort, limit, offset } = req.query;
+  let sql = `SELECT d.*,
+    CASE WHEN d.expiry_date != '' AND d.expiry_date < date('now') THEN 1 ELSE 0 END as is_expired
+    FROM documents d WHERE 1=1`;
+  const params = [];
+
+  if (search) {
+    sql += ` AND (d.title LIKE ? OR d.description LIKE ? OR d.file_name LIKE ? OR d.tags LIKE ?)`;
+    const s = `%${search}%`;
+    params.push(s, s, s, s);
+  }
+  if (category) { sql += ` AND d.category = ?`; params.push(category); }
+  if (event_id) { sql += ` AND d.event_id = ?`; params.push(event_id); }
+  if (client_id) { sql += ` AND d.client_id = ?`; params.push(client_id); }
+  if (supplier_id) { sql += ` AND d.supplier_id = ?`; params.push(supplier_id); }
+  if (is_confidential !== undefined) { sql += ` AND d.is_confidential = ?`; params.push(is_confidential); }
+
+  if (sort === 'title') sql += ` ORDER BY d.title ASC`;
+  else if (sort === 'size') sql += ` ORDER BY d.file_size DESC`;
+  else if (sort === 'expiry') sql += ` ORDER BY d.expiry_date ASC`;
+  else sql += ` ORDER BY d.created_at DESC`;
+
+  const lim = parseInt(limit) || 50;
+  const off = parseInt(offset) || 0;
+  sql += ` LIMIT ? OFFSET ?`;
+  params.push(lim, off);
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// GET /api/documents/categories - List distinct categories
+app.get('/api/documents/categories', (req, res) => {
+  db.all(`SELECT DISTINCT category, COUNT(*) as count FROM documents GROUP BY category ORDER BY category`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+// GET /api/documents/stats/summary - Document statistics
+app.get('/api/documents/stats/summary', (req, res) => {
+  db.get(`SELECT
+    COUNT(*) as total_documents,
+    SUM(CASE WHEN is_confidential = 1 THEN 1 ELSE 0 END) as confidential_count,
+    SUM(CASE WHEN expiry_date != '' AND expiry_date < date('now') THEN 1 ELSE 0 END) as expired_count,
+    SUM(CASE WHEN expiry_date != '' AND expiry_date BETWEEN date('now') AND date('now', '+30 days') THEN 1 ELSE 0 END) as expiring_soon_count,
+    SUM(file_size) as total_file_size,
+    COUNT(DISTINCT category) as category_count
+    FROM documents`, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(row);
+  });
+});
+
+// GET /api/documents/:id - Get single document
+app.get('/api/documents/:id', (req, res) => {
+  db.get(`SELECT * FROM documents WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Document not found' });
+    res.json(row);
+  });
+});
+
+// POST /api/documents - Create document record (with optional file upload)
+app.post('/api/documents', uploadDocs.single('file'), (req, res) => {
+  const { title, description, category, event_id, client_id, supplier_id, tags, is_confidential, version, expiry_date, uploaded_by } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title is required' });
+
+  const fileName = req.file ? req.file.filename : '';
+  const filePath = req.file ? `/documents/${req.file.filename}` : '';
+  const fileSize = req.file ? req.file.size : 0;
+  const fileType = req.file ? req.file.mimetype : '';
+
+  db.run(
+    `INSERT INTO documents (title, description, category, file_name, file_path, file_size, file_type, event_id, client_id, supplier_id, tags, is_confidential, uploaded_by, version, expiry_date)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [title, description || '', category || 'other', fileName, filePath, fileSize, fileType, event_id || '', client_id || 0, supplier_id || 0, tags || '[]', is_confidential ? 1 : 0, uploaded_by || '', version || '1.0', expiry_date || ''],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT * FROM documents WHERE id = ?`, [this.lastID], (err2, row) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        try { broadcast({ type: 'document_created', document: row }); } catch(e) {}
+        res.status(201).json(row);
+      });
+    }
+  );
+});
+
+// PUT /api/documents/:id - Update document metadata
+app.put('/api/documents/:id', (req, res) => {
+  const { title, description, category, event_id, client_id, supplier_id, tags, is_confidential, version, expiry_date } = req.body;
+  db.run(
+    `UPDATE documents SET title=?, description=?, category=?, event_id=?, client_id=?, supplier_id=?, tags=?, is_confidential=?, version=?, expiry_date=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+    [title, description, category, event_id, client_id, supplier_id, tags, is_confidential ? 1 : 0, version, expiry_date, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Document not found' });
+      db.get(`SELECT * FROM documents WHERE id = ?`, [req.params.id], (err2, row) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json(row);
+      });
+    }
+  );
+});
+
+// DELETE /api/documents/:id - Delete document (removes file + DB record)
+app.delete('/api/documents/:id', (req, res) => {
+  db.get(`SELECT * FROM documents WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Document not found' });
+
+    // Remove file from disk if exists
+    if (row.file_path) {
+      const filePath = path.join(__dirname, '..', row.file_path);
+      fsSync.unlink(filePath, () => {}); // Ignore errors if file doesn't exist
+    }
+
+    db.run(`DELETE FROM documents WHERE id = ?`, [req.params.id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true, message: 'Document deleted' });
+    });
+  });
+});
+
+// GET /api/documents/download/:id - Download document file
+app.get('/api/documents/download/:id', (req, res) => {
+  db.get(`SELECT * FROM documents WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Document not found' });
+    if (!row.file_path) return res.status(404).json({ error: 'No file attached to this document' });
+
+    const filePath = path.join(__dirname, '..', row.file_path);
+    if (!fsSync.existsSync(filePath)) return res.status(404).json({ error: 'File not found on disk' });
+
+    res.download(filePath, row.file_name || 'document');
+  });
+});
+
+// Serve documents directory (no auth for direct file access)
+app.use('/documents', express.static(DOCS_UPLOAD_DIR));
 
 // ==================== VAPID / PUSH NOTIFICATIONS ====================
 
@@ -3380,9 +3658,146 @@ app.get('/api/payroll/staff/:id', (req, res) => {
   });
 });
 
+// ==================== TEAM COMMUNICATION & ANNOUNCEMENTS API ====================
+
+// GET /api/announcements - List announcements
+app.get('/api/announcements', (req, res) => {
+  const { category, active = 'true', limit = 50, offset = 0 } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (category) { where.push('category = ?'); params.push(category); }
+  if (active === 'true') { where.push('is_active = 1'); }
+  db.all(`SELECT a.*, u.display_name as author_name FROM announcements a LEFT JOIN users u ON a.created_by = u.username WHERE ${where.join(' AND ')} ORDER BY a.is_pinned DESC, a.created_at DESC LIMIT ? OFFSET ?`,
+    [...params, parseInt(limit), parseInt(offset)], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ data: rows || [] });
+    });
+});
+
+// POST /api/announcements - Create announcement
+app.post('/api/announcements', (req, res) => {
+  const { title, body, priority, category, target_role, is_pinned, expires_at } = req.body;
+  if (!title) return res.status(400).json({ error: 'Title is required' });
+  const user = req.user?.username || 'unknown';
+  db.run(`INSERT INTO announcements (title, body, priority, category, target_role, created_by, is_pinned, expires_at) VALUES (?,?,?,?,?,?,?,?)`,
+    [title, body || '', priority || 'normal', category || 'general', target_role || 'all', user, is_pinned ? 1 : 0, expires_at || ''],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      const newId = this.lastID;
+      // Broadcast to all connected WebSocket clients
+      broadcast({ type: 'announcement', action: 'created', data: { id: newId, title, body, priority, category } });
+      // Create notification for all users
+      db.all(`SELECT username FROM users WHERE active = 1 AND username != ?`, [user], (err2, users) => {
+        if (!err2 && users && users.length > 0) {
+          const stmt = db.prepare(`INSERT INTO notification_center (user, title, body, type, source, source_id) VALUES (?,?,?,?,?,?)`);
+          users.forEach(u => {
+            stmt.run(u.username, `New Announcement: ${title}`, body || '', 'announcement', 'announcements', String(newId));
+          });
+          stmt.finalize();
+        }
+      });
+      res.json({ id: newId, title, body, priority: priority || 'normal', category: category || 'general', created_by: user });
+    });
+});
+
+// PUT /api/announcements/:id - Update announcement
+app.put('/api/announcements/:id', (req, res) => {
+  const id = req.params.id;
+  const { title, body, priority, category, target_role, is_pinned, is_active, expires_at } = req.body;
+  db.run(`UPDATE announcements SET title=?, body=?, priority=?, category=?, target_role=?, is_pinned=?, is_active=?, expires_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+    [title, body || '', priority || 'normal', category || 'general', target_role || 'all', is_pinned ? 1 : 0, is_active ? 1 : 0, expires_at || '', id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Announcement not found' });
+      res.json({ success: true, id });
+    });
+});
+
+// DELETE /api/announcements/:id - Delete announcement
+app.delete('/api/announcements/:id', (req, res) => {
+  const id = req.params.id;
+  db.run(`DELETE FROM announcements WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Announcement not found' });
+    res.json({ success: true });
+  });
+});
+
+// GET /api/event-comments/:eventId - Get comments for an event
+app.get('/api/event-comments/:eventId', (req, res) => {
+  const eventId = req.params.eventId;
+  db.all(`SELECT c.*, u.display_name as author_name FROM event_comments c LEFT JOIN users u ON c.user = u.username WHERE c.event_id = ? ORDER BY c.created_at ASC`, [eventId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ data: rows || [] });
+  });
+});
+
+// POST /api/event-comments - Add comment to an event
+app.post('/api/event-comments', (req, res) => {
+  const { event_id, message, parent_id, is_internal } = req.body;
+  if (!event_id || !message) return res.status(400).json({ error: 'Event ID and message are required' });
+  const user = req.user?.username || 'unknown';
+  db.run(`INSERT INTO event_comments (event_id, user, message, parent_id, is_internal) VALUES (?,?,?,?,?)`,
+    [event_id, user, message, parent_id || 0, is_internal !== false ? 1 : 0],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      // Broadcast to connected clients
+      broadcast({ type: 'event_comment', action: 'created', data: { id: this.lastID, event_id, message, user } });
+      res.json({ id: this.lastID, event_id, message, user, created_at: new Date().toISOString() });
+    });
+});
+
+// DELETE /api/event-comments/:id - Delete a comment
+app.delete('/api/event-comments/:id', (req, res) => {
+  const id = req.params.id;
+  db.run(`DELETE FROM event_comments WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Comment not found' });
+    res.json({ success: true });
+  });
+});
+
+// GET /api/notification-center - Get notifications for current user
+app.get('/api/notification-center', (req, res) => {
+  const user = req.user?.username || 'unknown';
+  const { unread_only, limit = 50, offset = 0 } = req.query;
+  let where = 'user = ? OR user = ""';
+  const params = [user];
+  if (unread_only === 'true') { where += ' AND is_read = 0'; }
+  db.get(`SELECT COUNT(*) as total FROM notification_center WHERE ${where}`, params, (err, countRow) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT * FROM notification_center WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), parseInt(offset)], (err2, rows) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        // Get unread count
+        db.get(`SELECT COUNT(*) as unread FROM notification_center WHERE (user = ? OR user = "") AND is_read = 0`, [user], (err3, unreadRow) => {
+          res.json({ data: rows || [], total: countRow?.total || 0, unread: unreadRow?.unread || 0 });
+        });
+      });
+  });
+});
+
+// POST /api/notification-center/:id/read - Mark notification as read
+app.post('/api/notification-center/:id/read', (req, res) => {
+  const id = req.params.id;
+  db.run(`UPDATE notification_center SET is_read = 1 WHERE id = ?`, [id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// POST /api/notification-center/read-all - Mark all notifications as read
+app.post('/api/notification-center/read-all', (req, res) => {
+  const user = req.user?.username || 'unknown';
+  db.run(`UPDATE notification_center SET is_read = 1 WHERE (user = ? OR user = "") AND is_read = 0`, [user], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, updated: this.changes });
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.20.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.22.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -4563,6 +4978,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.20 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.21 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

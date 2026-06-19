@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.17</title>
+    <title>Fresh People Event Ops v4.22</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -53,10 +53,12 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.17</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.22</p>
             </div>
             <div class="text-right flex items-center gap-3">
-                <button onclick="requestPushPermission()" id="pushBtn" class="text-gray-400 hover:text-blue-400 text-sm" title="Enable push notifications">🔔</button>
+                <button onclick="switchTab('comms')" id="notifBellBtn" class="text-gray-400 hover:text-blue-400 text-sm relative" title="Notifications">
+                    🔔 <span id="notifBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center text-xs">0</span>
+                </button>
                 <div class="relative">
                     <button onclick="toggleUserMenu()" class="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-700 transition">
                         <div class="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold" id="userAvatar">A</div>
@@ -101,6 +103,8 @@
             <button onclick="switchTab('venues')" id="tab-venues" class="pb-2 font-semibold tab-inactive">🏛️ Venues</button>
             <button onclick="switchTab('payroll')" id="tab-payroll" class="pb-2 font-semibold tab-inactive">💵 Payroll</button>
             <button onclick="switchTab('suppliers')" id="tab-suppliers" class="pb-2 font-semibold tab-inactive">🏪 Suppliers</button>
+            <button onclick="switchTab('documents')" id="tab-documents" class="pb-2 font-semibold tab-inactive">📄 Documents</button>
+            <button onclick="switchTab('comms')" id="tab-comms" class="pb-2 font-semibold tab-inactive">💬 Comms</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -1384,6 +1388,16 @@
                 </div>
                 <div id="attachmentsList" class="space-y-1 text-sm"></div>
             </div>
+
+            <!-- Event Comments Section -->
+            <div class="mt-4 pt-4 border-t border-gray-700">
+                <h4 class="text-sm font-semibold text-gray-300 mb-2">💬 Comments</h4>
+                <div id="eventCommentsList" class="space-y-2 max-h-48 overflow-y-auto mb-2"></div>
+                <div class="flex gap-2">
+                    <input type="text" id="eventCommentInput" placeholder="Add a comment..." class="flex-1 bg-gray-700 border border-gray-600 rounded px-3 py-1.5 text-sm text-white" onkeypress="if(event.key==='Enter')addEventComment(window.currentDetailEventId)">
+                    <button onclick="addEventComment(window.currentDetailEventId)" class="bg-purple-600 hover:bg-purple-700 px-3 py-1.5 rounded text-sm text-white">Post</button>
+                </div>
+            </div>
         </div>
     </div>
     <div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
@@ -2235,7 +2249,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'comms'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2307,8 +2321,239 @@
                 loadPOSummary();
                 populateSupplierCategoryFilter();
             }
+            if (tab === 'comms') {
+                loadAnnouncements();
+                loadNotifications();
+            }
         }
 
+
+        // ==================== COMMS & ANNOUNCEMENTS JS ====================
+
+        let allAnnouncements = [];
+
+        async function loadAnnouncements() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/announcements`, { headers });
+                const data = await res.json();
+                allAnnouncements = data.data || [];
+                renderAnnouncements();
+            } catch (e) {
+                console.error('Error loading announcements:', e);
+            }
+        }
+
+        function renderAnnouncements() {
+            const container = document.getElementById('announcementsList');
+            if (!container) return;
+            if (allAnnouncements.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">No announcements yet</p>';
+                return;
+            }
+            const priorityColors = { low: 'border-l-gray-500', normal: 'border-l-blue-500', high: 'border-l-orange-500', urgent: 'border-l-red-500' };
+            const priorityBadge = { low: 'bg-gray-600', normal: 'bg-blue-600', high: 'bg-orange-600', urgent: 'bg-red-600' };
+            container.innerHTML = allAnnouncements.map(a => `
+                <div class="bg-gray-700 rounded-lg p-4 border-l-4 ${priorityColors[a.priority] || 'border-l-blue-500'} ${a.is_pinned ? 'ring-1 ring-yellow-500' : ''}">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                ${a.is_pinned ? '<span class="text-yellow-400 text-xs">📌</span>' : ''}
+                                <h3 class="font-semibold">${escapeHtml(a.title)}</h3>
+                                <span class="px-2 py-0.5 rounded text-xs ${priorityBadge[a.priority] || 'bg-blue-600'}">${a.priority || 'normal'}</span>
+                                <span class="px-2 py-0.5 rounded text-xs bg-gray-600 capitalize">${a.category || 'general'}</span>
+                            </div>
+                            ${a.body ? `<p class="text-sm text-gray-300 mt-2 whitespace-pre-wrap">${escapeHtml(a.body)}</p>` : ''}
+                            <div class="flex items-center gap-3 mt-3 text-xs text-gray-400">
+                                <span>By ${escapeHtml(a.author_name || a.created_by || 'Unknown')}</span>
+                                <span>${formatDateTime(a.created_at)}</span>
+                            </div>
+                        </div>
+                        <div class="flex gap-1 ml-2">
+                            <button onclick="editAnnouncement(${a.id})" class="text-blue-400 hover:text-blue-300 text-xs" title="Edit">✏️</button>
+                            <button onclick="deleteAnnouncement(${a.id})" class="text-red-400 hover:text-red-300 text-xs" title="Delete">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showAnnouncementModal(id = null) {
+            document.getElementById('announcementModalTitle').textContent = id ? 'Edit Announcement' : 'New Announcement';
+            document.getElementById('announcementFormId').value = id || '';
+            if (id) {
+                const a = allAnnouncements.find(x => x.id == id);
+                if (a) {
+                    document.getElementById('announcementFormTitle').value = a.title || '';
+                    document.getElementById('announcementFormBody').value = a.body || '';
+                    document.getElementById('announcementFormPriority').value = a.priority || 'normal';
+                    document.getElementById('announcementFormCategory').value = a.category || 'general';
+                    document.getElementById('announcementFormPinned').checked = a.is_pinned == 1;
+                }
+            } else {
+                document.getElementById('announcementForm').reset();
+                document.getElementById('announcementFormPriority').value = 'normal';
+                document.getElementById('announcementFormCategory').value = 'general';
+            }
+            document.getElementById('announcementModal').classList.remove('hidden');
+            document.getElementById('announcementModal').classList.add('flex');
+        }
+
+        function closeAnnouncementModal() {
+            document.getElementById('announcementModal').classList.add('hidden');
+            document.getElementById('announcementModal').classList.remove('flex');
+        }
+
+        function editAnnouncement(id) {
+            showAnnouncementModal(id);
+        }
+
+        async function saveAnnouncement(e) {
+            e.preventDefault();
+            const id = document.getElementById('announcementFormId').value;
+            const payload = {
+                title: document.getElementById('announcementFormTitle').value,
+                body: document.getElementById('announcementFormBody').value,
+                priority: document.getElementById('announcementFormPriority').value,
+                category: document.getElementById('announcementFormCategory').value,
+                is_pinned: document.getElementById('announcementFormPinned').checked
+            };
+            try {
+                const headers = getAuthHeaders();
+                if (id) {
+                    await fetch(`${API}/announcements/${id}`, { method: 'PUT', headers, body: JSON.stringify(payload) });
+                } else {
+                    await fetch(`${API}/announcements`, { method: 'POST', headers, body: JSON.stringify(payload) });
+                }
+                closeAnnouncementModal();
+                loadAnnouncements();
+                showToast(id ? 'Announcement updated' : 'Announcement posted', 'success');
+            } catch (err) {
+                showToast('Failed to save announcement', 'error');
+            }
+        }
+
+        async function deleteAnnouncement(id) {
+            if (!confirm('Delete this announcement?')) return;
+            try {
+                const headers = getAuthHeaders();
+                await fetch(`${API}/announcements/${id}`, { method: 'DELETE', headers });
+                loadAnnouncements();
+                showToast('Announcement deleted', 'success');
+            } catch (err) {
+                showToast('Failed to delete', 'error');
+            }
+        }
+
+        async function loadNotifications() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/notification-center`, { headers });
+                const data = await res.json();
+                renderNotifications(data.data || [], data.unread || 0);
+            } catch (e) {
+                console.error('Error loading notifications:', e);
+            }
+        }
+
+        function renderNotifications(notifications, unreadCount) {
+            const container = document.getElementById('notificationsList');
+            if (!container) return;
+            // Update badge
+            const badge = document.getElementById('notifBadge');
+            if (badge) {
+                if (unreadCount > 0) {
+                    badge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                    badge.classList.remove('hidden');
+                } else {
+                    badge.classList.add('hidden');
+                }
+            }
+            if (notifications.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">No notifications</p>';
+                return;
+            }
+            const typeIcons = { info: 'ℹ️', announcement: '📢', event: '📅', task: '✅', warning: '⚠️', error: '❌' };
+            container.innerHTML = notifications.map(n => `
+                <div class="bg-gray-700 rounded p-3 ${n.is_read == 0 ? 'border-l-2 border-purple-500' : 'opacity-70'} cursor-pointer hover:bg-gray-650" onclick="markNotificationRead(${n.id})">
+                    <div class="flex items-start gap-2">
+                        <span class="text-sm">${typeIcons[n.type] || 'ℹ️'}</span>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-medium truncate">${escapeHtml(n.title)}</div>
+                            ${n.body ? `<div class="text-xs text-gray-400 truncate">${escapeHtml(n.body)}</div>` : ''}
+                            <div class="text-xs text-gray-500 mt-1">${formatDateTime(n.created_at)}</div>
+                        </div>
+                        ${n.is_read == 0 ? '<span class="w-2 h-2 bg-purple-500 rounded-full flex-shrink-0 mt-1"></span>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function markNotificationRead(id) {
+            try {
+                const headers = getAuthHeaders();
+                await fetch(`${API}/notification-center/${id}/read`, { method: 'POST', headers });
+                loadNotifications();
+            } catch (e) { console.error(e); }
+        }
+
+        async function markAllNotificationsRead() {
+            try {
+                const headers = getAuthHeaders();
+                await fetch(`${API}/notification-center/read-all`, { method: 'POST', headers });
+                loadNotifications();
+                showToast('All notifications marked as read', 'success');
+            } catch (e) { console.error(e); }
+        }
+
+        // ==================== EVENT COMMENTS ====================
+
+        async function loadEventComments(eventId) {
+            if (!eventId) return;
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/event-comments/${eventId}`, { headers });
+                const data = await res.json();
+                const comments = data.data || [];
+                const container = document.getElementById('eventCommentsList');
+                if (!container) return;
+                if (comments.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-xs text-center py-2">No comments yet</p>';
+                    return;
+                }
+                container.innerHTML = comments.map(c => `
+                    <div class="bg-gray-700 rounded p-2 text-sm">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="font-semibold text-purple-400 text-xs">${escapeHtml(c.author_name || c.user || 'Unknown')}</span>
+                            <span class="text-xs text-gray-500">${formatDateTime(c.created_at)}</span>
+                        </div>
+                        <div class="text-gray-300 text-xs">${escapeHtml(c.message)}</div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('Error loading event comments:', e);
+            }
+        }
+
+        async function addEventComment(eventId) {
+            if (!eventId) return;
+            const input = document.getElementById('eventCommentInput');
+            if (!input) return;
+            const message = input.value.trim();
+            if (!message) return;
+            try {
+                const headers = getAuthHeaders();
+                await fetch(`${API}/event-comments`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ event_id: eventId, message, is_internal: 1 })
+                });
+                input.value = '';
+                loadEventComments(eventId);
+            } catch (e) {
+                showToast('Failed to post comment', 'error');
+            }
+        }
 
         // ==================== TASK MANAGEMENT ====================
         let allTasks = [];
@@ -3577,6 +3822,7 @@
             window.currentDetailEventId = id;
             document.getElementById('detailTitle').textContent = event.event;
             loadAttachments(id);
+            loadEventComments(id);
             document.getElementById('detailContent').innerHTML = `
                 <div class="grid grid-cols-2 gap-3">
                     <div class="bg-gray-700 rounded p-3">
@@ -6456,8 +6702,483 @@
             if (payrollTo) payrollTo.value = last;
         });
 
+// ==================== DOCUMENT MANAGEMENT ====================
+
+let currentDocId = null;
+
+async function loadDocStats() {
+    try {
+        const r = await fetch('/api/documents/stats/summary');
+        const d = await r.json();
+        document.getElementById('docStatTotal').textContent = d.total_documents || 0;
+        document.getElementById('docStatCategories').textContent = d.category_count || 0;
+        document.getElementById('docStatConfidential').textContent = d.confidential_count || 0;
+        document.getElementById('docStatExpiring').textContent = d.expiring_soon_count || 0;
+        document.getElementById('docStatExpired').textContent = d.expired_count || 0;
+    } catch(e) { console.error('Doc stats error:', e); }
+}
+
+async function loadDocuments() {
+    const search = document.getElementById('docSearch').value;
+    const category = document.getElementById('docFilterCategory').value;
+    const sort = document.getElementById('docSort').value;
+    let url = `/api/documents?sort=${sort}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (category) url += `&category=${category}`;
+    try {
+        const r = await fetch(url);
+        const docs = await r.json();
+        renderDocuments(docs);
+        loadDocCategoryPills(docs);
+    } catch(e) { console.error('Load documents error:', e); }
+}
+
+function loadDocCategoryPills(allDocs) {
+    const cats = {};
+    allDocs.forEach(d => { cats[d.category] = (cats[d.category] || 0) + 1; });
+    const container = document.getElementById('docCategoryPills');
+    let html = `<span class="px-3 py-1 rounded-full text-xs font-semibold cursor-pointer bg-blue-600 text-white" onclick="document.getElementById('docFilterCategory').value='';loadDocuments()">All (${allDocs.length})</span>`;
+    Object.entries(cats).forEach(([cat, count]) => {
+        const colors = {contract:'bg-indigo-600', invoice:'bg-green-600', brief:'bg-cyan-600', permit:'bg-amber-600', insurance:'bg-rose-600', other:'bg-gray-600'};
+        html += ` <span class="px-3 py-1 rounded-full text-xs font-semibold cursor-pointer ${colors[cat]||'bg-gray-600'} text-white" onclick="document.getElementById('docFilterCategory').value='${cat}';loadDocuments()">${cat} (${count})</span>`;
+    });
+    container.innerHTML = html;
+}
+
+function getFileIcon(category, fileType) {
+    if (fileType && fileType.includes('pdf')) return '📕';
+    if (fileType && (fileType.includes('word') || fileType.includes('document'))) return '📘';
+    if (fileType && (fileType.includes('sheet') || fileType.includes('excel'))) return '📗';
+    if (fileType && (fileType.includes('presentation') || fileType.includes('powerpoint'))) return '📙';
+    if (fileType && fileType.includes('image')) return '🖼️';
+    const icons = {contract:'📝', invoice:'💰', brief:'📋', permit:'📜', insurance:'🛡️', other:'📄'};
+    return icons[category] || '📄';
+}
+
+function formatFileSize(bytes) {
+    if (!bytes) return 'No file';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderDocuments(docs) {
+    const container = document.getElementById('documentsList');
+    const empty = document.getElementById('documentsEmpty');
+    if (!docs.length) { container.innerHTML = ''; empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+    let html = '';
+    docs.forEach(d => {
+        const expiredClass = d.is_expired ? 'border-red-600' : (d.expiry_date && d.expiry_date < new Date(Date.now()+30*86400000).toISOString().slice(0,10) ? 'border-orange-500' : 'border-gray-700');
+        const confBadge = d.is_confidential ? '<span class="text-xs bg-amber-600 text-white px-2 py-0.5 rounded-full ml-2">🔒 Confidential</span>' : '';
+        const expiredBadge = d.is_expired ? '<span class="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full ml-2">⚠️ EXPIRED</span>' : '';
+        html += `<div class="bg-gray-800 rounded-lg border ${expiredClass} p-4 hover:bg-gray-750 cursor-pointer transition" onclick="viewDocDetail(${d.id})">
+            <div class="flex items-start gap-3">
+                <span class="text-2xl">${getFileIcon(d.category, d.file_type)}</span>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center flex-wrap gap-1">
+                        <span class="font-semibold text-sm truncate">${d.title}</span>
+                        ${confBadge}${expiredBadge}
+                        <span class="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full ml-1">${d.category}</span>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1 truncate">${d.description || 'No description'}</p>
+                    <div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                        <span>📁 ${formatFileSize(d.file_size)}</span>
+                        <span>v${d.version || '1.0'}</span>
+                        ${d.expiry_date ? `<span>📅 Expires: ${d.expiry_date}</span>` : ''}
+                        <span>🕐 ${d.created_at ? d.created_at.slice(0,10) : ''}</span>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
+async function openDocModal(doc = null) {
+    currentDocId = doc ? doc.id : null;
+    document.getElementById('docModalTitle').textContent = doc ? 'Edit Document' : 'Add Document';
+    document.getElementById('docEditId').value = doc ? doc.id : '';
+    document.getElementById('docTitle').value = doc ? doc.title : '';
+    document.getElementById('docDesc').value = doc ? (doc.description || '') : '';
+    document.getElementById('docCategory').value = doc ? doc.category : 'other';
+    document.getElementById('docVersion').value = doc ? (doc.version || '1.0') : '1.0';
+    document.getElementById('docExpiry').value = doc ? (doc.expiry_date || '') : '';
+    document.getElementById('docTags').value = doc && doc.tags ? JSON.parse(d.tags || '[]').join(', ') : '';
+    document.getElementById('docConfidential').checked = doc ? !!doc.is_confidential : false;
+    document.getElementById('docFile').value = '';
+
+    // Load events dropdown
+    try {
+        const evts = await fetch('/api/events').then(r => r.json());
+        const eventSelect = document.getElementById('docEventId');
+        eventSelect.innerHTML = '<option value="">No Event</option>';
+        evts.slice(0, 50).forEach(e => {
+            eventSelect.innerHTML += `<option value="${e.id}" ${doc && doc.event_id === e.id ? 'selected' : ''}>${e.event} (${e.date})</option>`;
+        });
+    } catch(e) {}
+
+    // Load clients dropdown
+    try {
+        const clients = await fetch('/api/clients').then(r => r.json());
+        const clientSelect = document.getElementById('docClientId');
+        clientSelect.innerHTML = '<option value="">No Client</option>';
+        (clients || []).forEach(c => {
+            clientSelect.innerHTML += `<option value="${c.id}" ${doc && doc.client_id === c.id ? 'selected' : ''}>${c.name}</option>`;
+        });
+    } catch(e) {}
+
+    document.getElementById('docModal').classList.remove('hidden');
+}
+
+function closeDocModal() {
+    document.getElementById('docModal').classList.add('hidden');
+    document.getElementById('docForm').reset();
+    currentDocId = null;
+}
+
+async function saveDoc(e) {
+    e.preventDefault();
+    const docData = new FormData();
+    docData.append('title', document.getElementById('docTitle').value);
+    docData.append('description', document.getElementById('docDesc').value);
+    docData.append('category', document.getElementById('docCategory').value);
+    docData.append('version', document.getElementById('docVersion').value);
+    docData.append('event_id', document.getElementById('docEventId').value);
+    docData.append('client_id', document.getElementById('docClientId').value);
+    docData.append('expiry_date', document.getElementById('docExpiry').value);
+    docData.append('tags', JSON.stringify(document.getElementById('docTags').value.split(',').map(t => t.trim()).filter(Boolean)));
+    docData.append('is_confidential', document.getElementById('docConfidential').checked ? 1 : 0);
+
+    const fileInput = document.getElementById('docFile');
+    if (fileInput.files[0]) docData.append('file', fileInput.files[0]);
+
+    try {
+        const editId = document.getElementById('docEditId').value;
+        let res;
+        if (editId) {
+            // For update, send as JSON (no file re-upload for simplicity)
+            res = await fetch(`/api/documents/${editId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(Object.fromEntries(docData))
+            });
+        } else {
+            res = await fetch('/api/documents', { method: 'POST', body: docData });
+        }
+        if (!res.ok) throw new Error((await res.json()).error || 'Save failed');
+        closeDocModal();
+        loadDocuments();
+        loadDocStats();
+        toast('Document saved successfully', 'success');
+    } catch(err) {
+        toast('Error saving document: ' + err.message, 'error');
+    }
+}
+
+async function viewDocDetail(id) {
+    try {
+        const r = await fetch(`/api/documents/${id}`);
+        const d = await r.json();
+        currentDocId = d.id;
+        const content = document.getElementById('docDetailContent');
+        const expiredWarning = d.is_expired ? '<div class="bg-red-900/50 border border-red-600 rounded p-2 text-red-300 text-sm">⚠️ This document has EXPIRED</div>' : '';
+        content.innerHTML = `
+            ${expiredWarning}
+            <div><span class="text-gray-400 text-sm">Title</span><p class="font-semibold">${d.title}</p></div>
+            <div><span class="text-gray-400 text-sm">Description</span><p>${d.description || '-'}</p></div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><span class="text-gray-400 text-sm">Category</span><p><span class="bg-gray-700 text-gray-300 px-2 py-0.5 rounded text-xs">${d.category}</span></p></div>
+                <div><span class="text-gray-400 text-sm">Version</span><p>v${d.version || '1.0'}</p></div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div><span class="text-gray-400 text-sm">File</span><p>${d.file_name || 'No file'} ${d.file_size ? '(' + formatFileSize(d.file_size) + ')' : ''}</p></div>
+                <div><span class="text-gray-400 text-sm">Expiry</span><p>${d.expiry_date || 'No expiry'}</p></div>
+            </div>
+            ${d.is_confidential ? '<div class="text-amber-400 text-sm">🔒 Confidential Document</div>' : ''}
+            ${d.tags && d.tags !== '[]' ? `<div><span class="text-gray-400 text-sm">Tags</span><p>${JSON.parse(d.tags).map(t => '<span class="bg-gray-700 text-gray-300 px-2 py-0.5 rounded text-xs mr-1">' + t + '</span>').join('')}</p></div>` : ''}
+            <div><span class="text-gray-400 text-sm">Created</span><p>${d.created_at || '-'}</p></div>
+        `;
+        const dlBtn = document.getElementById('docDetailDownload');
+        if (d.file_path) { dlBtn.classList.remove('hidden'); dlBtn.onclick = () => window.open(`/api/documents/download/${d.id}`); }
+        else dlBtn.classList.add('hidden');
+        document.getElementById('docDetailDelete').onclick = () => deleteDoc(d.id);
+        document.getElementById('docDetailModal').classList.remove('hidden');
+    } catch(e) { toast('Error loading document: ' + e.message, 'error'); }
+}
+
+function closeDocDetailModal() {
+    document.getElementById('docDetailModal').classList.add('hidden');
+    currentDocId = null;
+}
+
+function editDocFromDetail() {
+    closeDocDetailModal();
+    fetch(`/api/documents/${currentDocId}`).then(r => r.json()).then(d => openDocModal(d)).catch(e => toast('Error: ' + e.message, 'error'));
+}
+
+async function deleteDoc(id) {
+    if (!confirm('Are you sure you want to delete this document?')) return;
+    try {
+        const res = await fetch(`/api/documents/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error('Delete failed');
+        closeDocDetailModal();
+        loadDocuments();
+        loadDocStats();
+        toast('Document deleted', 'success');
+    } catch(e) { toast('Error deleting: ' + e.message, 'error'); }
+}
+
+// Load documents when tab is switched to
+const origSwitchTab = switchTab;
+switchTab = function(tab) {
+    origSwitchTab(tab);
+    if (tab === 'documents') { loadDocStats(); loadDocuments(); }
+};
+
 </script>
 
+
+    <!-- ==================== DOCUMENTS TAB ==================== -->
+    <div id="view-documents" class="hidden">
+        <!-- Document Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Documents</p>
+                <p id="docStatTotal" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Categories</p>
+                <p id="docStatCategories" class="text-2xl font-bold text-purple-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Confidential</p>
+                <p id="docStatConfidential" class="text-2xl font-bold text-amber-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Expiring Soon</p>
+                <p id="docStatExpiring" class="text-2xl font-bold text-orange-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Expired</p>
+                <p id="docStatExpired" class="text-2xl font-bold text-red-400">-</p>
+            </div>
+        </div>
+
+        <!-- Filters & Actions -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+            <div class="flex flex-col md:flex-row gap-3 items-end">
+                <div class="flex-1">
+                    <label class="text-xs text-gray-400">Search</label>
+                    <input type="text" id="docSearch" oninput="loadDocuments()" placeholder="Search documents..." class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Category</label>
+                    <select id="docFilterCategory" onchange="loadDocuments()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">All Categories</option>
+                        <option value="contract">Contract</option>
+                        <option value="invoice">Invoice</option>
+                        <option value="brief">Brief</option>
+                        <option value="permit">Permit</option>
+                        <option value="insurance">Insurance</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Sort By</label>
+                    <select id="docSort" onchange="loadDocuments()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="recent">Most Recent</option>
+                        <option value="title">Title A-Z</option>
+                        <option value="size">File Size</option>
+                        <option value="expiry">Expiry Date</option>
+                    </select>
+                </div>
+                <button onclick="openDocModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold whitespace-nowrap">+ Add Document</button>
+            </div>
+        </div>
+
+        <!-- Category Pills -->
+        <div id="docCategoryPills" class="flex flex-wrap gap-2 mb-4"></div>
+
+        <!-- Documents List -->
+        <div id="documentsList" class="space-y-3">
+            <p class="text-gray-500 text-sm">Loading documents...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="documentsEmpty" class="hidden text-center py-12">
+            <p class="text-4xl mb-3">📄</p>
+            <p class="text-gray-400 text-lg">No documents found</p>
+            <p class="text-gray-500 text-sm mt-1">Upload your first document or adjust filters</p>
+        </div>
+
+        <!-- Add/Edit Document Modal -->
+        <div id="docModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                    <h3 id="docModalTitle" class="text-lg font-bold">Add Document</h3>
+                    <button onclick="closeDocModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                </div>
+                <form id="docForm" onsubmit="saveDoc(event)" class="p-4 space-y-4" enctype="multipart/form-data">
+                    <input type="hidden" id="docEditId">
+                    <div>
+                        <label class="text-sm text-gray-400">Title *</label>
+                        <input type="text" id="docTitle" required class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400">Description</label>
+                        <textarea id="docDesc" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1"></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-sm text-gray-400">Category</label>
+                            <select id="docCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                                <option value="contract">Contract</option>
+                                <option value="invoice">Invoice</option>
+                                <option value="brief">Brief</option>
+                                <option value="permit">Permit</option>
+                                <option value="insurance">Insurance</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-400">Version</label>
+                            <input type="text" id="docVersion" value="1.0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-sm text-gray-400">Link to Event</label>
+                            <select id="docEventId" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                                <option value="">No Event</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-sm text-gray-400">Link to Client</label>
+                            <select id="docClientId" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                                <option value="">No Client</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400">Expiry Date</label>
+                        <input type="date" id="docExpiry" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400">Tags (comma-separated)</label>
+                        <input type="text" id="docTags" placeholder="e.g. important, legal" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-sm text-gray-400">Upload File</label>
+                        <input type="file" id="docFile" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1 text-sm">
+                        <p class="text-xs text-gray-500 mt-1">PDF, Word, Excel, PowerPoint, Images (max 25MB)</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="docConfidential" class="rounded">
+                        <label for="docConfidential" class="text-sm text-gray-400">Confidential document</label>
+                    </div>
+                    <div class="flex gap-3 pt-2">
+                        <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Save Document</button>
+                        <button type="button" onclick="closeDocModal()" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-semibold">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Document Detail Modal -->
+        <div id="docDetailModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+            <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-md">
+                <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                    <h3 class="text-lg font-bold">📄 Document Details</h3>
+                    <button onclick="closeDocDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                </div>
+                <div id="docDetailContent" class="p-4 space-y-3"></div>
+                <div class="p-4 border-t border-gray-700 flex gap-3">
+                    <button id="docDetailDownload" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold hidden">⬇️ Download</button>
+                    <button onclick="editDocFromDetail()" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded font-semibold">✏️ Edit</button>
+                    <button id="docDetailDelete" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded font-semibold">🗑️ Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== COMMS TAB ==================== -->
+    <div id="view-comms" class="hidden">
+        <div class="flex gap-4">
+            <!-- Left: Announcements -->
+            <div class="flex-1">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">📢 Announcements</h2>
+                    <button onclick="showAnnouncementModal()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold text-sm">+ New Announcement</button>
+                </div>
+                <div id="announcementsList" class="space-y-3">
+                    <p class="text-gray-500 text-sm">Loading announcements...</p>
+                </div>
+            </div>
+            <!-- Right: Notifications -->
+            <div class="w-96">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-bold">🔔 Notifications</h2>
+                    <button onclick="markAllNotificationsRead()" class="text-sm text-purple-400 hover:text-purple-300">Mark all read</button>
+                </div>
+                <div id="notificationsList" class="space-y-2">
+                    <p class="text-gray-500 text-sm">Loading notifications...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Announcement Modal -->
+    <div id="announcementModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg mx-4">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold" id="announcementModalTitle">New Announcement</h3>
+                <button onclick="closeAnnouncementModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <form id="announcementForm" onsubmit="saveAnnouncement(event)">
+                <input type="hidden" id="announcementFormId" value="">
+                <div class="mb-3">
+                    <label class="block text-sm text-gray-400 mb-1">Title *</label>
+                    <input type="text" id="announcementFormTitle" required class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div class="mb-3">
+                    <label class="block text-sm text-gray-400 mb-1">Message</label>
+                    <textarea id="announcementFormBody" rows="4" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Priority</label>
+                        <select id="announcementFormPriority" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="low">Low</option>
+                            <option value="normal" selected>Normal</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Category</label>
+                        <select id="announcementFormCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="general" selected>General</option>
+                            <option value="event">Event</option>
+                            <option value="staff">Staff</option>
+                            <option value="urgent">Urgent</option>
+                            <option value="info">Info</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4 mb-4">
+                    <label class="flex items-center gap-2 text-sm">
+                        <input type="checkbox" id="announcementFormPinned" class="rounded">
+                        <span>Pin to top</span>
+                    </label>
+                </div>
+                <div class="flex justify-end gap-2">
+                    <button type="button" onclick="closeAnnouncementModal()" class="px-4 py-2 rounded bg-gray-600 hover:bg-gray-500 text-white">Cancel</button>
+                    <button type="submit" class="px-4 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white font-semibold">Post</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- ==================== TASKS TAB ==================== -->
     <div id="view-tasks" class="hidden">
