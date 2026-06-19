@@ -3847,9 +3847,302 @@ app.get('/api/calendar/month-stats', (req, res) => {
   });
 });
 
+// ==================== DATA IMPORT/EXPORT SYSTEM ====================
+
+// CSV parser helper (minimal, no external dependency)
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length === 0) return { headers: [], rows: [] };
+  
+  const parseLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+  
+  const headers = parseLine(lines[0]);
+  const rows = lines.slice(1).map(line => {
+    const values = parseLine(line);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h.toLowerCase().replace(/\s+/g, '_')] = values[i] || ''; });
+    return obj;
+  });
+  
+  return { headers: headers.map(h => h.toLowerCase().replace(/\s+/g, '_')), rows };
+}
+
+// POST /api/import/events - Import events from CSV
+app.post('/api/import/events', (req, res) => {
+  const { csv } = req.body;
+  if (!csv) return res.status(400).json({ error: 'CSV data required in body' });
+  
+  const { headers, rows } = parseCSV(csv);
+  if (rows.length === 0) return res.status(400).json({ error: 'No data rows found' });
+  
+  // Validate required columns
+  const required = ['event', 'date'];
+  const missing = required.filter(r => !headers.includes(r));
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing required columns: ${missing.join(', ')}`, headers });
+  }
+  
+  const results = { imported: 0, errors: [], warnings: [] };
+  
+  const stmt = db.prepare(`INSERT INTO events (event, client, date, time, location, services, staff, leader, notes, status, budget, estimated_cost, currency, guests, end_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    rows.forEach((row, idx) => {
+      const rowNum = idx + 2; // +2 for header row and 1-based
+      try {
+        if (!row.event || !row.date) {
+          results.errors.push({ row: rowNum, message: 'Missing required fields (event, date)' });
+          return;
+        }
+        
+        // Generate ID
+        const id = 'evt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        
+        // Resolve client_id if client name given
+        let clientId = null;
+        if (row.client) {
+          const clientRow = db.prepare('SELECT id FROM clients WHERE name LIKE ?').get('%' + row.client + '%');
+          if (clientRow) clientId = clientRow.id;
+        }
+        
+        stmt.run(
+          id,
+          row.event,
+          row.client || '',
+          row.date,
+          row.time || '',
+          row.location || '',
+          row.services || '',
+          row.staff || '',
+          row.leader || '',
+          row.notes || '',
+          row.status || 'pending',
+          parseFloat(row.budget) || 0,
+          parseFloat(row.estimated_cost) || 0,
+          row.currency || 'ZAR',
+          parseInt(row.guests) || 0,
+          row.end_time || ''
+        );
+        results.imported++;
+      } catch (e) {
+        results.errors.push({ row: rowNum, message: e.message });
+      }
+    });
+    
+    db.run('COMMIT');
+  });
+  
+  // Log the import
+  broadcast({ type: 'data_import', entity: 'events', count: results.imported, errors: results.errors.length });
+  
+  res.json({
+    success: true,
+    total_rows: rows.length,
+    ...results
+  });
+});
+
+// POST /api/import/staff - Import staff from CSV
+app.post('/api/import/staff', (req, res) => {
+  const { csv } = req.body;
+  if (!csv) return res.status(400).json({ error: 'CSV data required' });
+  
+  const { headers, rows } = parseCSV(csv);
+  if (rows.length === 0) return res.status(400).json({ error: 'No data rows found' });
+  
+  const required = ['name'];
+  const missing = required.filter(r => !headers.includes(r));
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing required columns: ${missing.join(', ')}`, headers });
+  }
+  
+  const results = { imported: 0, errors: [] };
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    rows.forEach((row, idx) => {
+      const rowNum = idx + 2;
+      try {
+        if (!row.name) {
+          results.errors.push({ row: rowNum, message: 'Missing staff name' });
+          return;
+        }
+        
+        db.prepare(`INSERT INTO staff (name, phone, role, active, skills, email, hourly_rate, pay_type) VALUES (?, ?, ?, 1, ?, ?, ?, ?)`).run(
+          row.name,
+          row.phone || '',
+          row.role || 'coordinator',
+          row.skills || '[]',
+          row.email || '',
+          parseFloat(row.hourly_rate) || 0,
+          row.pay_type || 'hourly'
+        );
+        results.imported++;
+      } catch (e) {
+        results.errors.push({ row: rowNum, message: e.message });
+      }
+    });
+    
+    db.run('COMMIT');
+  });
+  
+  broadcast({ type: 'data_import', entity: 'staff', count: results.imported });
+  
+  res.json({ success: true, total_rows: rows.length, ...results });
+});
+
+// POST /api/import/clients - Import clients from CSV
+app.post('/api/import/clients', (req, res) => {
+  const { csv } = req.body;
+  if (!csv) return res.status(400).json({ error: 'CSV data required' });
+  
+  const { headers, rows } = parseCSV(csv);
+  if (rows.length === 0) return res.status(400).json({ error: 'No data rows found' });
+  
+  const required = ['name'];
+  const missing = required.filter(r => !headers.includes(r));
+  if (missing.length > 0) {
+    return res.status(400).json({ error: `Missing required columns: ${missing.join(', ')}`, headers });
+  }
+  
+  const results = { imported: 0, errors: [] };
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    rows.forEach((row, idx) => {
+      const rowNum = idx + 2;
+      try {
+        if (!row.name) {
+          results.errors.push({ row: rowNum, message: 'Missing client name' });
+          return;
+        }
+        
+        db.prepare(`INSERT INTO clients (name, company, email, phone, address, vat_number, payment_terms, notes, tags, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+          row.name,
+          row.company || '',
+          row.email || '',
+          row.phone || '',
+          row.address || '',
+          row.vat_number || '',
+          row.payment_terms || '',
+          row.notes || '',
+          row.tags || '[]'
+        );
+        results.imported++;
+      } catch (e) {
+        results.errors.push({ row: rowNum, message: e.message });
+      }
+    });
+    
+    db.run('COMMIT');
+  });
+  
+  broadcast({ type: 'data_import', entity: 'clients', count: results.imported });
+  
+  res.json({ success: true, total_rows: rows.length, ...results });
+});
+
+// GET /api/export/schema - Get import templates and column info
+app.get('/api/export/schema', (req, res) => {
+  res.json({
+    events: {
+      required: ['event', 'date'],
+      optional: ['client', 'time', 'location', 'services', 'staff', 'leader', 'notes', 'status', 'budget', 'estimated_cost', 'currency', 'guests', 'end_time'],
+      sampleRow: {
+        event: 'Annual Gala',
+        date: '2026-07-15',
+        time: '18:00-22:00',
+        client: 'TechCorp',
+        location: 'Grand Hall',
+        services: 'catering,av,security',
+        staff: 'John,Sarah,Mike',
+        leader: 'John',
+        notes: 'Black tie event',
+        status: 'pending',
+        budget: '25000',
+        estimated_cost: '22000',
+        currency: 'ZAR',
+        guests: '150',
+        end_time: '22:00'
+      }
+    },
+    staff: {
+      required: ['name'],
+      optional: ['phone', 'role', 'skills', 'email', 'hourly_rate', 'pay_type'],
+      sampleRow: {
+        name: 'Jane Smith',
+        phone: '0821234567',
+        role: 'coordinator',
+        skills: 'management,planning',
+        email: 'jane@example.com',
+        hourly_rate: '150',
+        pay_type: 'hourly'
+      }
+    },
+    clients: {
+      required: ['name'],
+      optional: ['company', 'email', 'phone', 'address', 'vat_number', 'payment_terms', 'notes', 'tags'],
+      sampleRow: {
+        name: 'Acme Corp',
+        company: 'Acme Holdings',
+        email: 'events@acme.co.za',
+        phone: '0112345678',
+        address: '123 Main St, Johannesburg',
+        vat_number: '4123456789',
+        payment_terms: '30 days',
+        notes: 'Repeat client, always books AV',
+        tags: 'corporate,gala'
+      }
+    }
+  });
+});
+
+// GET /api/export/full-backup - Full JSON backup of all data
+app.get('/api/export/full-backup', (req, res) => {
+  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings'];
+  
+  const backup = { exported_at: new Date().toISOString(), version: '4.24.0', tables: {} };
+  let remaining = tables.length;
+  
+  tables.forEach(table => {
+    db.all(`SELECT FROM ${table}`, [], (err, rows) => {
+      backup.tables[table] = err ? [] : rows;
+      remaining--;
+      if (remaining === 0) {
+        res.setHeader('Content-Disposition', 'attachment; filename="fpcc-backup-' + new Date().toISOString().split('T')[0] + '.json"');
+        res.json(backup);
+      }
+    });
+  });
+});
+
+// ==================== END DATA IMPORT/EXPORT ====================
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.23.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.24.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -5030,6 +5323,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.23 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.24 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

@@ -106,6 +106,7 @@
             <button onclick="switchTab('documents')" id="tab-documents" class="pb-2 font-semibold tab-inactive">📄 Documents</button>
             <button onclick="switchTab('comms')" id="tab-comms" class="pb-2 font-semibold tab-inactive">💬 Comms</button>
             <button onclick="switchTab('calendar')" id="tab-calendar" class="pb-2 font-semibold tab-inactive">📅 Calendar</button>
+            <button onclick="switchTab('import-export')" id="tab-import-export" class="pb-2 font-semibold tab-inactive">📦 Import/Export</button>
         </div>
 
         <!-- ==================== CALENDAR TAB ==================== -->
@@ -2319,7 +2320,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2397,6 +2398,9 @@
             }
             if (tab === 'calendar') {
                 loadCalendar();
+            }
+            if (tab === 'import-export') {
+                // Import/Export tab loaded
             }
         }
 
@@ -7159,6 +7163,110 @@ function calendarGoToday() {
     loadCalendar();
 }
 
+// ==================== IMPORT/EXPORT FUNCTIONS ====================
+
+function loadImportSchema() {
+    fetch('/api/export/schema')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('schemaInfo');
+            container.classList.remove('hidden');
+            let html = '<strong>Import Schema Reference</strong><br><br>';
+            Object.entries(data).forEach(([entity, info]) => {
+                html += `<strong>${entity.toUpperCase()}</strong><br>`;
+                html += `Required: ${info.required.join(', ')}<br>`;
+                html += `Optional: ${info.optional.join(', ')}<br>`;
+                html += `<code class="text-xs text-green-400">Sample: ${JSON.stringify(info.sampleRow)}</code><br><br>`;
+            });
+            container.innerHTML = html;
+        })
+        .catch(err => showToast('Failed to load schema: ' + err.message, 'error'));
+}
+
+function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        document.getElementById('csvInput').value = e.target.result;
+    };
+    reader.readAsText(file);
+}
+
+let importHistory = [];
+
+function submitImport() {
+    const type = document.getElementById('importType').value;
+    const csv = document.getElementById('csvInput').value.trim();
+    if (!csv) {
+        showToast('Please enter CSV data or upload a file', 'warning');
+        return;
+    }
+    
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ Importing...';
+    
+    fetch(`/api/import/${type}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = '🚀 Import Data';
+        
+        const resultsDiv = document.getElementById('importResults');
+        resultsDiv.classList.remove('hidden');
+        
+        if (data.success) {
+            resultsDiv.innerHTML = `
+                <div class="bg-green-900/50 border border-green-700 rounded-lg p-4">
+                    <p class="text-green-400 font-semibold">✅ Import Complete</p>
+                    <p class="text-gray-300 text-sm mt-1">Imported: ${data.imported} of ${data.total_rows} rows</p>
+                    ${data.errors.length > 0 ? `<p class="text-yellow-400 text-sm mt-1">⚠️ Errors: ${data.errors.length}</p>` : ''}
+                    ${data.errors.length > 0 ? `<details class="mt-2"><summary class="text-yellow-400 text-xs cursor-pointer">View errors</summary><pre class="text-xs text-gray-400 mt-1 overflow-x-auto">${data.errors.map(e => `Row ${e.row}: ${e.message}`).join('\n')}</pre></details>` : ''}
+                </div>
+            `;
+            showToast(`Successfully imported ${data.imported} ${type}`, 'success');
+            
+            importHistory.unshift({ type, count: data.imported, errors: data.errors.length, time: new Date().toLocaleTimeString() });
+            updateImportHistory();
+        } else {
+            resultsDiv.innerHTML = `
+                <div class="bg-red-900/50 border border-red-700 rounded-lg p-4">
+                    <p class="text-red-400 font-semibold">❌ Import Failed</p>
+                    <p class="text-gray-300 text-sm mt-1">${data.error}</p>
+                    ${data.headers ? `<p class="text-gray-500 text-xs mt-1">Detected columns: ${data.headers.join(', ')}</p>` : ''}
+                </div>
+            `;
+            showToast('Import failed: ' + data.error, 'error');
+        }
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.textContent = '🚀 Import Data';
+        showToast('Import error: ' + err.message, 'error');
+    });
+}
+
+function updateImportHistory() {
+    const container = document.getElementById('importHistory');
+    if (importHistory.length === 0) {
+        container.innerHTML = '<p class="text-gray-500 text-sm">No recent imports in this session.</p>';
+        return;
+    }
+    container.innerHTML = importHistory.map(h => `
+        <div class="flex items-center justify-between py-2 border-b border-gray-700 last:border-0">
+            <span class="text-gray-300 text-sm">${h.type} - ${h.time}</span>
+            <span class="text-sm ${h.errors > 0 ? 'text-yellow-400' : 'text-green-400'}">${h.count} imported${h.errors > 0 ? ` (${h.errors} errors)` : ''}</span>
+        </div>
+    `).join('');
+}
+
+// ==================== END IMPORT/EXPORT FUNCTIONS ====================
+
 </script>
 
 
@@ -9043,5 +9151,78 @@ function calendarGoToday() {
             </div>
         </div>
     </div>
+
+    <!-- ==================== IMPORT/EXPORT TAB ==================== -->
+    <div id="view-import-export" class="hidden">
+        <h2 class="text-2xl font-bold text-white mb-6">📦 Data Import & Export</h2>
+
+        <!-- Import Section -->
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-6">
+            <h3 class="text-lg font-semibold text-white mb-4">📥 Import from CSV</h3>
+            <p class="text-gray-400 text-sm mb-4">Upload CSV data to bulk import. Use the schema reference below for correct column names.</p>
+
+            <!-- Schema Reference -->
+            <div class="mb-4">
+                <button onclick="loadImportSchema()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm">
+                    📋 View Import Schema & Templates
+                </button>
+            </div>
+            <div id="schemaInfo" class="hidden mb-4 bg-gray-900 rounded-lg p-4 text-sm font-mono text-gray-300 max-h-60 overflow-y-auto"></div>
+
+            <!-- Import Type Selector -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="text-gray-400 text-sm block mb-1">Import Type</label>
+                    <select id="importType" class="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2">
+                        <option value="events">Events</option>
+                        <option value="staff">Staff</option>
+                        <option value="clients">Clients</option>
+                    </select>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="text-gray-400 text-sm block mb-1">CSV Data (paste or upload)</label>
+                    <textarea id="csvInput" rows="4" placeholder="Paste CSV data here..." class="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm font-mono"></textarea>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <button onclick="submitImport()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-semibold">
+                    🚀 Import Data
+                </button>
+                <label class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg cursor-pointer">
+                    📁 Upload CSV File
+                    <input type="file" accept=".csv" onchange="handleFileUpload(event)" class="hidden">
+                </label>
+            </div>
+
+            <div id="importResults" class="mt-4 hidden"></div>
+        </div>
+
+        <!-- Export Section -->
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-6">
+            <h3 class="text-lg font-semibold text-white mb-4">📤 Export Data</h3>
+            <p class="text-gray-400 text-sm mb-4">Export your data for backup or migration.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button onclick="window.location.href='/api/export/full-backup'" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-semibold text-left">
+                    🗂️ Full System Backup (JSON)
+                    <span class="block text-xs opacity-75 mt-1">All tables, all data</span>
+                </button>
+                <button onclick="window.location.href='/api/export/csv'" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-semibold text-left">
+                    📊 Events CSV Export
+                    <span class="block text-xs opacity-75 mt-1">All events with filters</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Import History -->
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+            <h3 class="text-lg font-semibold text-white mb-4">📜 Import History</h3>
+            <div id="importHistory">
+                <p class="text-gray-500 text-sm">No recent imports in this session.</p>
+            </div>
+        </div>
+    </div>
+    <!-- ==================== END IMPORT/EXPORT TAB ==================== -->
 </body>
 </html>
