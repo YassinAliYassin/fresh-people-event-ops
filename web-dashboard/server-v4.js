@@ -204,6 +204,55 @@ db.run(`ALTER TABLE events ADD COLUMN client_email TEXT DEFAULT ''`, () => {});
 
 // Add email column to staff table (migration)
 db.run(`ALTER TABLE staff ADD COLUMN email TEXT DEFAULT ''`, () => {});
+// Add hourly_rate column to staff table (migration)
+db.run(`ALTER TABLE staff ADD COLUMN hourly_rate REAL DEFAULT 0`, () => {});
+// Add overtime_rate column to staff table (migration)
+db.run(`ALTER TABLE staff ADD COLUMN overtime_rate REAL DEFAULT 0`, () => {});
+// Add pay_type column to staff table (migration) - 'hourly' or 'flat'
+db.run(`ALTER TABLE staff ADD COLUMN pay_type TEXT DEFAULT 'hourly'`, () => {});
+
+// ==================== STAFF TIMESHEET & PAYROLL ====================
+
+// Create staff_timesheets table
+db.run(`CREATE TABLE IF NOT EXISTS staff_timesheets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  staff_id INTEGER NOT NULL,
+  event_id TEXT DEFAULT '',
+  date TEXT NOT NULL,
+  clock_in TEXT DEFAULT '',
+  clock_out TEXT DEFAULT '',
+  break_minutes INTEGER DEFAULT 0,
+  hours_worked REAL DEFAULT 0,
+  overtime_hours REAL DEFAULT 0,
+  hourly_rate REAL DEFAULT 0,
+  overtime_rate REAL DEFAULT 0,
+  regular_pay REAL DEFAULT 0,
+  overtime_pay REAL DEFAULT 0,
+  total_pay REAL DEFAULT 0,
+  notes TEXT DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  approved_by TEXT DEFAULT '',
+  approved_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (staff_id) REFERENCES staff(id)
+)`);
+
+// Create payroll_periods table
+db.run(`CREATE TABLE IF NOT EXISTS payroll_periods (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  status TEXT DEFAULT 'open',
+  total_staff INTEGER DEFAULT 0,
+  total_hours REAL DEFAULT 0,
+  total_overtime REAL DEFAULT 0,
+  total_pay REAL DEFAULT 0,
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
 
 // Add check-in columns to events table (migration)
 db.run(`ALTER TABLE events ADD COLUMN check_in_enabled INTEGER DEFAULT 0`, () => {});
@@ -378,15 +427,15 @@ db.run(`CREATE TABLE IF NOT EXISTS venues (
 // Add venue_id to events table (migration)
 db.get(`SELECT id FROM venues WHERE name = 'Main Hall'`, (err, row) => {
   if (!row) {
-    db.run(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ['Main Hall', '123 Main St', 'Cape Town', 'Western Cape', '8000', 'South Africa', 500, 'indoor', 'John Doe', '+27 21 123 4567', 'john@example.com', 'https://example.com', 1, 1, 1, 1, 1, 0, 1500, 100, 'ZAR', 'Spacious venue', '[]', 1]);
+    db.run(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, parking_spots, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active, total_events, rating) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ['Main Hall', '123 Main St', 'Cape Town', 'Western Cape', '8000', 'South Africa', 500, 'indoor', 'John Doe', '+27 21 123 4567', 'john@example.com', 'https://example.com', 50, 1, 1, 1, 1, 1, 0, 1500, 100, 'ZAR', 'Spacious venue', '[]', 1, 0, 4.0]);
   }
 });
 // Add another venue
 db.get(`SELECT id FROM venues WHERE name = 'Outdoor Plaza'`, (err, row) => {
   if (!row) {
-    db.run(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      ['Outdoor Plaza', '456 Park Ave', 'Port Elizabeth', 'Eastern Cape', '6000', 'South Africa', 800, 'outdoor', 'Jane Smith', '+27 52 987 6543', 'jane@example.com', 'https://outdoorplaza.com', 0, 0, 0, 0, 0, 1, 2000, 150, 'ZAR', 'Outdoor space with sound system', '[]', 1]);
+    db.run(`INSERT INTO venues (name, address, city, province, postal_code, country, capacity, venue_type, contact_name, contact_phone, contact_email, website, parking_spots, has_parking, has_wifi, has_catering, has_av_equipment, has_stage, has_dance_floor, rate_per_day, rate_per_hour, currency, notes, tags, is_active, total_events, rating) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ['Outdoor Plaza', '456 Park Ave', 'Port Elizabeth', 'Eastern Cape', '6000', 'South Africa', 800, 'outdoor', 'Jane Smith', '+27 52 987 6543', 'jane@example.com', 'https://outdoorplaza.com', 100, 0, 0, 0, 0, 0, 1, 2000, 150, 'ZAR', 'Outdoor space with sound system', '[]', 1, 0, 4.0]);
   }
 });
 // Seed default venues if table is empty
@@ -603,6 +652,9 @@ db.run(`CREATE TABLE IF NOT EXISTS task_templates (
   sort_order INTEGER DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
+
+// Add venue_id to events table (migration)
+db.run(`ALTER TABLE events ADD COLUMN venue_id INTEGER DEFAULT 0`, () => {});
 
 // Add task columns to events table (migration)
 db.run(`ALTER TABLE events ADD COLUMN task_count INTEGER DEFAULT 0`, () => {});
@@ -2101,27 +2153,31 @@ app.get('/api/staff', (req, res) => {
 
 // POST /api/staff - add new staff member
 app.post('/api/staff', (req, res) => {
-  const { name, phone, role, email, skills } = req.body;
+  const { name, phone, role, email, skills, pay_type, hourly_rate, overtime_rate } = req.body;
   if (!name) return res.status(400).json({error: 'Name is required'});
   const skillsJSON = Array.isArray(skills) ? JSON.stringify(skills) : (skills || '[]');
-  db.run(`INSERT INTO staff (name, phone, role, email, active, skills) VALUES (?, ?, ?, ?, 1, ?)`, [name, phone || null, role || 'staff', email || '', skillsJSON], function(err) {
-    if (err) return res.status(500).json({error: err.message});
-    res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', email: email || '', active: 1, skills: skillsJSON });
-  });
+  db.run(`INSERT INTO staff (name, phone, role, email, active, skills, pay_type, hourly_rate, overtime_rate) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+    [name, phone || null, role || 'staff', email || '', skillsJSON, pay_type || 'hourly', hourly_rate || 0, overtime_rate || 0],
+    function(err) {
+      if (err) return res.status(500).json({error: err.message});
+      res.json({ id: this.lastID, name, phone: phone || null, role: role || 'staff', email: email || '', active: 1, skills: skillsJSON, pay_type, hourly_rate, overtime_rate });
+    }
+  );
 });
 
-// PUT /api/staff/:id - update staff (including phone, skills, email)
+// PUT /api/staff/:id - update staff (including phone, skills, email, pay rates)
 app.put('/api/staff/:id', (req, res) => {
-  const { name, phone, role, email, active, skills } = req.body;
+  const { name, phone, role, email, active, skills, pay_type, hourly_rate, overtime_rate } = req.body;
   const id = req.params.id;
   const skillsJSON = Array.isArray(skills) ? JSON.stringify(skills) : (skills || '[]');
   db.run(
-    `UPDATE staff SET name=?, phone=?, role=?, email=?, active=?, skills=? WHERE id=?`,
-    [name, phone || null, role || 'staff', email || '', active ? 1 : 0, skillsJSON, id],
+    `UPDATE staff SET name=?, phone=?, role=?, email=?, active=?, skills=?, pay_type=?, hourly_rate=?, overtime_rate=? WHERE id=?`,
+    [name, phone || null, role || 'staff', email || '', active ? 1 : 0, skillsJSON,
+      pay_type || 'hourly', hourly_rate || 0, overtime_rate || 0, id],
     function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Staff not found'});
-      res.json({ success: true, id, name, phone, role, email, active: active ? 1 : 0, skills: skillsJSON });
+      res.json({ success: true, id, name, phone, role, email, active: active ? 1 : 0, skills: skillsJSON, pay_type, hourly_rate, overtime_rate });
     }
   );
 });
@@ -2949,9 +3005,291 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
   });
 });
 
+// ==================== STAFF TIMESHEET & PAYROLL ====================
+
+// Helper: Calculate pay from timesheet data
+function calcPay(hours, overtime, rate, otRate) {
+  const regular = Math.round(hours * rate * 100) / 100;
+  const overtimePay = Math.round(overtime * otRate * 100) / 100;
+  return { regular, overtime: overtimePay, total: Math.round((regular + overtimePay) * 100) / 100 };
+}
+
+// GET /api/timesheets - List timesheets with filters
+app.get('/api/timesheets', (req, res) => {
+  const { staff_id, event_id, status, from, to, page = 1, limit = 50 } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (staff_id) { where.push('t.staff_id = ?'); params.push(staff_id); }
+  if (event_id) { where.push('t.event_id = ?'); params.push(event_id); }
+  if (status) { where.push('t.status = ?'); params.push(status); }
+  if (from) { where.push('t.date >= ?'); params.push(from); }
+  if (to) { where.push('t.date <= ?'); params.push(to); }
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  db.get(`SELECT COUNT(*) as total FROM staff_timesheets t WHERE ${where.join(' AND ')}`, params, (err, countRow) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT t.*, s.name as staff_name, s.role as staff_role, s.pay_type
+      FROM staff_timesheets t LEFT JOIN staff s ON t.staff_id = s.id
+      WHERE ${where.join(' AND ')} ORDER BY t.date DESC, t.clock_in DESC LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), offset], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ data: rows, total: countRow ? countRow.total : 0, page: parseInt(page), limit: parseInt(limit) });
+      });
+  });
+});
+
+// GET /api/timesheets/summary - Timesheet summary/stats
+app.get('/api/timesheets/summary', (req, res) => {
+  const { from, to } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (from) { where.push('date >= ?'); params.push(from); }
+  if (to) { where.push('date <= ?'); params.push(to); }
+  db.get(`SELECT
+    COUNT(*) as total_entries,
+    COUNT(DISTINCT staff_id) as total_staff,
+    COALESCE(SUM(hours_worked), 0) as total_hours,
+    COALESCE(SUM(overtime_hours), 0) as total_overtime,
+    COALESCE(SUM(total_pay), 0) as total_pay,
+    COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) as pending_count,
+    COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved_count,
+    COALESCE(AVG(hours_worked), 0) as avg_hours_per_entry
+    FROM staff_timesheets WHERE ${where.join(' AND ')}`, params, (err, summary) => {
+    if (err) return res.status(500).json({ error: err.message });
+    // Top earners
+    db.all(`SELECT s.name, s.role, SUM(t.total_pay) as total_pay, SUM(t.hours_worked) as total_hours,
+      COUNT(*) as entries FROM staff_timesheets t
+      LEFT JOIN staff s ON t.staff_id = s.id
+      WHERE ${where.join(' AND ')} GROUP BY t.staff_id ORDER BY total_pay DESC LIMIT 10`,
+      params, (err2, topEarners) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        // Daily totals for chart
+        db.all(`SELECT date, SUM(hours_worked) as hours, SUM(total_pay) as pay, COUNT(*) as entries
+          FROM staff_timesheets WHERE ${where.join(' AND ')}
+          GROUP BY date ORDER BY date ASC LIMIT 30`,
+          params, (err3, daily) => {
+            if (err3) return res.status(500).json({ error: err3.message });
+            res.json({ summary, top_earners: topEarners || [], daily: daily || [] });
+          });
+      });
+  });
+});
+
+// POST /api/timesheets/clock-in - Clock staff in
+app.post('/api/timesheets/clock-in', (req, res) => {
+  const { staff_id, event_id, date, time, notes } = req.body;
+  if (!staff_id || !date || !time) {
+    return res.status(400).json({ error: 'staff_id, date, and time are required' });
+  }
+  // Check if already clocked in
+  db.get(`SELECT id FROM staff_timesheets WHERE staff_id = ? AND date = ? AND clock_out = ''`,
+    [staff_id, date], (err, existing) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (existing) return res.status(409).json({ error: 'Already clocked in. Clock out first.', id: existing.id });
+      // Get staff rate
+      db.get(`SELECT hourly_rate, overtime_rate FROM staff WHERE id = ?`, [staff_id], (err2, staff) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        const rate = staff ? (staff.hourly_rate || 0) : 0;
+        const otRate = staff ? (staff.overtime_rate || rate * 1.5) : 0;
+        db.run(`INSERT INTO staff_timesheets (staff_id, event_id, date, clock_in, hourly_rate, overtime_rate, notes, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+          [staff_id, event_id || '', date, time, rate, otRate, notes || ''],
+          function(err3) {
+            if (err3) return res.status(500).json({ error: err3.message });
+            res.json({ success: true, id: this.lastID, message: 'Clocked in successfully', clock_in: time });
+          });
+      });
+    });
+});
+
+// POST /api/timesheets/clock-out - Clock staff out
+app.post('/api/timesheets/clock-out', (req, res) => {
+  const { id, time, break_minutes } = req.body;
+  if (!id || !time) {
+    return res.status(400).json({ error: 'id and time are required' });
+  }
+  db.get(`SELECT * FROM staff_timesheets WHERE id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Timesheet entry not found' });
+    if (row.clock_out) return res.status(409).json({ error: 'Already clocked out' });
+    // Calculate hours
+    const clockIn = row.clock_in;
+    const breakMins = break_minutes || row.break_minutes || 0;
+    const [h1, m1] = clockIn.split(':').map(Number);
+    const [h2, m2] = time.split(':').map(Number);
+    let totalMins = (h2 * 60 + m2) - (h1 * 60 + m1) - breakMins;
+    if (totalMins < 0) totalMins = 0;
+    const totalHours = totalMins / 60;
+    const regularHours = Math.min(totalHours, 8);
+    const overtimeHours = Math.max(0, totalHours - 8);
+    const pay = calcPay(regularHours, overtimeHours, row.hourly_rate, row.overtime_rate);
+    db.run(`UPDATE staff_timesheets SET clock_out = ?, break_minutes = ?, hours_worked = ?,
+      overtime_hours = ?, regular_pay = ?, overtime_pay = ?, total_pay = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [time, breakMins, regularHours, overtimeHours, pay.regular, pay.overtime, pay.total, id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, id, message: 'Clocked out successfully',
+          hours_worked: regularHours, overtime_hours: overtimeHours, total_pay: pay.total });
+      });
+  });
+});
+
+// POST /api/timesheets - Manual timesheet entry
+app.post('/api/timesheets', (req, res) => {
+  const { staff_id, event_id, date, clock_in, clock_out, break_minutes, notes, status } = req.body;
+  if (!staff_id || !date) {
+    return res.status(400).json({ error: 'staff_id and date are required' });
+  }
+  db.get(`SELECT hourly_rate, overtime_rate FROM staff WHERE id = ?`, [staff_id], (err, staff) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const rate = staff ? (staff.hourly_rate || 0) : 0;
+    const otRate = staff ? (staff.overtime_rate || rate * 1.5) : 0;
+    let regularHours = 0, overtimeHours = 0;
+    if (clock_in && clock_out) {
+      const [h1, m1] = clock_in.split(':').map(Number);
+      const [h2, m2] = clock_out.split(':').map(Number);
+      const breakMins = break_minutes || 0;
+      let totalMins = (h2 * 60 + m2) - (h1 * 60 + m1) - breakMins;
+      if (totalMins < 0) totalMins = 0;
+      const totalHours = totalMins / 60;
+      regularHours = Math.min(totalHours, 8);
+      overtimeHours = Math.max(0, totalHours - 8);
+    }
+    const pay = calcPay(regularHours, overtimeHours, rate, otRate);
+    db.run(`INSERT INTO staff_timesheets (staff_id, event_id, date, clock_in, clock_out, break_minutes,
+      hours_worked, overtime_hours, hourly_rate, overtime_rate, regular_pay, overtime_pay, total_pay, notes, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [staff_id, event_id || '', date, clock_in || '', clock_out || '', break_minutes || 0,
+        regularHours, overtimeHours, rate, otRate, pay.regular, pay.overtime, pay.total,
+        notes || '', status || 'pending'],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, id: this.lastID, total_pay: pay.total });
+      });
+  });
+});
+
+// PUT /api/timesheets/:id - Update timesheet entry
+app.put('/api/timesheets/:id', (req, res) => {
+  const { clock_in, clock_out, break_minutes, notes, status, approved_by } = req.body;
+  db.get(`SELECT * FROM staff_timesheets WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+    const ci = clock_in || row.clock_in;
+    const co = clock_out || row.clock_out;
+    const brk = break_minutes !== undefined ? break_minutes : row.break_minutes;
+    let regularHours = row.hours_worked, overtimeHours = row.overtime_hours;
+    if (ci && co) {
+      const [h1, m1] = ci.split(':').map(Number);
+      const [h2, m2] = co.split(':').map(Number);
+      let totalMins = (h2 * 60 + m2) - (h1 * 60 + m1) - brk;
+      if (totalMins < 0) totalMins = 0;
+      const totalHours = totalMins / 60;
+      regularHours = Math.min(totalHours, 8);
+      overtimeHours = Math.max(0, totalHours - 8);
+    }
+    const pay = calcPay(regularHours, overtimeHours, row.hourly_rate, row.overtime_rate);
+    const newStatus = status || row.status;
+    const approvedAt = (newStatus === 'approved' && row.status !== 'approved') ? new Date().toISOString() : row.approved_at;
+    db.run(`UPDATE staff_timesheets SET clock_in = ?, clock_out = ?, break_minutes = ?,
+      hours_worked = ?, overtime_hours = ?, regular_pay = ?, overtime_pay = ?, total_pay = ?,
+      notes = ?, status = ?, approved_by = ?, approved_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [ci, co, brk, regularHours, overtimeHours, pay.regular, pay.overtime, pay.total,
+        notes || row.notes, newStatus, approved_by || row.approved_by, approvedAt, req.params.id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, total_pay: pay.total, status: newStatus });
+      });
+  });
+});
+
+// DELETE /api/timesheets/:id - Delete timesheet entry
+app.delete('/api/timesheets/:id', (req, res) => {
+  db.run(`DELETE FROM staff_timesheets WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, deleted: this.changes });
+  });
+});
+
+// POST /api/timesheets/:id/approve - Approve timesheet
+app.post('/api/timesheets/:id/approve', (req, res) => {
+  const approvedBy = req.user ? req.user.username : 'admin';
+  db.run(`UPDATE staff_timesheets SET status = 'approved', approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [approvedBy, req.params.id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!this.changes) return res.status(404).json({ error: 'Not found' });
+      res.json({ success: true, approved_by: approvedBy });
+    });
+});
+
+// GET /api/payroll/summary - Payroll summary for a period
+app.get('/api/payroll/summary', (req, res) => {
+  const { from, to } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (from) { where.push('date >= ?'); params.push(from); }
+  if (to) { where.push('date <= ?'); params.push(to); }
+  db.get(`SELECT
+    COALESCE(SUM(total_pay), 0) as total_payroll,
+    COALESCE(SUM(hours_worked), 0) as total_regular_hours,
+    COALESCE(SUM(overtime_hours), 0) as total_overtime_hours,
+    COALESCE(SUM(regular_pay), 0) as total_regular_pay,
+    COALESCE(SUM(overtime_pay), 0) as total_overtime_pay,
+    COUNT(DISTINCT staff_id) as total_staff,
+    COUNT(*) as total_entries,
+    COALESCE(AVG(total_pay), 0) as avg_pay_per_entry
+    FROM staff_timesheets WHERE ${where.join(' AND ')}`, params, (err, summary) => {
+    if (err) return res.status(500).json({ error: err.message });
+    // Per-staff breakdown
+    db.all(`SELECT s.id, s.name, s.role, s.hourly_rate, s.pay_type,
+      SUM(t.hours_worked) as regular_hours,
+      SUM(t.overtime_hours) as overtime_hours,
+      SUM(t.total_pay) as total_pay,
+      COUNT(*) as entries,
+      SUM(CASE WHEN t.status = 'approved' THEN 1 ELSE 0 END) as approved_entries,
+      SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) as pending_entries
+      FROM staff_timesheets t
+      LEFT JOIN staff s ON t.staff_id = s.id
+      WHERE ${where.join(' AND ')}
+      GROUP BY t.staff_id ORDER BY total_pay DESC`,
+      params, (err2, staffBreakdown) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ summary, staff: staffBreakdown || [] });
+      });
+  });
+});
+
+// GET /api/payroll/staff/:id - Individual staff payroll details
+app.get('/api/payroll/staff/:id', (req, res) => {
+  const { from, to } = req.query;
+  let where = ['t.staff_id = ?'];
+  const params = [req.params.id];
+  if (from) { where.push('t.date >= ?'); params.push(from); }
+  if (to) { where.push('t.date <= ?'); params.push(to); }
+  db.get(`SELECT s.id, s.name, s.role, s.hourly_rate, s.overtime_rate, s.pay_type, s.email
+    FROM staff s WHERE s.id = ?`, [req.params.id], (err, staff) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!staff) return res.status(404).json({ error: 'Staff not found' });
+    db.all(`SELECT t.*, e.event as event_name FROM staff_timesheets t
+      LEFT JOIN events e ON t.event_id = e.id
+      WHERE ${where.join(' AND ')} ORDER BY t.date DESC`,
+      params, (err2, timesheets) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        db.get(`SELECT
+          COALESCE(SUM(hours_worked), 0) as total_regular,
+          COALESCE(SUM(overtime_hours), 0) as total_overtime,
+          COALESCE(SUM(total_pay), 0) as total_pay,
+          COUNT(*) as total_entries
+          FROM staff_timesheets t WHERE ${where.join(' AND ')}`, params, (err3, totals) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+          res.json({ staff, timesheets: timesheets || [], totals: totals || {} });
+        });
+      });
+  });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.18.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.19.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -3890,6 +4228,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.18 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.19 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

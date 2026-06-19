@@ -99,6 +99,7 @@
             <button onclick="switchTab('tasks')" id="tab-tasks" class="pb-2 font-semibold tab-inactive">✅ Tasks</button>
             <button onclick="switchTab('dayops')" id="tab-dayops" class="pb-2 font-semibold tab-inactive">📋 Day Operations</button>
             <button onclick="switchTab('venues')" id="tab-venues" class="pb-2 font-semibold tab-inactive">🏛️ Venues</button>
+            <button onclick="switchTab('payroll')" id="tab-payroll" class="pb-2 font-semibold tab-inactive">💵 Payroll</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -1523,6 +1524,24 @@
                     <input type="email" id="staffEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="staff@fresh-people.co.za">
                     <p class="text-xs text-gray-500 mt-1">For assignment notifications</p>
                 </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Pay Type</label>
+                        <select id="staffPayType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="hourly">Hourly</option>
+                            <option value="flat">Flat Rate</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Hourly Rate (ZAR)</label>
+                        <input type="number" id="staffHourlyRate" step="0.01" min="0" value="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Overtime Rate (ZAR/hr)</label>
+                    <input type="number" id="staffOvertimeRate" step="0.01" min="0" value="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    <p class="text-xs text-gray-500 mt-1">Defaults to 1.5x hourly rate if 0</p>
+                </div>
                 <div class="flex gap-2">
                     <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold">Add Staff</button>
                     <button type="button" onclick="closeAddStaffModal()" class="flex-1 bg-gray-600 hover:bg-gray-700 text-white py-2 rounded font-semibold">Cancel</button>
@@ -1564,6 +1583,27 @@
                 <div class="flex items-center gap-2">
                     <input type="checkbox" id="editStaffActive" class="w-4 h-4" checked>
                     <label for="editStaffActive" class="text-sm text-gray-400">Active</label>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Email</label>
+                    <input type="email" id="editStaffEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Pay Type</label>
+                        <select id="editStaffPayType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="hourly">Hourly</option>
+                            <option value="flat">Flat Rate</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Hourly Rate (ZAR)</label>
+                        <input type="number" id="editStaffHourlyRate" step="0.01" min="0" value="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Overtime Rate (ZAR/hr)</label>
+                    <input type="number" id="editStaffOvertimeRate" step="0.01" min="0" value="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
                 </div>
                 <div class="flex gap-2">
                     <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Save</button>
@@ -2194,7 +2234,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2253,6 +2293,11 @@
             if (tab === 'tasks') {
                 loadTasks();
                 loadTaskStats();
+            }
+            if (tab === 'payroll') {
+                loadPayrollSummary();
+                loadTimesheetEntries();
+                populatePayrollStaffSelect();
             }
         }
 
@@ -3449,7 +3494,7 @@
         let staffTimelineData = {};
         async function loadStaffTimeline() {
             try {
-                const res = await fetch(${API}/staff-timeline, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/staff-timeline`, { headers: getAuthHeadersNoJSON() });
                 staffTimelineData = await res.json();
                 renderStaffTimeline();
             } catch (err) {
@@ -3909,7 +3954,7 @@
             }
             // Find the availability entry for this staff+date and delete it
             try {
-                const res = await fetch(${API}/availability?staff_id=${staffId}&from=${date}&to=${date}, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/availability?staff_id=${staffId}&from=${date}&to=${date}`, { headers: getAuthHeadersNoJSON() });
                 const entries = await res.json();
                 const entry = entries.find(e => e.staff_id == staffId && e.date === date);
                 if (entry) {
@@ -3997,7 +4042,7 @@
             const monthEnd = new Date(year, month + 1, 0).toISOString().slice(0, 10);
             let availData = [];
             try {
-                const res = await fetch(${API}/availability?from=${monthStart}&to=${monthEnd}, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/availability?from=${monthStart}&to=${monthEnd}`, { headers: getAuthHeadersNoJSON() });
                 availData = await res.json();
             } catch (e) { /* ignore */ }
 
@@ -4100,7 +4145,7 @@
 
         async function loadBudgetSummary() {
             try {
-                const res = await fetch(${API}/budget/summary, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/budget/summary`, { headers: getAuthHeadersNoJSON() });
                 const data = await res.json();
 
                 // Update summary cards
@@ -4194,7 +4239,7 @@
 
         async function loadBudgetList() {
             try {
-                const res = await fetch(${API}/budgets, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/budgets`, { headers: getAuthHeadersNoJSON() });
                 const budgets = await res.json();
                 const container = document.getElementById('budgetList');
                 if (budgets.length === 0) {
@@ -4251,7 +4296,7 @@
 
         async function loadEmailSettings() {
             try {
-                const res = await fetch(${API}/settings/email, { headers: getAuthHeadersNoJSON() });
+                const res = await fetch(`${API}/settings/email`, { headers: getAuthHeadersNoJSON() });
                 const data = await res.json();
                 document.getElementById('smtpHost').value = data.smtp_host || '';
                 document.getElementById('smtpPort').value = data.smtp_port || 587;
@@ -4273,7 +4318,7 @@
                 const res = await fetch(url);
                 const data = await res.json();
 
-                const allRes = await fetch(${API}/notifications?limit=200, { headers: getAuthHeadersNoJSON() });
+                const allRes = await fetch(`${API}/notifications?limit=200`, { headers: getAuthHeadersNoJSON() });
                 const all = await allRes.json();
                 document.getElementById('emailPendingCount').textContent = all.filter(n => n.status === 'pending').length;
                 document.getElementById('emailSentCount').textContent = all.filter(n => n.status === 'sent').length;
@@ -6015,6 +6060,392 @@
             }
         }
 
+        // ==================== PAYROLL & TIMESHEET ====================
+
+        function switchPayrollSubTab(sub) {
+            const tabs = ['timesheets', 'rates'];
+            tabs.forEach(t => {
+                const view = document.getElementById('payroll-view-' + t);
+                const btn = document.getElementById('payroll-sub-' + t);
+                if (view) view.classList.add('hidden');
+                if (btn) {
+                    btn.classList.remove('text-purple-400', 'border-b-2', 'border-purple-400');
+                    btn.classList.add('text-gray-400');
+                }
+            });
+            const activeView = document.getElementById('payroll-view-' + sub);
+            const activeBtn = document.getElementById('payroll-sub-' + sub);
+            if (activeView) activeView.classList.remove('hidden');
+            if (activeBtn) {
+                activeBtn.classList.remove('text-gray-400');
+                activeBtn.classList.add('text-purple-400', 'border-b-2', 'border-purple-400');
+            }
+            if (sub === 'rates') loadStaffRates();
+        }
+
+        function setPayrollThisMonth() {
+            const now = new Date();
+            const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+            document.getElementById('payrollFrom').value = first;
+            document.getElementById('payrollTo').value = last;
+            loadPayrollSummary();
+            loadTimesheetEntries();
+        }
+
+        async function populatePayrollStaffSelect() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const [staffRes, eventsRes] = await Promise.all([
+                    fetch(`${API}/staff`, { headers }),
+                    fetch(`${API}/events`, { headers })
+                ]);
+                const staff = await staffRes.json() || [];
+                const events = await eventsRes.json() || [];
+
+                // Populate all staff selects
+                const staffSelects = ['clockStaff', 'manualStaff', 'timesheetFilterStaff'];
+                staffSelects.forEach(id => {
+                    const sel = document.getElementById(id);
+                    if (!sel) return;
+                    const currentVal = sel.value;
+                    if (id === 'timesheetFilterStaff') {
+                        sel.innerHTML = '<option value="">All Staff</option>';
+                    } else {
+                        sel.innerHTML = '';
+                    }
+                    (Array.isArray(staff) ? staff : []).forEach(s => {
+                        if (s.active !== 0) {
+                            sel.innerHTML += `<option value="${s.id}">${s.name} (${s.role || 'staff'})</option>`;
+                        }
+                    });
+                    if (currentVal) sel.value = currentVal;
+                });
+
+                // Populate event selects
+                const eventSelects = ['clockEvent', 'manualEvent'];
+                eventSelects.forEach(id => {
+                    const sel = document.getElementById(id);
+                    if (!sel) return;
+                    sel.innerHTML = '<option value="">General</option>';
+                    (Array.isArray(events) ? events : []).forEach(e => {
+                        sel.innerHTML += `<option value="${e.id}">${e.event || e.id} (${e.date || ''})</option>`;
+                    });
+                });
+            } catch (err) {
+                console.error('Failed to populate payroll selects:', err);
+            }
+        }
+
+        async function loadPayrollSummary() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const from = document.getElementById('payrollFrom').value;
+                const to = document.getElementById('payrollTo').value;
+                let url = `${API}/timesheets/summary`;
+                const params = [];
+                if (from) params.push(`from=${from}`);
+                if (to) params.push(`to=${to}`);
+                if (params.length) url += '?' + params.join('&');
+
+                const res = await fetch(url, { headers });
+                const data = await res.json();
+                const s = data.summary || {};
+
+                document.getElementById('payrollStatTotal').textContent = 'R ' + (s.total_pay || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 });
+                document.getElementById('payrollStatHours').textContent = (s.total_hours || 0).toFixed(1) + 'h';
+                document.getElementById('payrollStatStaff').textContent = s.total_staff || 0;
+                document.getElementById('payrollStatPending').textContent = s.pending_count || 0;
+            } catch (err) {
+                console.error('Failed to load payroll summary:', err);
+            }
+        }
+
+        async function loadTimesheetEntries() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const from = document.getElementById('payrollFrom').value;
+                const to = document.getElementById('payrollTo').value;
+                const status = document.getElementById('timesheetFilterStatus').value;
+                const staffId = document.getElementById('timesheetFilterStaff').value;
+
+                let url = `${API}/timesheets?limit=100`;
+                if (from) url += `&from=${from}`;
+                if (to) url += `&to=${to}`;
+                if (status) url += `&status=${status}`;
+                if (staffId) url += `&staff_id=${staffId}`;
+
+                const res = await fetch(url, { headers });
+                const data = await res.json();
+                const rows = data.data || [];
+
+                const tbody = document.getElementById('timesheetTableBody');
+                if (rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">No timesheet entries found</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = rows.map(r => `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="px-4 py-2">${r.staff_name || 'Unknown'}</td>
+                        <td class="px-4 py-2 text-gray-400">${r.event_id || '-'}</td>
+                        <td class="px-4 py-2">${r.date || '-'}</td>
+                        <td class="px-4 py-2">${r.clock_in || '-'}</td>
+                        <td class="px-4 py-2">${r.clock_out || '-'}</td>
+                        <td class="px-4 py-2">${r.hours_worked ? r.hours_worked.toFixed(1) + 'h' : '-'}</td>
+                        <td class="px-4 py-2">${r.overtime_hours ? r.overtime_hours.toFixed(1) + 'h' : '-'}</td>
+                        <td class="px-4 py-2 text-green-400 font-semibold">R ${r.total_pay ? r.total_pay.toLocaleString('en-ZA', { minimumFractionDigits: 2 }) : '0.00'}</td>
+                        <td class="px-4 py-2">
+                            <span class="px-2 py-0.5 rounded text-xs ${r.status === 'approved' ? 'bg-green-900 text-green-300' : r.status === 'pending' ? 'bg-yellow-900 text-yellow-300' : 'bg-gray-700 text-gray-300'}">${r.status || 'pending'}</span>
+                        </td>
+                        <td class="px-4 py-2">
+                            <div class="flex gap-1">
+                                ${r.status === 'pending' ? `<button onclick="approveTimesheet(${r.id})" class="text-green-400 hover:text-green-300 text-xs" title="Approve">✓</button>` : ''}
+                                ${!r.clock_out ? `<button onclick="quickClockOut(${r.id})" class="text-red-400 hover:text-red-300 text-xs" title="Clock Out">⏻</button>` : ''}
+                                <button onclick="deleteTimesheet(${r.id})" class="text-red-400 hover:text-red-300 text-xs" title="Delete">🗑</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load timesheets:', err);
+            }
+        }
+
+        async function clockIn() {
+            const staffId = document.getElementById('clockStaff').value;
+            const eventId = document.getElementById('clockEvent').value;
+            const date = document.getElementById('clockDate').value;
+            const time = document.getElementById('clockTime').value;
+            if (!staffId || !date || !time) return showToast('Staff, date, and time are required', 'error');
+            try {
+                const headers = getAuthHeadersJSON();
+                const res = await fetch(`${API}/timesheets/clock-in`, {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ staff_id: parseInt(staff_id), event_id: eventId, date, time })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(`Clocked in at ${time}`, 'success');
+                    loadTimesheetEntries();
+                    loadPayrollSummary();
+                } else {
+                    showToast(data.error || 'Clock in failed', 'error');
+                }
+            } catch (err) {
+                showToast('Clock in failed', 'error');
+            }
+        }
+
+        async function clockOut() {
+            // Find the latest open timesheet for selected staff
+            const staffId = document.getElementById('clockStaff').value;
+            const time = document.getElementById('clockTime').value;
+            if (!staffId || !time) return showToast('Staff and time are required', 'error');
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/timesheets?staff_id=${staffId}&limit=5`, { headers });
+                const data = await res.json();
+                const openEntry = (data.data || []).find(r => !r.clock_out);
+                if (!openEntry) return showToast('No open clock-in found for this staff', 'error');
+
+                const outRes = await fetch(`${API}/timesheets/clock-out`, {
+                    method: 'POST', headers: getAuthHeadersJSON(),
+                    body: JSON.stringify({ id: openEntry.id, time })
+                });
+                const outData = await outRes.json();
+                if (outRes.ok) {
+                    showToast(`Clocked out. Total: R ${outData.total_pay?.toFixed(2)}`, 'success');
+                    loadTimesheetEntries();
+                    loadPayrollSummary();
+                } else {
+                    showToast(outData.error || 'Clock out failed', 'error');
+                }
+            } catch (err) {
+                showToast('Clock out failed', 'error');
+            }
+        }
+
+        async function addManualEntry() {
+            const staffId = document.getElementById('manualStaff').value;
+            const eventId = document.getElementById('manualEvent').value;
+            const date = document.getElementById('manualDate').value;
+            const clockIn = document.getElementById('manualClockIn').value;
+            const clockOut = document.getElementById('manualClockOut').value;
+            const breakMins = document.getElementById('manualBreak').value;
+            if (!staffId || !date) return showToast('Staff and date are required', 'error');
+            try {
+                const headers = getAuthHeadersJSON();
+                const res = await fetch(`${API}/timesheets`, {
+                    method: 'POST', headers,
+                    body: JSON.stringify({
+                        staff_id: parseInt(staffId), event_id: eventId, date,
+                        clock_in: clockIn, clock_out: clockOut, break_minutes: parseInt(breakMins) || 0
+                    })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast('Timesheet entry added', 'success');
+                    document.getElementById('manualEntryForm').classList.add('hidden');
+                    loadTimesheetEntries();
+                    loadPayrollSummary();
+                } else {
+                    showToast(data.error || 'Failed to add entry', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to add entry', 'error');
+            }
+        }
+
+        async function approveTimesheet(id) {
+            try {
+                const headers = getAuthHeadersJSON();
+                const res = await fetch(`${API}/timesheets/${id}/approve`, { method: 'POST', headers });
+                if (res.ok) {
+                    showToast('Timesheet approved', 'success');
+                    loadTimesheetEntries();
+                } else {
+                    showToast('Approval failed', 'error');
+                }
+            } catch (err) {
+                showToast('Approval failed', 'error');
+            }
+        }
+
+        async function quickClockOut(id) {
+            const time = prompt('Enter clock out time (HH:MM):');
+            if (!time) return;
+            try {
+                const headers = getAuthHeadersJSON();
+                const res = await fetch(`${API}/timesheets/clock-out`, {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ id, time })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(`Clocked out. Total: R ${data.total_pay?.toFixed(2)}`, 'success');
+                    loadTimesheetEntries();
+                    loadPayrollSummary();
+                } else {
+                    showToast(data.error || 'Clock out failed', 'error');
+                }
+            } catch (err) {
+                showToast('Clock out failed', 'error');
+            }
+        }
+
+        async function deleteTimesheet(id) {
+            if (!confirm('Delete this timesheet entry?')) return;
+            try {
+                const headers = getAuthHeadersJSON();
+                const res = await fetch(`${API}/timesheets/${id}`, { method: 'DELETE', headers });
+                if (res.ok) {
+                    showToast('Timesheet deleted', 'success');
+                    loadTimesheetEntries();
+                    loadPayrollSummary();
+                } else {
+                    showToast('Delete failed', 'error');
+                }
+            } catch (err) {
+                showToast('Delete failed', 'error');
+            }
+        }
+
+        async function loadStaffRates() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/staff`, { headers });
+                const staff = await res.json() || [];
+                const tbody = document.getElementById('staffRatesTableBody');
+                if (!Array.isArray(staff) || staff.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">No staff found</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = staff.map(s => `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="px-4 py-2 font-semibold">${s.name || 'Unknown'}</td>
+                        <td class="px-4 py-2 text-gray-400">${s.role || 'staff'}</td>
+                        <td class="px-4 py-2"><span class="px-2 py-0.5 rounded text-xs bg-gray-700">${s.pay_type || 'hourly'}</span></td>
+                        <td class="px-4 py-2">R ${(s.hourly_rate || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2">R ${(s.overtime_rate || 0).toFixed(2)}</td>
+                        <td class="px-4 py-2">
+                            <button onclick="openEditRateModal(${s.id}, '${s.name}', '${s.pay_type || 'hourly'}', ${s.hourly_rate || 0}, ${s.overtime_rate || 0})" class="text-purple-400 hover:text-purple-300 text-sm">✏️ Edit</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load staff rates:', err);
+            }
+        }
+
+        function openEditRateModal(id, name, payType, hourlyRate, overtimeRate) {
+            document.getElementById('editRateStaffId').value = id;
+            document.getElementById('editRatePayType').value = payType;
+            document.getElementById('editRateHourly').value = hourlyRate;
+            document.getElementById('editRateOvertime').value = overtimeRate;
+            document.getElementById('editRateModal').classList.remove('hidden');
+            document.getElementById('editRateModal').classList.add('flex');
+        }
+
+        function closeEditRateModal() {
+            document.getElementById('editRateModal').classList.add('hidden');
+            document.getElementById('editRateModal').classList.remove('flex');
+        }
+
+        async function saveStaffRate() {
+            const id = document.getElementById('editRateStaffId').value;
+            const payType = document.getElementById('editRatePayType').value;
+            const hourlyRate = parseFloat(document.getElementById('editRateHourly').value) || 0;
+            const overtimeRate = parseFloat(document.getElementById('editRateOvertime').value) || 0;
+            try {
+                const headers = getAuthHeadersJSON();
+                // Get existing staff data first
+                const getRes = await fetch(`${API}/staff`, { headers: getAuthHeadersNoJSON() });
+                const allStaff = await getRes.json() || [];
+                const staff = (Array.isArray(allStaff) ? allStaff : []).find(s => s.id == id);
+                if (!staff) return showToast('Staff not found', 'error');
+
+                const res = await fetch(`${API}/staff/${id}`, {
+                    method: 'PUT', headers,
+                    body: JSON.stringify({
+                        name: staff.name, phone: staff.phone, role: staff.role,
+                        email: staff.email || '', active: staff.active,
+                        skills: staff.skills || '[]',
+                        pay_type: payType, hourly_rate: hourlyRate, overtime_rate: overtimeRate
+                    })
+                });
+                if (res.ok) {
+                    showToast('Pay rate updated', 'success');
+                    closeEditRateModal();
+                    loadStaffRates();
+                } else {
+                    showToast('Update failed', 'error');
+                }
+            } catch (err) {
+                showToast('Update failed', 'error');
+            }
+        }
+
+        // Set default date/time on payroll tab
+        document.addEventListener('DOMContentLoaded', () => {
+            const today = new Date().toISOString().slice(0, 10);
+            const clockDate = document.getElementById('clockDate');
+            const manualDate = document.getElementById('manualDate');
+            if (clockDate) clockDate.value = today;
+            if (manualDate) manualDate.value = today;
+            const now = new Date();
+            const timeStr = now.toTimeString().slice(0, 5);
+            const clockTime = document.getElementById('clockTime');
+            if (clockTime) clockTime.value = timeStr;
+            // Set default payroll period to this month
+            const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+            const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+            const payrollFrom = document.getElementById('payrollFrom');
+            const payrollTo = document.getElementById('payrollTo');
+            if (payrollFrom) payrollFrom.value = first;
+            if (payrollTo) payrollTo.value = last;
+        });
+
 </script>
 
 
@@ -6408,6 +6839,215 @@
             <p class="text-4xl mb-3">🏛️</p>
             <p class="text-gray-400 text-lg">No venues found</p>
             <p class="text-gray-500 text-sm mt-1">Add your first venue or adjust filters</p>
+        </div>
+    </div>
+
+    <!-- ==================== PAYROLL TAB ==================== -->
+    <div id="view-payroll" class="hidden">
+        <!-- Payroll Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Payroll</p>
+                <p id="payrollStatTotal" class="text-2xl font-bold text-green-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Hours</p>
+                <p id="payrollStatHours" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Staff Clocked</p>
+                <p id="payrollStatStaff" class="text-2xl font-bold text-purple-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Pending Approval</p>
+                <p id="payrollStatPending" class="text-2xl font-bold text-yellow-400">-</p>
+            </div>
+        </div>
+
+        <!-- Period Filter -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+            <div class="flex flex-col md:flex-row gap-3 items-end">
+                <div>
+                    <label class="text-xs text-gray-400">From</label>
+                    <input type="date" id="payrollFrom" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">To</label>
+                    <input type="date" id="payrollTo" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+                <button onclick="loadPayrollSummary(); loadTimesheetEntries();" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">Apply Filter</button>
+                <button onclick="setPayrollThisMonth()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">This Month</button>
+            </div>
+        </div>
+
+        <!-- Sub Tabs: Timesheets | Staff Rates -->
+        <div class="flex gap-4 mb-4 border-b border-gray-700 pb-2">
+            <button onclick="switchPayrollSubTab('timesheets')" id="payroll-sub-timesheets" class="pb-2 font-semibold text-sm text-purple-400 border-b-2 border-purple-400">📋 Timesheets</button>
+            <button onclick="switchPayrollSubTab('rates')" id="payroll-sub-rates" class="pb-2 font-semibold text-sm text-gray-400">💰 Staff Rates</button>
+        </div>
+
+        <!-- Timesheets Sub-Tab -->
+        <div id="payroll-view-timesheets">
+            <!-- Clock In/Out Form -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                <h3 class="text-lg font-bold mb-3">⏱️ Clock In / Out</h3>
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                    <div>
+                        <label class="text-xs text-gray-400">Staff</label>
+                        <select id="clockStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1"></select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Event</label>
+                        <select id="clockEvent" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                            <option value="">General</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Date</label>
+                        <input type="date" id="clockDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Time</label>
+                        <input type="time" id="clockTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="clockIn()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold flex-1">Clock In</button>
+                        <button onclick="clockOut()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold flex-1">Clock Out</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manual Entry -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                <button onclick="document.getElementById('manualEntryForm').classList.toggle('hidden')" class="text-sm text-purple-400 hover:text-purple-300 font-semibold">+ Add Manual Entry</button>
+                <div id="manualEntryForm" class="hidden mt-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-400">Staff</label>
+                            <select id="manualStaff" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1"></select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-400">Event</label>
+                            <select id="manualEvent" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                                <option value="">General</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-400">Date</label>
+                            <input type="date" id="manualDate" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-400">Clock In</label>
+                            <input type="time" id="manualClockIn" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-400">Clock Out</label>
+                            <input type="time" id="manualClockOut" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-400">Break (min)</label>
+                            <input type="number" id="manualBreak" value="0" min="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        </div>
+                    </div>
+                    <button onclick="addManualEntry()" class="mt-3 bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Add Entry</button>
+                </div>
+            </div>
+
+            <!-- Timesheet Entries Table -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+                    <h3 class="font-bold">Timesheet Entries</h3>
+                    <div class="flex gap-2">
+                        <select id="timesheetFilterStatus" onchange="loadTimesheetEntries()" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                            <option value="">All Status</option>
+                            <option value="pending">Pending</option>
+                            <option value="approved">Approved</option>
+                        </select>
+                        <select id="timesheetFilterStaff" onchange="loadTimesheetEntries()" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                            <option value="">All Staff</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-2 text-left">Staff</th>
+                                <th class="px-4 py-2 text-left">Event</th>
+                                <th class="px-4 py-2 text-left">Date</th>
+                                <th class="px-4 py-2 text-left">Clock In</th>
+                                <th class="px-4 py-2 text-left">Clock Out</th>
+                                <th class="px-4 py-2 text-left">Hours</th>
+                                <th class="px-4 py-2 text-left">OT</th>
+                                <th class="px-4 py-2 text-left">Total Pay</th>
+                                <th class="px-4 py-2 text-left">Status</th>
+                                <th class="px-4 py-2 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="timesheetTableBody">
+                            <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">No timesheet entries found</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Staff Rates Sub-Tab -->
+        <div id="payroll-view-rates" class="hidden">
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <div class="p-4 border-b border-gray-700">
+                    <h3 class="font-bold">Staff Pay Rates</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-2 text-left">Name</th>
+                                <th class="px-4 py-2 text-left">Role</th>
+                                <th class="px-4 py-2 text-left">Pay Type</th>
+                                <th class="px-4 py-2 text-left">Hourly Rate (ZAR)</th>
+                                <th class="px-4 py-2 text-left">Overtime Rate (ZAR)</th>
+                                <th class="px-4 py-2 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="staffRatesTableBody">
+                            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Staff Rate Modal -->
+    <div id="editRateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md border border-gray-700">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold">Edit Pay Rate</h3>
+                <button onclick="closeEditRateModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <input type="hidden" id="editRateStaffId">
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400">Pay Type</label>
+                    <select id="editRatePayType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="hourly">Hourly</option>
+                        <option value="flat">Flat Rate</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Hourly Rate (ZAR)</label>
+                    <input type="number" id="editRateHourly" step="0.01" min="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Overtime Rate (ZAR)</label>
+                    <input type="number" id="editRateOvertime" step="0.01" min="0" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 mt-4">
+                <button onclick="closeEditRateModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
+                <button onclick="saveStaffRate()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Save</button>
+            </div>
         </div>
     </div>
 
