@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.15</title>
+    <title>Fresh People Event Ops v4.16</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -95,6 +95,7 @@
             <button onclick="switchTab('checkin')" id="tab-checkin" class="pb-2 font-semibold tab-inactive">✅ Check-In</button>
             <button onclick="switchTab('reviews')" id="tab-reviews" class="pb-2 font-semibold tab-inactive">📝 Reviews</button>
             <button onclick="switchTab('clients')" id="tab-clients" class="pb-2 font-semibold tab-inactive">🏢 Clients</button>
+            <button onclick="switchTab('inventory')" id="tab-inventory" class="pb-2 font-semibold tab-inactive">🎒 Inventory</button>
         </div>
 
         <!-- ==================== DASHBOARD TAB ==================== -->
@@ -988,6 +989,205 @@
             <h3 class="font-semibold mb-4">🏆 Top Clients by Revenue</h3>
             <div id="topClientsList" class="space-y-2">
                 <p class="text-gray-500 text-sm">No clients yet.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== INVENTORY TAB ==================== -->
+    <div id="view-inventory" class="hidden">
+        <!-- Inventory Stats Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Items</p>
+                <p id="invStatItems" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Units</p>
+                <p id="invStatUnits" class="text-2xl font-bold text-green-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Value</p>
+                <p id="invStatValue" class="text-2xl font-bold text-yellow-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Available</p>
+                <p id="invStatAvail" class="text-2xl font-bold text-emerald-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Maintenance</p>
+                <p id="invStatMaint" class="text-2xl font-bold text-orange-400">-</p>
+            </div>
+        </div>
+
+        <!-- Search and Filters -->
+        <div class="flex flex-col md:flex-row gap-4 mb-6">
+            <div class="flex-1">
+                <input type="text" id="invSearch" placeholder="🔍 Search equipment..."
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white"
+                    oninput="filterEquipmentSearch()">
+            </div>
+            <select id="invCategoryFilter" class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white" onchange="filterEquipment()">
+                <option value="">All Categories</option>
+            </select>
+            <select id="invStatusFilter" class="bg-gray-700 border border-gray-600 rounded px-4 py-2 text-white" onchange="filterEquipment()">
+                <option value="">All Status</option>
+                <option value="available">Available</option>
+                <option value="in-use">In Use</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="retired">Retired</option>
+            </select>
+            <button onclick="openAddEquipModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-semibold whitespace-nowrap">+ Add Equipment</button>
+        </div>
+
+        <!-- Equipment List -->
+        <div id="invEquipmentList">
+            <p class="text-gray-500 text-sm text-center py-8">Loading inventory...</p>
+        </div>
+    </div>
+
+    <!-- Equipment Detail Modal -->
+    <div id="equipDetailModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold">🎒 Equipment Details</h3>
+                <button onclick="closeEquipDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4 space-y-3">
+                <input type="hidden" id="equipDetailId">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="col-span-2">
+                        <label class="text-xs text-gray-400">Name</label>
+                        <div id="equipDetailName" class="font-semibold text-lg"></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Category</label>
+                        <div id="equipDetailCategory" class="text-sm"></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Serial Number</label>
+                        <div id="equipDetailSerial" class="text-sm"></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Condition</label>
+                        <div id="equipDetailCondition" class="text-sm"></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Status</label>
+                        <div id="equipDetailStatus" class="text-sm"></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Location</label>
+                        <div id="equipDetailLocation" class="text-sm"></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Quantity (Available/Total)</label>
+                        <div><span id="equipDetailAvail" class="text-green-400 font-bold"></span> / <span id="equipDetailQuantity"></span></div>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Purchase Cost</label>
+                        <div id="equipDetailCost" class="text-sm"></div>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="text-xs text-gray-400">Description</label>
+                        <div id="equipDetailDescription" class="text-sm text-gray-300"></div>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="text-xs text-gray-400">Notes</label>
+                        <div id="equipDetailNotes" class="text-sm text-gray-300"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="deleteEquipment()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded text-sm">🗑️ Delete</button>
+                <button onclick="editEquipmentFromDetail()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold">✏️ Edit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Equipment Add/Edit Form Modal -->
+    <div id="equipFormModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-lg max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 id="equipFormTitle" class="text-lg font-bold">Add Equipment</h3>
+                <button onclick="closeEquipFormModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4 space-y-3">
+                <input type="hidden" id="equipFormId">
+                <div>
+                    <label class="text-xs text-gray-400">Name *</label>
+                    <input type="text" id="equipFormName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Category</label>
+                        <select id="equipFormCategory" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="general">General</option>
+                            <option value="audio">Audio</option>
+                            <option value="visual">Visual</option>
+                            <option value="lighting">Lighting</option>
+                            <option value="furniture">Furniture</option>
+                            <option value="catering">Catering</option>
+                            <option value="linens">Linens</option>
+                            <option value="structures">Structures</option>
+                            <option value="power">Power</option>
+                            <option value="comms">Comms</option>
+                            <option value="safety">Safety</option>
+                            <option value="decor">Decor</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Serial Number</label>
+                        <input type="text" id="equipFormSerial" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Description</label>
+                    <textarea id="equipFormDescription" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Condition</label>
+                        <select id="equipFormCondition" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="excellent">Excellent</option>
+                            <option value="good" selected>Good</option>
+                            <option value="fair">Fair</option>
+                            <option value="poor">Poor</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Status</label>
+                        <select id="equipFormStatus" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="available" selected>Available</option>
+                            <option value="in-use">In Use</option>
+                            <option value="maintenance">Maintenance</option>
+                            <option value="retired">Retired</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Location</label>
+                        <input type="text" id="equipFormLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="e.g. Store Room A">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Quantity</label>
+                        <input type="number" id="equipFormQuantity" value="1" min="1" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs text-gray-400">Purchase Cost (ZAR)</label>
+                        <input type="number" id="equipFormCost" step="0.01" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Notes</label>
+                    <textarea id="equipFormNotes" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></textarea>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closeEquipFormModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm">Cancel</button>
+                <button onclick="saveEquipment()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold">💾 Save</button>
             </div>
         </div>
     </div>
@@ -4875,6 +5075,236 @@
                 document.getElementById('recClient').value = opt.dataset.name || '';
             }
         }
+
+        // ==================== INVENTORY / EQUIPMENT ====================
+
+        let allEquipment = [];
+        let equipmentCategories = [];
+        let selectedCategory = '';
+        let selectedEquipStatus = '';
+
+        async function loadInventory() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const [eqRes, catRes, statsRes] = await Promise.all([
+                    fetch(`${API}/equipment`, { headers }),
+                    fetch(`${API}/equipment/categories`, { headers }),
+                    fetch(`${API}/equipment/stats/summary`, { headers })
+                ]);
+                allEquipment = await eqRes.json();
+                equipmentCategories = await catRes.json();
+                const stats = await statsRes.json();
+
+                // Render stats
+                document.getElementById('invStatItems').textContent = stats.total_items || 0;
+                document.getElementById('invStatUnits').textContent = stats.total_units || 0;
+                document.getElementById('invStatValue').textContent = 'R ' + (stats.total_value || 0).toLocaleString();
+                document.getElementById('invStatAvail').textContent = stats.available_count || 0;
+                document.getElementById('invStatMaint').textContent = stats.maintenance_count || 0;
+
+                // Render category filter
+                const catFilter = document.getElementById('invCategoryFilter');
+                catFilter.innerHTML = '<option value="">All Categories</option>';
+                equipmentCategories.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c;
+                    opt.textContent = c.charAt(0).toUpperCase() + c.slice(1);
+                    catFilter.appendChild(opt);
+                });
+
+                renderEquipmentList();
+            } catch (err) {
+                console.error('Failed to load inventory:', err);
+                showToast('Failed to load inventory', 'error');
+            }
+        }
+
+        function renderEquipmentList() {
+            const search = (document.getElementById('invSearch')?.value || '').toLowerCase();
+            let filtered = allEquipment;
+            if (selectedCategory) filtered = filtered.filter(e => e.category === selectedCategory);
+            if (selectedEquipStatus) filtered = filtered.filter(e => e.status === selectedEquipStatus);
+            if (search) filtered = filtered.filter(e => e.name.toLowerCase().includes(search) || e.description.toLowerCase().includes(search));
+
+            const container = document.getElementById('invEquipmentList');
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">No equipment found</p>';
+                return;
+            }
+
+            // Group by category
+            const grouped = {};
+            filtered.forEach(e => {
+                if (!grouped[e.category]) grouped[e.category] = [];
+                grouped[e.category].push(e);
+            });
+
+            let html = '';
+            for (const [cat, items] of Object.entries(grouped)) {
+                html += `<div class="mb-4"><h4 class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">${cat.charAt(0).toUpperCase() + cat.slice(1)} (${items.length})</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-2">`;
+                items.forEach(e => {
+                    const availClass = e.quantity_available > 0 ? 'text-green-400' : 'text-red-400';
+                    const statusColor = e.status === 'available' ? 'bg-green-600' : e.status === 'maintenance' ? 'bg-yellow-600' : e.status === 'retired' ? 'bg-red-600' : 'bg-gray-600';
+                    const condColor = e.condition === 'excellent' ? 'text-green-400' : e.condition === 'good' ? 'text-blue-400' : e.condition === 'fair' ? 'text-yellow-400' : 'text-red-400';
+                    html += `
+                        <div class="bg-gray-700 rounded-lg p-3 border border-gray-600 hover:border-gray-500 transition cursor-pointer" onclick="openEquipDetail(${e.id})">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1 min-w-0">
+                                    <div class="font-semibold text-sm truncate">${e.name}</div>
+                                    <div class="text-xs text-gray-400 truncate">${e.description || ''}</div>
+                                </div>
+                                <span class="text-xs px-1.5 py-0.5 rounded ${statusColor} ml-2 whitespace-nowrap">${e.status}</span>
+                            </div>
+                            <div class="flex items-center gap-3 mt-2 text-xs">
+                                <span class="${availClass}">📦 ${e.quantity_available}/${e.quantity}</span>
+                                <span class="${condColor}">● ${e.condition}</span>
+                                <span class="text-gray-500">📍 ${e.location || 'N/A'}</span>
+                            </div>
+                        </div>`;
+                });
+                html += '</div></div>';
+            }
+            container.innerHTML = html;
+        }
+
+        function filterEquipment() {
+            selectedCategory = document.getElementById('invCategoryFilter').value;
+            selectedEquipStatus = document.getElementById('invStatusFilter').value;
+            renderEquipmentList();
+        }
+
+        function filterEquipmentSearch() {
+            renderEquipmentList();
+        }
+
+        async function openEquipDetail(id) {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/equipment/${id}`, { headers });
+                const eq = await res.json();
+                if (!eq || eq.error) return showToast('Equipment not found', 'error');
+
+                document.getElementById('equipDetailId').value = eq.id;
+                document.getElementById('equipDetailName').value = eq.name;
+                document.getElementById('equipDetailCategory').value = eq.category;
+                document.getElementById('equipDetailDescription').value = eq.description || '';
+                document.getElementById('equipDetailSerial').value = eq.serial_number || '';
+                document.getElementById('equipDetailCondition').value = eq.condition;
+                document.getElementById('equipDetailStatus').value = eq.status;
+                document.getElementById('equipDetailLocation').value = eq.location || '';
+                document.getElementById('equipDetailQuantity').value = eq.quantity;
+                document.getElementById('equipDetailAvail').value = eq.quantity_available;
+                document.getElementById('equipDetailCost').value = eq.purchase_cost || 0;
+                document.getElementById('equipDetailNotes').value = eq.notes || '';
+                document.getElementById('equipDetailModal').classList.remove('hidden');
+                document.getElementById('equipDetailModal').classList.add('flex');
+            } catch (err) {
+                showToast('Failed to load equipment details', 'error');
+            }
+        }
+
+        function closeEquipDetailModal() {
+            document.getElementById('equipDetailModal').classList.add('hidden');
+            document.getElementById('equipDetailModal').classList.remove('flex');
+        }
+
+        function openAddEquipModal() {
+            document.getElementById('equipFormId').value = '';
+            document.getElementById('equipFormName').value = '';
+            document.getElementById('equipFormCategory').value = 'general';
+            document.getElementById('equipFormDescription').value = '';
+            document.getElementById('equipFormSerial').value = '';
+            document.getElementById('equipFormCondition').value = 'good';
+            document.getElementById('equipFormStatus').value = 'available';
+            document.getElementById('equipFormLocation').value = '';
+            document.getElementById('equipFormQuantity').value = 1;
+            document.getElementById('equipFormCost').value = '';
+            document.getElementById('equipFormNotes').value = '';
+            document.getElementById('equipFormTitle').textContent = 'Add Equipment';
+            document.getElementById('equipFormModal').classList.remove('hidden');
+            document.getElementById('equipFormModal').classList.add('flex');
+        }
+
+        function closeEquipFormModal() {
+            document.getElementById('equipFormModal').classList.add('hidden');
+            document.getElementById('equipFormModal').classList.remove('flex');
+        }
+
+        async function saveEquipment() {
+            const id = document.getElementById('equipFormId').value;
+            const body = {
+                name: document.getElementById('equipFormName').value,
+                category: document.getElementById('equipFormCategory').value,
+                description: document.getElementById('equipFormDescription').value,
+                serial_number: document.getElementById('equipFormSerial').value,
+                condition: document.getElementById('equipFormCondition').value,
+                status: document.getElementById('equipFormStatus').value,
+                location: document.getElementById('equipFormLocation').value,
+                quantity: parseInt(document.getElementById('equipFormQuantity').value) || 1,
+                purchase_cost: parseFloat(document.getElementById('equipFormCost').value) || 0,
+                notes: document.getElementById('equipFormNotes').value
+            };
+            if (!body.name) return showToast('Equipment name required', 'error');
+
+            try {
+                const headers = getAuthHeaders();
+                let res;
+                if (id) {
+                    res = await fetch(`${API}/equipment/${id}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+                } else {
+                    res = await fetch(`${API}/equipment`, { method: 'POST', headers, body: JSON.stringify(body) });
+                }
+                const data = await res.json();
+                if (data.error) return showToast(data.error, 'error');
+                closeEquipFormModal();
+                showToast(id ? 'Equipment updated' : 'Equipment added', 'success');
+                loadInventory();
+            } catch (err) {
+                showToast('Failed to save equipment', 'error');
+            }
+        }
+
+        function editEquipmentFromDetail() {
+            const id = document.getElementById('equipDetailId').value;
+            document.getElementById('equipFormId').value = id;
+            document.getElementById('equipFormName').value = document.getElementById('equipDetailName').value;
+            document.getElementById('equipFormCategory').value = document.getElementById('equipDetailCategory').value;
+            document.getElementById('equipFormDescription').value = document.getElementById('equipDetailDescription').value;
+            document.getElementById('equipFormSerial').value = document.getElementById('equipDetailSerial').value;
+            document.getElementById('equipFormCondition').value = document.getElementById('equipDetailCondition').value;
+            document.getElementById('equipFormStatus').value = document.getElementById('equipDetailStatus').value;
+            document.getElementById('equipFormLocation').value = document.getElementById('equipDetailLocation').value;
+            document.getElementById('equipFormQuantity').value = document.getElementById('equipDetailQuantity').value;
+            document.getElementById('equipFormCost').value = document.getElementById('equipDetailCost').value;
+            document.getElementById('equipFormNotes').value = document.getElementById('equipDetailNotes').value;
+            document.getElementById('equipFormTitle').textContent = 'Edit Equipment';
+            closeEquipDetailModal();
+            document.getElementById('equipFormModal').classList.remove('hidden');
+            document.getElementById('equipFormModal').classList.add('flex');
+        }
+
+        async function deleteEquipment() {
+            const id = document.getElementById('equipDetailId').value;
+            if (!confirm('Delete this equipment?')) return;
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/equipment/${id}`, { method: 'DELETE', headers });
+                const data = await res.json();
+                if (data.error) return showToast(data.error, 'error');
+                closeEquipDetailModal();
+                showToast('Equipment deleted', 'success');
+                loadInventory();
+            } catch (err) {
+                showToast('Failed to delete equipment', 'error');
+            }
+        }
+
+        // Load inventory when tab is switched
+        const originalSwitchTab = switchTab;
+        switchTab = function(tab) {
+            originalSwitchTab(tab);
+            if (tab === 'inventory') loadInventory();
+        };
 
 </script>
 

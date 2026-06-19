@@ -339,6 +339,88 @@ db.get(`SELECT id FROM email_settings WHERE id = 1`, (err, row) => {
   }
 });
 
+// ==================== INVENTORY / EQUIPMENT MANAGEMENT ====================
+
+// Create equipment inventory table
+db.run(`CREATE TABLE IF NOT EXISTS equipment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  category TEXT DEFAULT 'general',
+  description TEXT DEFAULT '',
+  serial_number TEXT DEFAULT '',
+  purchase_date TEXT DEFAULT '',
+  purchase_cost REAL DEFAULT 0,
+  condition TEXT DEFAULT 'good',
+  status TEXT DEFAULT 'available',
+  location TEXT DEFAULT '',
+  quantity INTEGER DEFAULT 1,
+  quantity_available INTEGER DEFAULT 1,
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+// Create event_equipment table for tracking equipment assigned to events
+db.run(`CREATE TABLE IF NOT EXISTS event_equipment (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  equipment_id INTEGER NOT NULL,
+  quantity INTEGER DEFAULT 1,
+  checked_out INTEGER DEFAULT 0,
+  checked_out_at TIMESTAMP,
+  checked_out_by TEXT DEFAULT '',
+  checked_in INTEGER DEFAULT 0,
+  checked_in_at TIMESTAMP,
+  checked_in_by TEXT DEFAULT '',
+  condition_before TEXT DEFAULT 'good',
+  condition_after TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id),
+  FOREIGN KEY (equipment_id) REFERENCES equipment(id)
+)`);
+
+// Seed default equipment if table is empty
+db.get(`SELECT COUNT(*) as count FROM equipment`, (err, row) => {
+  if (row && row.count === 0) {
+    const defaultEquipment = [
+      ['PA System (Large)', 'audio', 'JBL EON615 15" PA system with mixer', '', '', 8500, 'good', 'available', 'Store Room A', 2, 2, 'Main stage PA'],
+      ['PA System (Small)', 'audio', 'JBL EON6110 10" portable PA', '', '', 4500, 'good', 'available', 'Store Room A', 3, 3, 'Small events & speeches'],
+      ['Wireless Microphone', 'audio', 'Shure SM58 wireless handheld mic', '', '', 2800, 'good', 'available', 'Store Room A', 6, 6, ''],
+      ['Wired Microphone', 'audio', 'Shure SM58 wired mic with XLR cable', '', '', 800, 'good', 'available', 'Store Room A', 8, 8, ''],
+      ['Projector (HD)', 'visual', 'Epson EB-2247U 4500 lumen WUXGA projector', '', '', 12000, 'good', 'available', 'Store Room B', 2, 2, ''],
+      ['Projector Screen (120")', 'visual', '120" tripod projection screen', '', '', 1500, 'good', 'available', 'Store Room B', 3, 3, ''],
+      ['LED Stage Lighting Kit', 'lighting', '4x LED par cans with DMX controller', '', '', 3500, 'good', 'available', 'Store Room C', 4, 4, ''],
+      ['Fog Machine', 'lighting', '1500W fog machine with remote', '', '', 1200, 'good', 'available', 'Store Room C', 2, 2, ''],
+      ['Round Table (6-seater)', 'furniture', '1.5m round banquet table', '', '', 450, 'good', 'available', 'Warehouse', 30, 30, ''],
+      ['Rectangular Table (8-seater)', 'furniture', '1.8m x 0.75m rectangular table', '', '', 380, 'good', 'available', 'Warehouse', 20, 20, ''],
+      ['Banquet Chair', 'furniture', 'Padded banquet chair (gold)', '', '', 120, 'good', 'available', 'Warehouse', 200, 200, ''],
+      ['Glassware Set (wine)', 'catering', 'Crystal wine glasses (red & white)', '', '', 35, 'good', 'available', 'Kitchen Store', 100, 100, 'Per glass'],
+      ['Glassware Set (champagne)', 'catering', 'Crystal champagne flutes', '', '', 40, 'good', 'available', 'Kitchen Store', 80, 80, 'Per glass'],
+      ['Cutlery Set', 'catering', 'Stainless steel 3-piece cutlery set', '', '', 25, 'good', 'available', 'Kitchen Store', 200, 200, 'Per set'],
+      ['Charger Plate (gold)', 'catering', '12" gold charger plate', '', '', 65, 'good', 'available', 'Kitchen Store', 100, 100, ''],
+      ['Tablecloth (white)', 'linens', 'White satin tablecloth 220x220cm', '', '', 180, 'good', 'available', 'Linen Store', 50, 50, ''],
+      ['Tablecloth (black)', 'linens', 'Black satin tablecloth 220x220cm', '', '', 180, 'good', 'available', 'Linen Store', 30, 30, ''],
+      ['Napkins (white)', 'linens', 'White linen napkins', '', '', 12, 'good', 'available', 'Linen Store', 500, 500, 'Per napkin'],
+      ['Tent/Marquee (6x6m)', 'structures', '6x6m frame tent with sidewalls', '', '', 15000, 'good', 'available', 'Outdoor Yard', 2, 2, 'Weather dependent'],
+      ['Tent/Marquee (3x3m)', 'structures', '3x3m pop-up gazebo', '', '', 2500, 'good', 'available', 'Outdoor Yard', 4, 4, ''],
+      ['Portable Bar', 'structures', '2.4m portable bar counter with skirt', '', '', 3500, 'good', 'available', 'Warehouse', 2, 2, ''],
+      ['Cable Extension (10m)', 'power', '10m heavy-duty extension cable', '', '', 180, 'good', 'available', 'Store Room A', 10, 10, ''],
+      ['Power Distribution Box', 'power', '32A distro box with RCD', '', '', 2200, 'good', 'available', 'Store Room A', 3, 3, ''],
+      ['Walkie-Talkie Set', 'comms', 'Motorola T600 two-way radios', '', '', 1200, 'good', 'available', 'Store Room A', 10, 10, 'Per pair'],
+      ['First Aid Kit', 'safety', 'Comprehensive first aid kit (SANS compliant)', '', '', 650, 'good', 'available', 'Store Room A', 3, 3, ''],
+      ['Fire Extinguisher', 'safety', '4kg dry powder fire extinguisher', '', '', 350, 'good', 'available', 'Store Room A', 4, 4, 'Monthly inspection required'],
+      ['Bollard (retractable)', 'safety', 'Stainless steel retractable bollard', '', '', 1800, 'good', 'available', 'Warehouse', 20, 20, ''],
+      ['Red Carpet (per meter)', 'decor', 'Red carpet runner', '', '', 85, 'good', 'available', 'Store Room B', 50, 50, 'Per meter'],
+      ['Uplight LED (battery)', 'lighting', 'Battery-powered LED uplight RGBWA+UV', '', '', 950, 'good', 'available', 'Store Room C', 12, 12, 'Wireless DMX'],
+    ];
+    const stmt = db.prepare(`INSERT INTO equipment (name, category, description, serial_number, purchase_date, purchase_cost, condition, status, location, quantity, quantity_available, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    defaultEquipment.forEach(e => stmt.run(e));
+    stmt.finalize();
+    console.log(`Seeded ${defaultEquipment.length} equipment items`);
+  }
+});
+
 // ==================== VAPID / PUSH NOTIFICATIONS ====================
 
 // VAPID keys storage
@@ -362,6 +444,189 @@ async function initVapidKeys() {
   );
 }
 initVapidKeys().catch(console.error);
+
+// ==================== INVENTORY / EQUIPMENT API ENDPOINTS ====================
+
+// GET /api/equipment - List all equipment with optional filters
+app.get('/api/equipment', (req, res) => {
+  const { category, status, search, available } = req.query;
+  let sql = `SELECT * FROM equipment WHERE 1=1`;
+  const params = [];
+  if (category) { sql += ` AND category = ?`; params.push(category); }
+  if (status) { sql += ` AND status = ?`; params.push(status); }
+  if (search) { sql += ` AND (name LIKE ? OR description LIKE ? OR serial_number LIKE ?)`; params.push(`%${search}%`, `%${search}%`, `%${search}%`); }
+  if (available === 'true') { sql += ` AND quantity_available > 0 AND status = 'available'`; }
+  sql += ` ORDER BY category, name`;
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows || []);
+  });
+});
+
+// GET /api/equipment/categories - Get distinct categories
+app.get('/api/equipment/categories', (req, res) => {
+  db.all(`SELECT DISTINCT category FROM equipment ORDER BY category`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json((rows || []).map(r => r.category));
+  });
+});
+
+// GET /api/equipment/:id - Get single equipment
+app.get('/api/equipment/:id', (req, res) => {
+  db.get(`SELECT * FROM equipment WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Equipment not found' });
+    res.json(row);
+  });
+});
+
+// POST /api/equipment - Create new equipment
+app.post('/api/equipment', (req, res) => {
+  const { name, category, description, serial_number, purchase_date, purchase_cost, condition, status, location, quantity, notes } = req.body;
+  if (!name) return res.status(400).json({ error: 'Equipment name required' });
+  const qty = quantity || 1;
+  db.run(
+    `INSERT INTO equipment (name, category, description, serial_number, purchase_date, purchase_cost, condition, status, location, quantity, quantity_available, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, category || 'general', description || '', serial_number || '', purchase_date || '', purchase_cost || 0, condition || 'good', status || 'available', location || '', qty, qty, notes || ''],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT * FROM equipment WHERE id = ?`, [this.lastID], (err2, row) => {
+        res.json({ success: true, equipment: row });
+      });
+    }
+  );
+});
+
+// PUT /api/equipment/:id - Update equipment
+app.put('/api/equipment/:id', (req, res) => {
+  const { name, category, description, serial_number, purchase_date, purchase_cost, condition, status, location, quantity, quantity_available, notes } = req.body;
+  db.run(
+    `UPDATE equipment SET name=COALESCE(?,name), category=COALESCE(?,category), description=COALESCE(?,description), serial_number=COALESCE(?,serial_number), purchase_date=COALESCE(?,purchase_date), purchase_cost=COALESCE(?,purchase_cost), condition=COALESCE(?,condition), status=COALESCE(?,status), location=COALESCE(?,location), quantity=COALESCE(?,quantity), quantity_available=COALESCE(?,quantity_available), notes=COALESCE(?,notes), updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+    [name, category, description, serial_number, purchase_date, purchase_cost, condition, status, location, quantity, quantity_available, notes, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      db.get(`SELECT * FROM equipment WHERE id = ?`, [req.params.id], (err2, row) => {
+        res.json({ success: true, equipment: row });
+      });
+    }
+  );
+});
+
+// DELETE /api/equipment/:id - Delete equipment
+app.delete('/api/equipment/:id', (req, res) => {
+  db.run(`DELETE FROM event_equipment WHERE equipment_id = ?`, [req.params.id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.run(`DELETE FROM equipment WHERE id = ?`, [req.params.id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true, deleted: this.changes });
+    });
+  });
+});
+
+// GET /api/equipment/stats/summary - Equipment statistics
+app.get('/api/equipment/stats/summary', (req, res) => {
+  db.get(`SELECT COUNT(*) as total_items, SUM(quantity) as total_units, SUM(purchase_cost * quantity) as total_value, SUM(CASE WHEN status='available' THEN 1 ELSE 0 END) as available_count, SUM(CASE WHEN status='maintenance' THEN 1 ELSE 0 END) as maintenance_count, SUM(CASE WHEN status='retired' THEN 1 ELSE 0 END) as retired_count FROM equipment`, [], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    db.all(`SELECT category, COUNT(*) as count, SUM(quantity) as units FROM equipment GROUP BY category ORDER BY count DESC`, [], (err2, cats) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ ...row, categories: cats || [] });
+    });
+  });
+});
+
+// ==================== EVENT-EQUIPMENT ASSIGNMENT API ====================
+
+// GET /api/events/:id/equipment - Get equipment assigned to an event
+app.get('/api/events/:id/equipment', (req, res) => {
+  db.all(
+    `SELECT ee.*, e.name as equipment_name, e.category, e.condition as current_condition, e.location as storage_location
+     FROM event_equipment ee JOIN equipment e ON ee.equipment_id = e.id
+     WHERE ee.event_id = ? ORDER BY e.category, e.name`,
+    [req.params.id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows || []);
+    }
+  );
+});
+
+// POST /api/events/:id/equipment - Assign equipment to an event
+app.post('/api/events/:id/equipment', (req, res) => {
+  const { equipment_id, quantity, notes } = req.body;
+  if (!equipment_id) return res.status(400).json({ error: 'equipment_id required' });
+  const qty = quantity || 1;
+
+  // Check availability
+  db.get(`SELECT quantity_available, name FROM equipment WHERE id = ?`, [equipment_id], (err, eq) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!eq) return res.status(404).json({ error: 'Equipment not found' });
+    if (eq.quantity_available < qty) return res.status(400).json({ error: `Only ${eq.quantity_available} of ${eq.name} available` });
+
+    db.run(
+      `INSERT INTO event_equipment (event_id, equipment_id, quantity, condition_before, notes) VALUES (?, ?, ?, 'good', ?)`,
+      [req.params.id, equipment_id, qty, notes || ''],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        // Decrease available quantity
+        db.run(`UPDATE equipment SET quantity_available = quantity_available - ? WHERE id = ?`, [qty, equipment_id]);
+        res.json({ success: true, id: this.lastID });
+      }
+    );
+  });
+});
+
+// DELETE /api/events/:id/equipment/:eeid - Remove equipment from event
+app.delete('/api/events/:id/equipment/:eeid', (req, res) => {
+  db.get(`SELECT equipment_id, quantity, checked_out FROM event_equipment WHERE id = ?`, [req.params.eeid], (err, ee) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!ee) return res.status(404).json({ error: 'Assignment not found' });
+    // Restore available quantity
+    db.run(`UPDATE equipment SET quantity_available = quantity_available + ? WHERE id = ?`, [ee.quantity, ee.equipment_id]);
+    db.run(`DELETE FROM event_equipment WHERE id = ?`, [req.params.eeid], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true, deleted: this.changes });
+    });
+  });
+});
+
+// POST /api/event-equipment/:id/checkout - Check out equipment for an event
+app.post('/api/event-equipment/:id/checkout', (req, res) => {
+  const { checked_out_by } = req.body;
+  db.run(
+    `UPDATE event_equipment SET checked_out = 1, checked_out_at = CURRENT_TIMESTAMP, checked_out_by = ? WHERE id = ? AND checked_out = 0`,
+    [checked_out_by || 'system', req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(400).json({ error: 'Already checked out or not found' });
+      res.json({ success: true, message: 'Equipment checked out' });
+    }
+  );
+});
+
+// POST /api/event-equipment/:id/checkin - Check in equipment after an event
+app.post('/api/event-equipment/:id/checkin', (req, res) => {
+  const { condition_after, checked_in_by } = req.body;
+  db.get(`SELECT * FROM event_equipment WHERE id = ?`, [req.params.id], (err, ee) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!ee) return res.status(404).json({ error: 'Assignment not found' });
+    if (!ee.checked_out) return res.status(400).json({ error: 'Equipment not checked out' });
+
+    db.run(
+      `UPDATE event_equipment SET checked_in = 1, checked_in_at = CURRENT_TIMESTAMP, checked_in_by = ?, condition_after = ? WHERE id = ?`,
+      [checked_in_by || 'system', condition_after || 'good', req.params.id],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        // Restore available quantity
+        db.run(`UPDATE equipment SET quantity_available = quantity_available + ? WHERE id = ?`, [ee.quantity, ee.equipment_id]);
+        // Update equipment condition if changed
+        if (condition_after && condition_after !== 'good') {
+          db.run(`UPDATE equipment SET condition = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [condition_after, ee.equipment_id]);
+        }
+        res.json({ success: true, message: 'Equipment checked in' });
+      }
+    );
+  });
+});
 
 // ==================== AUTH API ENDPOINTS ====================
 
@@ -1750,7 +2015,7 @@ app.post('/api/notifications/:id/retry', async (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.15.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.16.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -2689,6 +2954,6 @@ app.broadcast = broadcast;
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.15 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.16 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
