@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.39</title>
+    <title>Fresh People Event Ops v4.40</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.39</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.40</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -128,6 +128,7 @@
             <button onclick="switchTab('documents')" id="tab-documents" class="pb-2 font-semibold tab-inactive">📄 Documents</button>
             <button onclick="switchTab('comms')" id="tab-comms" class="pb-2 font-semibold tab-inactive">💬 Comms</button>
             <button onclick="switchTab('calendar')" id="tab-calendar" class="pb-2 font-semibold tab-inactive">📅 Calendar</button>
+            <button onclick="switchTab('compare')" id="tab-compare" class="pb-2 font-semibold tab-inactive">⚖️ Compare</button>
             <button onclick="switchTab('import-export')" id="tab-import-export" class="pb-2 font-semibold tab-inactive">📦 Import/Export</button>
             <button onclick="switchTab('staff-schedule')" id="tab-staff-schedule" class="pb-2 font-semibold tab-inactive">📆 Staff Schedule</button>
             <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
@@ -2685,7 +2686,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system', 'postreports'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'compare', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system', 'postreports'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2794,8 +2795,240 @@
                 loadSystemHealth();
                 loadRetentionInfo();
             }
+            if (tab === 'compare') {
+                loadCompareEvents();
+                loadBenchmarks();
+            }
         }
 
+
+        // ==================== COMPARE & BENCHMARKING JS ====================
+
+        let compareSelectedIds = [];
+        let compareBudgetChart = null;
+        let compareRatingsChart = null;
+
+        async function loadBenchmarks() {
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/benchmarks`, { headers });
+                const data = await res.json();
+                document.getElementById('benchmarkTotal').textContent = data.total_events || 0;
+                document.getElementById('benchmarkAvgBudget').textContent = 'R ' + Number(data.avg_budget || 0).toLocaleString();
+                document.getElementById('benchmarkOverBudget').textContent = (data.over_budget_pct || 0) + '%';
+                document.getElementById('benchmarkReviewRate').textContent = (data.review_rate || 0) + '%';
+            } catch (e) {
+                console.error('Error loading benchmarks:', e);
+            }
+        }
+
+        async function loadCompareEvents() {
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events?limit=100`, { headers });
+                const data = await res.json();
+                const events = data.events || [];
+                const selector = document.getElementById('compareEventSelector');
+                if (events.length === 0) {
+                    selector.innerHTML = '<p class="text-gray-500 text-sm">No events available</p>';
+                    return;
+                }
+                selector.innerHTML = events.map(e => {
+                    const isSelected = compareSelectedIds.includes(e.id);
+                    return `<button onclick="toggleCompareEvent(${e.id})" id="compare-event-${e.id}" class="px-3 py-1.5 rounded-lg text-xs font-medium transition ${isSelected ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}">${e.event || e.name || 'Event #' + e.id} (${e.date || ''})</button>`;
+                }).join('');
+                updateCompareSelectedCount();
+            } catch (e) {
+                console.error('Error loading events for comparison:', e);
+            }
+        }
+
+        function toggleCompareEvent(id) {
+            const idx = compareSelectedIds.indexOf(id);
+            if (idx > -1) {
+                compareSelectedIds.splice(idx, 1);
+            } else {
+                if (compareSelectedIds.length >= 6) {
+                    showToast('Maximum 6 events can be compared', 'warning');
+                    return;
+                }
+                compareSelectedIds.push(id);
+            }
+            // Update button style
+            const btn = document.getElementById('compare-event-' + id);
+            if (btn) {
+                if (compareSelectedIds.includes(id)) {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium transition bg-purple-600 text-white';
+                } else {
+                    btn.className = 'px-3 py-1.5 rounded-lg text-xs font-medium transition bg-gray-700 text-gray-300 hover:bg-gray-600';
+                }
+            }
+            updateCompareSelectedCount();
+        }
+
+        function updateCompareSelectedCount() {
+            document.getElementById('compareSelectedCount').textContent = compareSelectedIds.length + ' selected';
+        }
+
+        function clearComparison() {
+            compareSelectedIds = [];
+            loadCompareEvents();
+            document.getElementById('compareResults').classList.add('hidden');
+        }
+
+        async function runComparison() {
+            if (compareSelectedIds.length < 2) {
+                showToast('Select at least 2 events to compare', 'warning');
+                return;
+            }
+            try {
+                const headers = getAuthHeaders();
+                const ids = compareSelectedIds.join(',');
+                const res = await fetch(`${API}/events/compare?ids=${ids}`, { headers });
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Comparison failed');
+                }
+                const data = await res.json();
+                renderComparisonTable(data.events);
+                renderComparisonCharts(data.events);
+                renderVarianceAnalysis(data.events);
+                renderBenchmarkComparison(data.events, data.benchmarks);
+                document.getElementById('compareResults').classList.remove('hidden');
+                showToast(`Comparing ${data.events.length} events`, 'success');
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        function renderComparisonTable(events) {
+            const metrics = [
+                { key: 'name', label: 'Event Name', fmt: v => v },
+                { key: 'date', label: 'Date', fmt: v => v },
+                { key: 'status', label: 'Status', fmt: v => `<span class="text-xs px-2 py-0.5 rounded ${v === 'completed' ? 'bg-green-900 text-green-300' : v === 'confirmed' ? 'bg-blue-900 text-blue-300' : v === 'cancelled' ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}">${v}</span>` },
+                { key: 'client', label: 'Client', fmt: v => v },
+                { key: 'location', label: 'Location', fmt: v => v },
+                { key: 'guests', label: 'Guests', fmt: v => v },
+                { key: 'budget', label: 'Budget', fmt: v => 'R ' + Number(v).toLocaleString() },
+                { key: 'estimated_cost', label: 'Est. Cost', fmt: v => 'R ' + Number(v).toLocaleString() },
+                { key: 'actual_cost', label: 'Actual Cost', fmt: v => 'R ' + Number(v).toLocaleString() },
+                { key: 'budget_variance', label: 'Budget Variance', fmt: v => v > 0 ? `<span class="text-red-400">+R ${Number(v).toLocaleString()}</span>` : `<span class="text-green-400">R ${Number(v).toLocaleString()}</span>` },
+                { key: 'cost_variance', label: 'Cost Variance', fmt: v => v > 0 ? `<span class="text-red-400">+R ${Number(v).toLocaleString()}</span>` : `<span class="text-green-400">R ${Number(v).toLocaleString()}</span>` },
+                { key: 'staff_count', label: 'Staff', fmt: v => v },
+                { key: 'checkin_count', label: 'Check-Ins', fmt: v => v },
+                { key: 'avg_feedback_rating', label: 'Avg Rating', fmt: v => v > 0 ? Number(v).toFixed(1) + ' ⭐' : '—' },
+                { key: 'feedback_count', label: 'Feedback Count', fmt: v => v },
+            ];
+
+            const thead = document.querySelector('#compareTable thead tr');
+            thead.innerHTML = '<th class="px-3 py-2 text-left text-gray-400">Metric</th>' +
+                events.map((e, i) => `<th class="px-3 py-2 text-center text-gray-400">${escapeHtml(e.name || 'Event #' + e.id)}</th>`).join('');
+
+            const tbody = document.getElementById('compareTableBody');
+            tbody.innerHTML = metrics.map(m => `
+                <tr class="border-b border-gray-700 hover:bg-gray-750">
+                    <td class="px-3 py-2 text-gray-400 font-medium">${m.label}</td>
+                    ${events.map(e => `<td class="px-3 py-2 text-center">${m.fmt(e[m.key])}</td>`).join('')}
+                </tr>
+            `).join('');
+        }
+
+        function renderComparisonCharts(events) {
+            const labels = events.map(e => (e.name || 'Event #' + e.id).substring(0, 15));
+            const colors = ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
+
+            // Budget vs Actual chart
+            if (compareBudgetChart) compareBudgetChart.destroy();
+            const budgetCtx = document.getElementById('compareBudgetChart').getContext('2d');
+            compareBudgetChart = new Chart(budgetCtx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Budget', data: events.map(e => e.budget), backgroundColor: 'rgba(139, 92, 246, 0.7)', borderColor: '#8b5cf6', borderWidth: 1 },
+                        { label: 'Est. Cost', data: events.map(e => e.estimated_cost), backgroundColor: 'rgba(59, 130, 246, 0.7)', borderColor: '#3b82f6', borderWidth: 1 },
+                        { label: 'Actual Cost', data: events.map(e => e.actual_cost), backgroundColor: 'rgba(239, 68, 68, 0.7)', borderColor: '#ef4444', borderWidth: 1 },
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { labels: { color: '#9ca3af' } } }, scales: { x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } } }
+            });
+
+            // Ratings & Attendance chart
+            if (compareRatingsChart) compareRatingsChart.destroy();
+            const ratingsCtx = document.getElementById('compareRatingsChart').getContext('2d');
+            compareRatingsChart = new Chart(ratingsCtx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Guests', data: events.map(e => e.guests), backgroundColor: 'rgba(16, 185, 129, 0.7)', borderColor: '#10b981', borderWidth: 1 },
+                        { label: 'Check-Ins', data: events.map(e => e.checkin_count), backgroundColor: 'rgba(245, 158, 11, 0.7)', borderColor: '#f59e0b', borderWidth: 1 },
+                        { label: 'Avg Rating (x20)', data: events.map(e => (e.avg_feedback_rating || 0) * 20), backgroundColor: 'rgba(139, 92, 246, 0.7)', borderColor: '#8b5cf6', borderWidth: 1 },
+                    ]
+                },
+                options: { responsive: true, plugins: { legend: { labels: { color: '#9ca3af' } } }, scales: { x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }, y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } } } }
+            });
+        }
+
+        function renderVarianceAnalysis(events) {
+            const container = document.getElementById('varianceAnalysis');
+            const analyses = events.map(e => {
+                const budgetVar = e.budget_variance;
+                const costVar = e.cost_variance;
+                const budgetStatus = budgetVar > 0 ? 'over' : budgetVar < 0 ? 'under' : 'on';
+                const costStatus = costVar > 0 ? 'over' : costVar < 0 ? 'under' : 'on';
+                return { name: e.name || 'Event #' + e.id, budgetVar, costVar, budgetStatus, costStatus, budget: e.budget, actual: e.actual_cost, estimated: e.estimated_cost };
+            });
+
+            container.innerHTML = analyses.map(a => `
+                <div class="bg-gray-750 rounded-lg p-4">
+                    <div class="font-semibold mb-2">${escapeHtml(a.name)}</div>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <span class="text-gray-400">Budget:</span>
+                            <span class="${a.budgetStatus === 'over' ? 'text-red-400' : a.budgetStatus === 'under' ? 'text-green-400' : 'text-gray-300'}">
+                                ${a.budgetStatus === 'over' ? '🔴 Over by R ' + Number(a.budgetVar).toLocaleString() : a.budgetStatus === 'under' ? '🟢 Under by R ' + Number(Math.abs(a.budgetVar)).toLocaleString() : '⚪ On budget'}
+                            </span>
+                        </div>
+                        <div>
+                            <span class="text-gray-400">Estimate:</span>
+                            <span class="${a.costStatus === 'over' ? 'text-red-400' : a.costStatus === 'under' ? 'text-green-400' : 'text-gray-300'}">
+                                ${a.costStatus === 'over' ? '🔴 Over by R ' + Number(a.costVar).toLocaleString() : a.costStatus === 'under' ? '🟢 Under by R ' + Number(Math.abs(a.costVar)).toLocaleString() : '⚪ On estimate'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderBenchmarkComparison(events, benchmarks) {
+            const container = document.getElementById('benchmarkComparison');
+            const metrics = [
+                { key: 'budget', label: 'Budget', benchmark: benchmarks.avg_budget },
+                { key: 'estimated_cost', label: 'Est. Cost', benchmark: benchmarks.avg_estimated_cost },
+                { key: 'actual_cost', label: 'Actual Cost', benchmark: benchmarks.avg_actual_cost },
+                { key: 'guests', label: 'Guests', benchmark: benchmarks.avg_guests },
+            ];
+
+            container.innerHTML = metrics.map(m => {
+                const avgVal = events.reduce((s, e) => s + (e[m.key] || 0), 0) / events.length;
+                const diff = avgVal - m.benchmark;
+                const pct = m.benchmark ? ((diff / m.benchmark) * 100).toFixed(1) : 0;
+                const isPositive = diff > 0;
+                return `
+                    <div class="flex items-center justify-between bg-gray-750 rounded-lg p-3">
+                        <span class="text-gray-400">${m.label}</span>
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm">Selected avg: <strong>R ${Number(avgVal).toLocaleString()}</strong></span>
+                            <span class="text-sm">Overall avg: <strong>R ${Number(m.benchmark).toLocaleString()}</strong></span>
+                            <span class="text-xs px-2 py-0.5 rounded ${isPositive ? 'bg-red-900 text-red-300' : 'bg-green-900 text-green-300'}">
+                                ${isPositive ? '+' : ''}${pct}%
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
 
         // ==================== COMMS & ANNOUNCEMENTS JS ====================
 
@@ -10911,6 +11144,86 @@ async function runOptimize() {
             </div>
             <div id="runSheetContent">
                 <p class="text-gray-500 text-sm">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== COMPARE TAB ==================== -->
+    <div id="view-compare" class="hidden">
+        <h2 class="text-2xl font-bold text-white mb-6">⚖️ Event Comparison & Benchmarking</h2>
+
+        <!-- Benchmarks Overview -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
+                <div class="text-gray-400 text-xs">Total Events</div>
+                <div class="text-2xl font-bold" id="benchmarkTotal">0</div>
+            </div>
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
+                <div class="text-gray-400 text-xs">Avg Budget</div>
+                <div class="text-2xl font-bold" id="benchmarkAvgBudget">R 0</div>
+            </div>
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
+                <div class="text-gray-400 text-xs">Over Budget %</div>
+                <div class="text-2xl font-bold text-red-400" id="benchmarkOverBudget">0%</div>
+            </div>
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
+                <div class="text-gray-400 text-xs">Review Rate</div>
+                <div class="text-2xl font-bold text-green-400" id="benchmarkReviewRate">0%</div>
+            </div>
+        </div>
+
+        <!-- Event Selector -->
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-6">
+            <h3 class="font-semibold mb-4">Select Events to Compare (2-6 events)</h3>
+            <div class="flex flex-wrap gap-2 mb-4" id="compareEventSelector">
+                <p class="text-gray-500 text-sm">Loading events...</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="runComparison()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg font-semibold transition">⚖️ Compare Selected</button>
+                <button onclick="clearComparison()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition">Clear</button>
+                <span class="text-gray-400 text-sm" id="compareSelectedCount">0 selected</span>
+            </div>
+        </div>
+
+        <!-- Comparison Results -->
+        <div id="compareResults" class="hidden">
+            <!-- Comparison Table -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-6 overflow-x-auto">
+                <h3 class="font-semibold mb-4">📊 Side-by-Side Comparison</h3>
+                <table class="w-full text-sm" id="compareTable">
+                    <thead>
+                        <tr class="border-b border-gray-700">
+                            <th class="px-3 py-2 text-left text-gray-400">Metric</th>
+                        </tr>
+                    </thead>
+                    <tbody id="compareTableBody">
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Budget vs Actual Chart -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                    <h3 class="font-semibold mb-4">💰 Budget vs Actual Cost</h3>
+                    <canvas id="compareBudgetChart" height="250"></canvas>
+                </div>
+                <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                    <h3 class="font-semibold mb-4">⭐ Ratings & Attendance</h3>
+                    <canvas id="compareRatingsChart" height="250"></canvas>
+                </div>
+            </div>
+
+            <!-- Variance Analysis -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-6">
+                <h3 class="font-semibold mb-4">📈 Variance Analysis</h3>
+                <div id="varianceAnalysis" class="space-y-3"></div>
+            </div>
+
+            <!-- Benchmark Comparison -->
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6">
+                <h3 class="font-semibold mb-4">🎯 Benchmark Comparison</h3>
+                <p class="text-gray-400 text-sm mb-4">How selected events compare to overall averages</p>
+                <div id="benchmarkComparison" class="space-y-3"></div>
             </div>
         </div>
     </div>

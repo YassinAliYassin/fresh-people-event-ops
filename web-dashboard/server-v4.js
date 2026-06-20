@@ -4252,7 +4252,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.39.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.40.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4463,7 +4463,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.39.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.40.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4472,7 +4472,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.39.0',
+    version: '4.40.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5633,7 +5633,7 @@ app.get('/api/reports/:id/pdf', (req, res) => {
 
       // Footer
       doc.fontSize(8).font('Helvetica').text(
-        `Fresh People Event Ops v4.39 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        `Fresh People Event Ops v4.40 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
         { align: 'center' }
       );
 
@@ -7016,8 +7016,97 @@ app.put('/api/timesheets/:id/assign-period', (req, res) => {
     });
 });
 
+// ==================== EVENT COMPARISON & BENCHMARKING ====================
+
+// GET /api/events/compare?ids=1,2,3 - Compare multiple events side-by-side
+app.get('/api/events/compare', (req, res) => {
+  const ids = (req.query.ids || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (ids.length < 2) return res.status(400).json({ error: 'Provide at least 2 event IDs (?ids=1,2,3)' });
+  if (ids.length > 6) return res.status(400).json({ error: 'Maximum 6 events for comparison' });
+
+  const placeholders = ids.map(() => '?').join(',');
+  db.all(`SELECT e.*, c.name as client_name, c.company as client_company,
+    (SELECT COUNT(*) FROM event_check_ins WHERE event_id = e.id) as checkin_count,
+    (SELECT AVG(overall_rating) FROM event_reviews WHERE event_id = e.id AND overall_rating > 0) as avg_review_rating,
+    (SELECT AVG(rating) FROM attendee_feedback WHERE event_id = e.id) as avg_feedback_rating,
+    (SELECT COUNT(*) FROM attendee_feedback WHERE event_id = e.id) as feedback_count
+    FROM events e LEFT JOIN clients c ON e.client_id = c.id
+    WHERE e.id IN (${placeholders})`, ids, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!rows || rows.length < 2) return res.status(404).json({ error: 'Not enough events found' });
+
+    // Compute benchmarks (averages across all events)
+    db.get(`SELECT
+      AVG(CAST(estimated_cost AS REAL)) as avg_estimated_cost,
+      AVG(CAST(actual_cost AS REAL)) as avg_actual_cost,
+      AVG(CAST(guests AS REAL)) as avg_guests,
+      AVG(CAST(budget AS REAL)) as avg_budget
+      FROM events WHERE archived_at IS NULL`, (benchErr, bench) => {
+      if (benchErr) return res.status(500).json({ error: benchErr.message });
+
+      const events = rows.map(e => ({
+        id: e.id,
+        name: e.event,
+        date: e.date,
+        time: e.time,
+        end_time: e.end_time,
+        location: e.location,
+        status: e.status,
+        client: e.client_name || e.client || '—',
+        client_company: e.client_company || '',
+        guests: e.guests || 0,
+        budget: parseFloat(e.budget) || 0,
+        estimated_cost: parseFloat(e.estimated_cost) || 0,
+        actual_cost: parseFloat(e.actual_cost) || 0,
+        currency: e.currency || 'ZAR',
+        checkin_count: e.checkin_count || 0,
+        avg_review_rating: parseFloat(e.avg_review_rating) || 0,
+        avg_feedback_rating: parseFloat(e.avg_feedback_rating) || 0,
+        feedback_count: e.feedback_count || 0,
+        staff_count: e.staff ? (() => { try { const p = JSON.parse(e.staff); return Array.isArray(p) ? p.length : 1; } catch { return e.staff.split(/[,;]/).filter(Boolean).length; } })() : 0,
+        budget_variance: (parseFloat(e.actual_cost) || 0) - (parseFloat(e.budget) || 0),
+        cost_variance: (parseFloat(e.actual_cost) || 0) - (parseFloat(e.estimated_cost) || 0),
+      }));
+
+      res.json({
+        events,
+        benchmarks: {
+          avg_estimated_cost: parseFloat(bench.avg_estimated_cost) || 0,
+          avg_actual_cost: parseFloat(bench.avg_actual_cost) || 0,
+          avg_guests: parseFloat(bench.avg_guests) || 0,
+          avg_budget: parseFloat(bench.avg_budget) || 0,
+        }
+      });
+    });
+  });
+});
+
+// GET /api/events/benchmarks - Get overall event benchmarks
+app.get('/api/events/benchmarks', (req, res) => {
+  db.get(`SELECT
+    COUNT(*) as total_events,
+    AVG(CAST(estimated_cost AS REAL)) as avg_estimated_cost,
+    AVG(CAST(actual_cost AS REAL)) as avg_actual_cost,
+    AVG(CAST(guests AS REAL)) as avg_guests,
+    AVG(CAST(budget AS REAL)) as avg_budget,
+    SUM(CASE WHEN actual_cost > budget THEN 1 ELSE 0 END) as over_budget_count,
+    AVG(CASE WHEN review_completed = 1 THEN 1.0 ELSE 0.0 END) as review_rate
+    FROM events WHERE archived_at IS NULL`, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({
+      total_events: row.total_events || 0,
+      avg_estimated_cost: parseFloat(row.avg_estimated_cost) || 0,
+      avg_actual_cost: parseFloat(row.avg_actual_cost) || 0,
+      avg_guests: parseFloat(row.avg_guests) || 0,
+      avg_budget: parseFloat(row.avg_budget) || 0,
+      over_budget_pct: row.total_events ? Math.round((row.over_budget_count / row.total_events) * 100) : 0,
+      review_rate: Math.round((row.review_rate || 0) * 100),
+    });
+  });
+});
+
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.39 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.40 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
