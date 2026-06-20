@@ -57,7 +57,7 @@ setInterval(() => {
 // Auth middleware - checks session token or allows public paths
 function authMiddleware(req, res, next) {
   // Public paths that don't require auth
-  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws'];
+  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday'];
   if (publicPaths.includes(req.path)) return next();
   if (req.path === '/manifest.json' || req.path === '/sw.js') return next();
   if (req.path.startsWith('/icon')) return next();
@@ -69,7 +69,7 @@ function authMiddleware(req, res, next) {
   if (req.method === 'POST' && /^\/api\/events\/[^\/]+\/feedback$/.test(req.path)) return next();
 
   // Check session token from header or cookie
-  const token = req.headers['x-session-token'] || req.cookies?.sessionToken;
+  const token = req.headers['x-session-token'] || req.headers['authorization']?.replace('Bearer ', '') || req.cookies?.sessionToken;
   if (token && sessions.has(token)) {
     const session = sessions.get(token);
     if (session.expires > Date.now()) {
@@ -4167,7 +4167,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.27.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.28.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4378,7 +4378,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.27.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.28.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -5557,8 +5557,19 @@ function broadcast(data) {
 // Make broadcast available via app for use in routes
 app.broadcast = broadcast;
 
+// ==================== EVENT DAY MOBILE APP ====================
+
+// Serve event-day.html (public — no auth required for mobile event managers)
+app.get('/event-day', (req, res) => {
+  const filePath = path.join(__dirname, 'public', 'event-day.html');
+  res.sendFile(filePath);
+});
+
+// Also serve at /eventday for convenience
+app.get('/eventday', (req, res) => res.redirect('/event-day'));
+
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.26 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.28 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Event Day - Fresh People Event Ops</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; padding-bottom: 80px; }
+        
+        /* Header */
+        .ed-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 16px 20px; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid #2a2a4a; }
+        .ed-header h1 { font-size: 18px; font-weight: 700; color: #fff; }
+        .ed-header .ed-date { font-size: 12px; color: #888; margin-top: 2px; }
+        .ed-live-indicator { display: inline-flex; align-items: center; gap: 4px; background: #16a34a; color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+        .ed-live-dot { width: 6px; height: 6px; background: #fff; border-radius: 50%; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* Event Selector */
+        .ed-selector { padding: 12px 16px; background: #1a1a2e; border-bottom: 1px solid #2a2a4a; }
+        .ed-selector select { width: 100%; background: #2a2a4a; color: #fff; border: 1px solid #3a3a5a; border-radius: 8px; padding: 10px 12px; font-size: 14px; appearance: none; -webkit-appearance: none; }
+        .ed-selector select:focus { outline: none; border-color: #3b82f6; }
+
+        /* Event Overview Card */
+        .ed-overview { margin: 16px; background: linear-gradient(135deg, #1e293b 0%, #1a1a2e 100%); border-radius: 16px; padding: 20px; border: 1px solid #2a2a4a; }
+        .ed-overview .ed-event-name { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+        .ed-overview .ed-event-client { font-size: 13px; color: #94a3b8; margin-bottom: 12px; }
+        .ed-overview .ed-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .ed-meta-item { background: #0f172a; border-radius: 8px; padding: 10px; }
+        .ed-meta-item .ed-meta-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .ed-meta-item .ed-meta-value { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-top: 2px; }
+        .ed-meta-item .ed-meta-value.highlight { color: #3b82f6; }
+
+        /* Status Badge */
+        .ed-status { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .ed-status.pending { background: #fbbf24; color: #000; }
+        .ed-status.confirmed { background: #22c55e; color: #000; }
+        .ed-status.cancelled { background: #ef4444; color: #fff; }
+        .ed-status.completed { background: #3b82f6; color: #fff; }
+
+        /* Section */
+        .ed-section { margin: 16px; }
+        .ed-section-title { font-size: 14px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+
+        /* Timeline */
+        .ed-timeline { position: relative; }
+        .ed-timeline::before { content: ''; position: absolute; left: 15px; top: 0; bottom: 0; width: 2px; background: #2a2a4a; }
+        .ed-tl-item { position: relative; padding-left: 40px; padding-bottom: 16px; }
+        .ed-tl-item:last-child { padding-bottom: 0; }
+        .ed-tl-dot { position: absolute; left: 10px; top: 4px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #3a3a5a; background: #1a1a2e; z-index: 1; }
+        .ed-tl-item.completed .ed-tl-dot { background: #22c55e; border-color: #22c55e; }
+        .ed-tl-item.active .ed-tl-dot { background: #3b82f6; border-color: #3b82f6; box-shadow: 0 0 8px rgba(59,130,246,0.5); }
+        .ed-tl-item.cancelled .ed-tl-dot { background: #ef4444; border-color: #ef4444; }
+        .ed-tl-content { background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #2a2a4a; }
+        .ed-tl-item.completed .ed-tl-content { opacity: 0.6; }
+        .ed-tl-time { font-size: 12px; font-weight: 600; color: #64748b; }
+        .ed-tl-item.active .ed-tl-time { color: #3b82f6; }
+        .ed-tl-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-top: 2px; }
+        .ed-tl-desc { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+        .ed-tl-actions { margin-top: 8px; display: flex; gap: 6px; }
+        .ed-tl-btn { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; border: none; cursor: pointer; }
+        .ed-tl-btn.complete { background: #22c55e; color: #000; }
+        .ed-tl-btn.skip { background: #374151; color: #9ca3af; }
+
+        /* Status Board */
+        .ed-status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .ed-status-item { background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #2a2a4a; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .ed-status-item.active { border-color: #22c55e; background: rgba(34,197,94,0.1); }
+        .ed-status-item.inactive { border-color: #374151; }
+        .ed-status-icon { font-size: 24px; margin-bottom: 4px; }
+        .ed-status-label { font-size: 11px; font-weight: 600; color: #94a3b8; }
+        .ed-status-item.active .ed-status-label { color: #22c55e; }
+
+        /* Staff */
+        .ed-staff-list { display: flex; flex-direction: column; gap: 8px; }
+        .ed-staff-item { display: flex; align-items: center; gap: 12px; background: #1e293b; border-radius: 10px; padding: 12px; border: 1px solid #2a2a4a; }
+        .ed-staff-avatar { width: 36px; height: 36px; border-radius: 50%; background: #3b82f6; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0; }
+        .ed-staff-info { flex: 1; min-width: 0; }
+        .ed-staff-name { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+        .ed-staff-role { font-size: 11px; color: #64748b; }
+        .ed-staff-contact { display: flex; gap: 6px; }
+        .ed-staff-btn { width: 32px; height: 32px; border-radius: 8px; border: none; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+        .ed-staff-btn.call { background: #22c55e; color: #000; }
+        .ed-staff-btn.email { background: #3b82f6; color: #fff; }
+
+        /* Quick Actions */
+        .ed-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .ed-action-btn { background: #1e293b; border: 1px solid #2a2a4a; border-radius: 10px; padding: 14px; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .ed-action-btn:active { transform: scale(0.97); }
+        .ed-action-btn .ed-action-icon { font-size: 24px; margin-bottom: 4px; }
+        .ed-action-btn .ed-action-label { font-size: 12px; font-weight: 600; color: #94a3b8; }
+
+        /* Notes */
+        .ed-notes { background: #1e293b; border-radius: 10px; padding: 14px; border: 1px solid #2a2a4a; }
+        .ed-notes textarea { width: 100%; background: #0f172a; border: 1px solid #2a2a4a; border-radius: 8px; padding: 10px; color: #e2e8f0; font-size: 13px; resize: vertical; min-height: 80px; font-family: inherit; }
+        .ed-notes textarea:focus { outline: none; border-color: #3b82f6; }
+
+        /* Check-in Section */
+        .ed-checkin-stats { display: flex; gap: 12px; margin-bottom: 12px; }
+        .ed-checkin-stat { flex: 1; background: #1e293b; border-radius: 10px; padding: 12px; text-align: center; border: 1px solid #2a2a4a; }
+        .ed-checkin-stat .ed-stat-num { font-size: 24px; font-weight: 700; color: #3b82f6; }
+        .ed-checkin-stat .ed-stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; }
+
+        /* Empty State */
+        .ed-empty { text-align: center; padding: 40px 20px; color: #64748b; }
+        .ed-empty .ed-empty-icon { font-size: 48px; margin-bottom: 12px; }
+        .ed-empty .ed-empty-text { font-size: 14px; }
+
+        /* Loading */
+        .ed-loading { display: flex; align-items: center; justify-content: center; padding: 40px; }
+        .ed-spinner { width: 32px; height: 32px; border: 3px solid #2a2a4a; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Toast */
+        .ed-toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid #2a2a4a; border-radius: 10px; padding: 12px 20px; font-size: 13px; color: #e2e8f0; z-index: 1000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); transition: all 0.3s; opacity: 0; pointer-events: none; }
+        .ed-toast.show { opacity: 1; pointer-events: auto; }
+        .ed-toast.success { border-color: #22c55e; }
+        .ed-toast.error { border-color: #ef4444; }
+
+        /* FAB (Floating Action Button) */
+        .ed-fab { position: fixed; bottom: 20px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background: #3b82f6; border: none; color: #fff; font-size: 24px; cursor: pointer; box-shadow: 0 4px 16px rgba(59,130,246,0.4); z-index: 50; display: flex; align-items: center; justify-content: center; }
+
+        /* Responsive */
+        @media (min-width: 768px) {
+            .ed-overview { max-width: 600px; margin: 16px auto; }
+            .ed-section { max-width: 600px; margin: 16px auto; }
+            .ed-selector { max-width: 600px; margin: 0 auto; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="ed-header">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h1>📋 Event Day</h1>
+                <div class="ed-date" id="edCurrentDate"></div>
+            </div>
+            <div class="ed-live-indicator"><span class="ed-live-dot"></span> LIVE</div>
+        </div>
+    </div>
+
+    <!-- Event Selector -->
+    <div class="ed-selector">
+        <select id="edEventSelect" onchange="loadEventDay()">
+            <option value="">Loading events...</option>
+        </select>
+    </div>
+
+    <!-- Main Content -->
+    <div id="edContent">
+        <div class="ed-empty">
+            <div class="ed-empty-icon">📅</div>
+            <div class="ed-empty-text">Select an event above to view the event day dashboard</div>
+        </div>
+    </div>
+
+    <!-- FAB for quick check-in -->
+    <button class="ed-fab" id="edFab" onclick="showQuickCheckin()" style="display:none;" title="Quick Check-In">✅</button>
+
+    <!-- Toast -->
+    <div class="ed-toast" id="edToast"></div>
+
+    <script>
+        const API = '/api';
+        let currentEventId = null;
+        let eventDayData = null;
+
+        // Auth helper
+        function getAuthHeaders() {
+            const token = localStorage.getItem('sessionToken') || '';
+            return { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+        }
+        function getAuthHeadersNoJSON() {
+            const token = localStorage.getItem('sessionToken') || '';
+            return { 'Authorization': 'Bearer ' + token };
+        }
+
+        // Toast
+        function showToast(msg, type = '') {
+            const t = document.getElementById('edToast');
+            t.textContent = msg;
+            t.className = 'ed-toast show ' + type;
+            setTimeout(() => t.className = 'ed-toast', 3000);
+        }
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            const now = new Date();
+            document.getElementById('edCurrentDate').textContent = now.toLocaleDateString('en-ZA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            loadEventSelector();
+        });
+
+        // Load events into selector
+        async function loadEventSelector() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events?status=confirmed&limit=50`, { headers });
+                const data = await res.json();
+                const events = data.events || data || [];
+                const select = document.getElementById('edEventSelect');
+                
+                // Also get today's events
+                const todayRes = await fetch(`${API}/todays-events`, { headers });
+                const todayData = await todayRes.json();
+                const todayEvents = todayData.events || [];
+                
+                // Combine and deduplicate
+                const allEvents = [...todayEvents, ...events];
+                const seen = new Set();
+                const unique = allEvents.filter(e => {
+                    if (seen.has(e.id)) return false;
+                    seen.add(e.id);
+                    return true;
+                });
+                
+                if (unique.length === 0) {
+                    select.innerHTML = '<option value="">No events available</option>';
+                    return;
+                }
+                
+                select.innerHTML = '<option value="">-- Select Event --</option>' +
+                    unique.map(e => `<option value="${e.id}">${e.event} — ${e.date} ${e.time||''}</option>`).join('');
+                
+                // Auto-select first event
+                if (unique.length > 0) {
+                    select.value = unique[0].id;
+                    loadEventDay();
+                }
+            } catch (e) {
+                console.error('Error loading events:', e);
+                showToast('Failed to load events', 'error');
+            }
+        }
+
+        // Load event day data
+        async function loadEventDay() {
+            const select = document.getElementById('edEventSelect');
+            const eventId = select.value;
+            if (!eventId) {
+                document.getElementById('edContent').innerHTML = '<div class="ed-empty"><div class="ed-empty-icon">📅</div><div class="ed-empty-text">Select an event above to view the event day dashboard</div></div>';
+                document.getElementById('edFab').style.display = 'none';
+                return;
+            }
+            
+            currentEventId = eventId;
+            document.getElementById('edFab').style.display = 'flex';
+            
+            document.getElementById('edContent').innerHTML = '<div class="ed-loading"><div class="ed-spinner"></div></div>';
+            
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const [runsheetRes, timelineRes, statusRes, checkinRes] = await Promise.all([
+                    fetch(`${API}/events/${eventId}/runsheet`, { headers }),
+                    fetch(`${API}/events/${eventId}/timeline`, { headers }),
+                    fetch(`${API}/events/${eventId}/day-status`, { headers }),
+                    fetch(`${API}/events/${eventId}/checkins`, { headers })
+                ]);
+                
+                const runsheet = await runsheetRes.json();
+                const timeline = await timelineRes.json();
+                const status = await statusRes.json();
+                const checkins = await checkinRes.json();
+                
+                eventDayData = {
+                    runsheet: runsheet.runSheet || runsheet,
+                    timeline: timeline.timeline || timeline || [],
+                    status: status.status || status || {},
+                    checkins: checkins.checkins || checkins || []
+                };
+                
+                renderEventDay();
+            } catch (e) {
+                console.error('Error loading event day:', e);
+                document.getElementById('edContent').innerHTML = '<div class="ed-empty"><div class="ed-empty-icon">⚠️</div><div class="ed-empty-text">Failed to load event data</div></div>';
+                showToast('Failed to load event data', 'error');
+            }
+        }
+
+        // Render the event day dashboard
+        function renderEventDay() {
+            const d = eventDayData;
+            if (!d || !d.runsheet) return;
+            
+            const ev = d.runsheet.event || {};
+            const staff = d.runsheet.staff || [];
+            const timeline = Array.isArray(d.timeline) ? d.timeline : [];
+            const status = d.status || {};
+            const checkins = Array.isArray(d.checkins) ? d.checkins : [];
+            
+            // Count checked in
+            const checkedIn = checkins.length;
+            const totalStaff = staff.length;
+            
+            let html = '';
+            
+            // Event Overview Card
+            html += `
+                <div class="ed-overview">
+                    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+                        <div>
+                            <div class="ed-event-name">${escapeHtml(ev.name || 'Untitled Event')}</div>
+                            <div class="ed-event-client">${escapeHtml(ev.client || 'No client')}</div>
+                        </div>
+                        <span class="ed-status ${ev.status || 'pending'}">${ev.status || 'pending'}</span>
+                    </div>
+                    <div class="ed-meta">
+                        <div class="ed-meta-item">
+                            <div class="ed-meta-label">📅 Date</div>
+                            <div class="ed-meta-value">${ev.date || 'TBD'}</div>
+                        </div>
+                        <div class="ed-meta-item">
+                            <div class="ed-meta-label">🕐 Time</div>
+                            <div class="ed-meta-value">${ev.time || 'TBD'}</div>
+                        </div>
+                        <div class="ed-meta-item">
+                            <div class="ed-meta-label">📍 Location</div>
+                            <div class="ed-meta-value">${escapeHtml(ev.location || 'TBD')}</div>
+                        </div>
+                        <div class="ed-meta-item">
+                            <div class="ed-meta-label">👥 Guests</div>
+                            <div class="ed-meta-value">${ev.guests || 0}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Check-in Stats
+            html += `
+                <div class="ed-section">
+                    <div class="ed-section-title">✅ Check-In</div>
+                    <div class="ed-checkin-stats">
+                        <div class="ed-checkin-stat">
+                            <div class="ed-stat-num">${checkedIn}</div>
+                            <div class="ed-stat-label">Checked In</div>
+                        </div>
+                        <div class="ed-checkin-stat">
+                            <div class="ed-stat-num">${totalStaff}</div>
+                            <div class="ed-stat-label">Staff Assigned</div>
+                        </div>
+                        <div class="ed-checkin-stat">
+                            <div class="ed-stat-num">${ev.guests || 0}</div>
+                            <div class="ed-stat-label">Expected Guests</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Status Board
+            const statusItems = [
+                { key: 'venue_ready', icon: '🏛️', label: 'Venue Ready' },
+                { key: 'staff_arrived', icon: '👥', label: 'Staff Arrived' },
+                { key: 'equipment_ready', icon: '🎒', label: 'Equipment Ready' },
+                { key: 'catering_ready', icon: '🍽️', label: 'Catering Ready' },
+                { key: 'audio_ready', icon: '🔊', label: 'Audio Ready' },
+                { key: 'client_arrived', icon: '🤝', label: 'Client Arrived' },
+                { key: 'event_started', icon: '🎬', label: 'Event Started' },
+                { key: 'event_completed', icon: '🏁', label: 'Event Completed' }
+            ];
+            
+            html += `
+                <div class="ed-section">
+                    <div class="ed-section-title">📊 Status Board</div>
+                    <div class="ed-status-grid">
+                        ${statusItems.map(s => `
+                            <div class="ed-status-item ${status[s.key] ? 'active' : 'inactive'}" onclick="toggleStatus('${s.key}')">
+                                <div class="ed-status-icon">${s.icon}</div>
+                                <div class="ed-status-label">${s.label}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            
+            // Timeline
+            if (timeline.length > 0) {
+                // Find current active item based on time
+                const now = new Date();
+                const currentTime = now.getHours() * 60 + now.getMinutes();
+                
+                html += `
+                    <div class="ed-section">
+                        <div class="ed-section-title">⏰ Timeline</div>
+                        <div class="ed-timeline">
+                            ${timeline.map(item => {
+                                const itemTime = item.time || '';
+                                const isCompleted = item.status === 'completed';
+                                const isCancelled = item.status === 'cancelled';
+                                // Simple time comparison for active detection
+                                let isActive = false;
+                                if (!isCompleted && !isCancelled && itemTime) {
+                                    const parts = itemTime.split(':');
+                                    const itemMin = parseInt(parts[0]) * 60 + (parseInt(parts[1]) || 0);
+                                    isActive = itemMin <= currentTime;
+                                    // Check if next item hasn't started yet
+                                    const idx = timeline.indexOf(item);
+                                    if (idx < timeline.length - 1) {
+                                        const next = timeline[idx + 1];
+                                        const nextParts = (next.time || '').split(':');
+                                        const nextMin = parseInt(nextParts[0]) * 60 + (parseInt(nextParts[1]) || 0);
+                                        isActive = itemMin <= currentTime && nextMin > currentTime;
+                                    }
+                                }
+                                
+                                return `
+                                    <div class="ed-tl-item ${isCompleted ? 'completed' : ''} ${isActive ? 'active' : ''} ${isCancelled ? 'cancelled' : ''}">
+                                        <div class="ed-tl-dot"></div>
+                                        <div class="ed-tl-content">
+                                            <div class="ed-tl-time">${itemTime}</div>
+                                            <div class="ed-tl-title">${escapeHtml(item.title || item.name || 'Untitled')}</div>
+                                            ${item.description ? `<div class="ed-tl-desc">${escapeHtml(item.description)}</div>` : ''}
+                                            ${!isCompleted && !isCancelled && isActive ? `
+                                                <div class="ed-tl-actions">
+                                                    <button class="ed-tl-btn complete" onclick="completeTimelineItem(${item.id})">✓ Complete</button>
+                                                    <button class="ed-tl-btn skip" onclick="skipTimelineItem(${item.id})">→ Skip</button>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="ed-section">
+                        <div class="ed-section-title">⏰ Timeline</div>
+                        <div class="ed-notes">
+                            <p style="color:#64748b;font-size:13px;margin-bottom:8px;">No timeline items. Load a template or add items.</p>
+                            <button class="ed-tl-btn complete" onclick="loadTimelineTemplate()" style="width:100%;padding:10px;">📋 Load Default Template</button>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Staff
+            if (staff.length > 0) {
+                html += `
+                    <div class="ed-section">
+                        <div class="ed-section-title">👥 Staff (${staff.length})</div>
+                        <div class="ed-staff-list">
+                            ${staff.map(s => `
+                                <div class="ed-staff-item">
+                                    <div class="ed-staff-avatar">${(s.name || '?').charAt(0).toUpperCase()}</div>
+                                    <div class="ed-staff-info">
+                                        <div class="ed-staff-name">${escapeHtml(s.name || 'Unknown')}</div>
+                                        <div class="ed-staff-role">${escapeHtml(s.role || 'Staff')}</div>
+                                    </div>
+                                    <div class="ed-staff-contact">
+                                        ${s.phone ? `<a href="tel:${s.phone}" class="ed-staff-btn call">📱</a>` : ''}
+                                        ${s.email ? `<a href="mailto:${s.email}" class="ed-staff-btn email">✉️</a>` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Quick Actions
+            html += `
+                <div class="ed-section">
+                    <div class="ed-section-title">⚡ Quick Actions</div>
+                    <div class="ed-actions">
+                        <div class="ed-action-btn" onclick="showQRCode()">
+                            <div class="ed-action-icon">📱</div>
+                            <div class="ed-action-label">QR Check-In</div>
+                        </div>
+                        <div class="ed-action-btn" onclick="showQuickCheckin()">
+                            <div class="ed-action-icon">✅</div>
+                            <div class="ed-action-label">Manual Check-In</div>
+                        </div>
+                        <div class="ed-action-btn" onclick="sendStaffNotification()">
+                            <div class="ed-action-icon">📢</div>
+                            <div class="ed-action-label">Notify Staff</div>
+                        </div>
+                        <div class="ed-action-btn" onclick="loadEventDay()">
+                            <div class="ed-action-icon">🔄</div>
+                            <div class="ed-action-label">Refresh</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Event Notes
+            html += `
+                <div class="ed-section">
+                    <div class="ed-section-title">📝 Event Notes</div>
+                    <div class="ed-notes">
+                        <textarea id="edEventNotes" placeholder="Add event day notes..." onblur="saveNotes(this.value)">${escapeHtml(ev.notes || '')}</textarea>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('edContent').innerHTML = html;
+        }
+
+        // Toggle status board item
+        async function toggleStatus(key) {
+            if (!currentEventId) return;
+            const current = eventDayData.status[key];
+            const newStatus = !current;
+            
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${currentEventId}/day-status`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ [key]: newStatus })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    eventDayData.status = data.status || eventDayData.status;
+                    eventDayData.status[key] = newStatus;
+                    renderEventDay();
+                    showToast(`${key.replace(/_/g, ' ')} ${newStatus ? '✓' : '✗'}`, newStatus ? 'success' : '');
+                }
+            } catch (e) {
+                showToast('Failed to update status', 'error');
+            }
+        }
+
+        // Complete timeline item
+        async function completeTimelineItem(itemId) {
+            if (!currentEventId) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${currentEventId}/timeline/${itemId}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ status: 'completed' })
+                });
+                if (res.ok) {
+                    showToast('Item completed ✓', 'success');
+                    loadEventDay();
+                }
+            } catch (e) {
+                showToast('Failed to update', 'error');
+            }
+        }
+
+        // Skip timeline item
+        async function skipTimelineItem(itemId) {
+            if (!currentEventId) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${currentEventId}/timeline/${itemId}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ status: 'skipped' })
+                });
+                if (res.ok) {
+                    showToast('Item skipped');
+                    loadEventDay();
+                }
+            } catch (e) {
+                showToast('Failed to update', 'error');
+            }
+        }
+
+        // Load timeline template
+        async function loadTimelineTemplate() {
+            if (!currentEventId) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${currentEventId}/timeline/load-template`, {
+                    method: 'POST',
+                    headers
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Template loaded: ${data.count} items`, 'success');
+                    loadEventDay();
+                }
+            } catch (e) {
+                showToast('Failed to load template', 'error');
+            }
+        }
+
+        // Show QR code for check-in
+        async function showQRCode() {
+            if (!currentEventId) return;
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${currentEventId}/checkin-code`, { headers });
+                const data = await res.json();
+                if (data.qrCode) {
+                    // Open in new window
+                    const w = window.open('', '_blank', 'width=400,height=500');
+                    w.document.write(`<!DOCTYPE html><html><head><title>Check-In QR</title><style>body{background:#1a1a2e;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;padding:20px;}img{max-width:300px;border-radius:12px;}h2{margin-bottom:16px;}p{color:#94a3b8;margin-top:12px;text-align:center;}</style></head><body><h2>📱 Check-In Code</h2><img src="${data.qrCode}" alt="QR Code"><p>Scan to check in to the event</p></body></html>`);
+                }
+            } catch (e) {
+                showToast('Failed to generate QR code', 'error');
+            }
+        }
+
+        // Quick check-in
+        function showQuickCheckin() {
+            if (!currentEventId) return;
+            const name = prompt('Enter name to check in:');
+            if (!name || !name.trim()) return;
+            
+            // Get check-in code for this event
+            fetch(`${API}/events/${currentEventId}/checkin-toggle`, { method: 'POST', headers: getAuthHeaders() })
+                .then(() => fetch(`${API}/events/${currentEventId}/checkin-code`, { headers: getAuthHeadersNoJSON() }))
+                .then(res => res.json())
+                .then(data => {
+                    if (data.checkInCode) {
+                        // Do public check-in
+                        return fetch(`${API}/checkin/${data.checkInCode}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name: name.trim(), type: 'guest' })
+                        });
+                    }
+                })
+                .then(res => {
+                    if (res && res.ok) {
+                        showToast(`${name} checked in ✓`, 'success');
+                        loadEventDay();
+                    } else {
+                        showToast('Check-in failed', 'error');
+                    }
+                })
+                .catch(e => {
+                    showToast('Check-in failed', 'error');
+                });
+        }
+
+        // Send staff notification
+        async function sendStaffNotification() {
+            if (!currentEventId) return;
+            const message = prompt('Enter notification message:');
+            if (!message || !message.trim()) return;
+            
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${currentEventId}/notify`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ message: message.trim() })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Notification sent to ${data.count || 0} staff`, 'success');
+                }
+            } catch (e) {
+                showToast('Failed to send notification', 'error');
+            }
+        }
+
+        // Save notes
+        async function saveNotes(notes) {
+            if (!currentEventId) return;
+            try {
+                const headers = getAuthHeaders();
+                await fetch(`${API}/events/${currentEventId}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ notes })
+                });
+                showToast('Notes saved', 'success');
+            } catch (e) {
+                showToast('Failed to save notes', 'error');
+            }
+        }
+
+        // Escape HTML
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            if (currentEventId) loadEventDay();
+        }, 30000);
+    </script>
+</body>
+</html>
