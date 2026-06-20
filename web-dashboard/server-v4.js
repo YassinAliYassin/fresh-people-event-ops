@@ -112,7 +112,7 @@ app.use(authMiddleware);
 function logAudit(action, entityType, entityId, entityName, details, req) {
   const username = req?.user?.username || 'system';
   const ip = req?.ip || req?.connection?.remoteAddress || '';
-  const ua = req?.headers?.user-agent || '';
+  const ua = req?.headers?.['user-agent'] || '';
   db.run(
     `INSERT INTO audit_log (username, action, entity_type, entity_id, entity_name, details, ip_address, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [username, action, entityType, String(entityId || ''), entityName || '', details || '', ip, ua],
@@ -2048,6 +2048,7 @@ app.post('/api/auth/setup', (req, res) => {
 
 // POST /api/auth/register - register new user (admin only can create users)
 app.post('/api/auth/register', (req, res) => {
+  if (!req.body) return res.status(400).json({ error: 'Request body required' });
   const { username, password, display_name, role } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -4399,7 +4400,117 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.32.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.33.0', timestamp: new Date().toISOString() });
+});
+
+// ==================== SYSTEM HEALTH & DATA RETENTION ====================
+
+// GET /api/system/health - Comprehensive system health check
+app.get('/api/system/health', (req, res) => {
+  const health = {
+    status: 'ok',
+    version: '4.33.0',
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString(),
+    database: { tables: 0, size: 0, integrity: 'unknown' },
+    services: { pm2: 'unknown' }
+  };
+
+  // Check DB integrity and stats
+  db.get(`PRAGMA integrity_check`, (err, row) => {
+    health.database.integrity = err ? 'error' : (row?.integrity_check || 'ok');
+    db.get(`SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table'`, (err2, row2) => {
+      health.database.tables = row2?.cnt || 0;
+      // Get DB file size
+      try {
+        const stat = require('fs').statSync(DB_PATH);
+        health.database.size = stat.size;
+        health.database.sizeMB = Math.round(stat.size / 1024 / 1024 * 100) / 100;
+      } catch(e) { health.database.size = 0; }
+
+      // Table row counts
+      const counts = {};
+      const tables = ['events','staff','clients','equipment','venues','users','audit_log','email_notifications','event_tasks','event_reviews','documents','suppliers','budgets','event_templates','announcements'];
+      let i = 0;
+      function countNext() {
+        if (i >= tables.length) {
+          health.database.counts = counts;
+          return res.json(health);
+        }
+        const t = tables[i++];
+        db.get(`SELECT COUNT(*) as c FROM ${t}`, (e, r) => {
+          counts[t] = r?.c || 0;
+          countNext();
+        });
+      }
+      countNext();
+    });
+  });
+});
+
+// POST /api/system/cleanup - Data retention cleanup
+app.post('/api/system/cleanup', (req, res) => {
+  const { auditDays = 90, notificationDays = 30, backupDays = 30 } = req.body || {};
+  const results = { audit: 0, notifications: 0, backups: 0 };
+
+  // Clean old audit logs
+  db.run(`DELETE FROM audit_log WHERE created_at < datetime('now', '-${auditDays} days')`, function(err) {
+    results.audit = err ? 0 : (this.changes || 0);
+    // Clean old sent/failed notifications
+    db.run(`DELETE FROM email_notifications WHERE status IN ('sent','failed') AND created_at < datetime('now', '-${notificationDays} days')`, function(err2) {
+      results.notifications = err2 ? 0 : (this.changes || 0);
+      // Clean old backups
+      try {
+        const backupDir = path.join(__dirname, '..', 'backups');
+        const files = require('fs').readdirSync(backupDir);
+        const cutoff = Date.now() - (backupDays * 24 * 60 * 60 * 1000);
+        let cleaned = 0;
+        for (const f of files) {
+          const stat = require('fs').statSync(path.join(backupDir, f));
+          if (stat.mtimeMs < cutoff) {
+            require('fs').unlinkSync(path.join(backupDir, f));
+            cleaned++;
+          }
+        }
+        results.backups = cleaned;
+      } catch(e) { results.backups = 0; }
+
+      logAudit('system_cleanup', 'system', 'cleanup', 'Data retention cleanup', JSON.stringify(results), req);
+      res.json({ success: true, cleaned: results, message: `Cleaned: ${results.audit} audit logs, ${results.notifications} notifications, ${results.backups} backups` });
+    });
+  });
+});
+
+// POST /api/system/optimize - Database optimization (VACUUM + ANALYZE)
+app.post('/api/system/optimize', (req, res) => {
+  const startTime = Date.now();
+  db.exec('VACUUM', (err) => {
+    if (err) return res.status(500).json({ error: 'VACUUM failed: ' + err.message });
+    db.exec('ANALYZE', (err2) => {
+      const duration = Date.now() - startTime;
+      logAudit('system_optimize', 'system', 'optimize', 'DB optimization', `VACUUM+ANALYZE in ${duration}ms`, req);
+      res.json({ success: true, message: `Database optimized in ${duration}ms (VACUUM + ANALYZE)` });
+    });
+  });
+});
+
+// GET /api/system/retention-info - Current data retention stats
+app.get('/api/system/retention-info', (req, res) => {
+  const info = {};
+  db.get(`SELECT COUNT(*) as total, SUM(CASE WHEN created_at < datetime('now', '-90 days') THEN 1 ELSE 0 END) as old FROM audit_log`, (e, r) => {
+    info.audit_log = { total: r?.total || 0, olderThan90d: r?.old || 0 };
+    db.get(`SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('sent','failed') AND created_at < datetime('now', '-30 days') THEN 1 ELSE 0 END) as old FROM email_notifications`, (e2, r2) => {
+      info.email_notifications = { total: r2?.total || 0, olderThan30d: r2?.old || 0 };
+      try {
+        const backupDir = path.join(__dirname, '..', 'backups');
+        const files = require('fs').readdirSync(backupDir);
+        const cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+        info.backups = { total: files.length, olderThan30d: files.filter(f => require('fs').statSync(path.join(backupDir, f)).mtimeMs < cutoff).length };
+      } catch(e) { info.backups = { total: 0, olderThan30d: 0 }; }
+      res.json(info);
+    });
+  });
 });
 
 // ==================== STAFF SCHEDULING CALENDAR ====================
@@ -5815,6 +5926,6 @@ defaultPhones.forEach(p => {
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.32 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.33 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

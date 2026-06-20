@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.32</title>
+    <title>Fresh People Event Ops v4.33</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -132,6 +132,89 @@
             <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
             <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
             <button onclick="switchTab('event-templates')" id="tab-event-templates" class="pb-2 font-semibold tab-inactive">📋 Templates</button>
+            <button onclick="switchTab('system')" id="tab-system" class="pb-2 font-semibold tab-inactive">⚙️ System</button>
+        </div>
+
+        <!-- ==================== SYSTEM TAB ==================== -->
+        <div id="view-system" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-white">⚙️ System Health &amp; Maintenance</h2>
+                <button onclick="loadSystemHealth()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm">🔄 Refresh</button>
+            </div>
+
+            <!-- Health Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-gray-400 text-xs mb-1">Status</div>
+                    <div id="sys-status" class="text-lg font-bold text-green-400">—</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-gray-400 text-xs mb-1">Uptime</div>
+                    <div id="sys-uptime" class="text-lg font-bold text-blue-400">—</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-gray-400 text-xs mb-1">DB Size</div>
+                    <div id="sys-dbsize" class="text-lg font-bold text-yellow-400">—</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-gray-400 text-xs mb-1">DB Tables</div>
+                    <div id="sys-dbtables" class="text-lg font-bold text-purple-400">—</div>
+                </div>
+            </div>
+
+            <!-- Memory & Integrity -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-gray-400 text-xs mb-2">Memory Usage</div>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between"><span class="text-gray-400">RSS</span><span id="sys-mem-rss" class="text-white">—</span></div>
+                        <div class="flex justify-between"><span class="text-gray-400">Heap Used</span><span id="sys-mem-heap" class="text-white">—</span></div>
+                        <div class="flex justify-between"><span class="text-gray-400">Heap Total</span><span id="sys-mem-heaptotal" class="text-white">—</span></div>
+                    </div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-gray-400 text-xs mb-2">Database Integrity</div>
+                    <div id="sys-integrity" class="text-lg font-bold text-green-400 mb-2">—</div>
+                    <div class="text-gray-400 text-xs mb-1">Row Counts</div>
+                    <div id="sys-counts" class="text-xs text-gray-300 space-y-0.5 max-h-32 overflow-y-auto"></div>
+                </div>
+            </div>
+
+            <!-- Data Retention -->
+            <div class="bg-gray-800 rounded-lg p-4 mb-6">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-bold text-white">🧹 Data Retention</h3>
+                    <button onclick="loadRetentionInfo()" class="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded">Check</button>
+                </div>
+                <div id="retention-info" class="grid grid-cols-3 gap-4 text-sm">
+                    <div class="text-center">
+                        <div class="text-gray-400 text-xs">Audit Logs</div>
+                        <div id="ret-audit" class="text-white font-bold">—</div>
+                        <div class="text-gray-500 text-xs">old: <span id="ret-audit-old">—</span></div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-gray-400 text-xs">Notifications</div>
+                        <div id="ret-notif" class="text-white font-bold">—</div>
+                        <div class="text-gray-500 text-xs">old: <span id="ret-notif-old">—</span></div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-gray-400 text-xs">Backups</div>
+                        <div id="ret-backup" class="text-white font-bold">—</div>
+                        <div class="text-gray-500 text-xs">old: <span id="ret-backup-old">—</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button onclick="runCleanup()" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-3 rounded-lg text-sm font-semibold transition">
+                    🧹 Run Cleanup (90d audit, 30d notifications, 30d backups)
+                </button>
+                <button onclick="runOptimize()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-3 rounded-lg text-sm font-semibold transition">
+                    🗜️ Optimize Database (VACUUM + ANALYZE)
+                </button>
+            </div>
+            <div id="system-action-result" class="mt-3 text-sm hidden"></div>
         </div>
 
         <!-- ==================== ARCHIVE TAB ==================== -->
@@ -2524,7 +2607,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2622,6 +2705,10 @@
             }
             if (tab === 'event-templates') {
                 loadTemplates();
+            }
+            if (tab === 'system') {
+                loadSystemHealth();
+                loadRetentionInfo();
             }
         }
 
@@ -7967,6 +8054,115 @@ function injectVenueDetailModal() {
 }
 
 // ==================== END IMPORT/EXPORT FUNCTIONS ====================
+
+// ==================== SYSTEM HEALTH & MAINTENANCE JS ====================
+
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return Math.round(bytes / 1024) + ' KB';
+  return Math.round(bytes / 1048576 * 100) / 100 + ' MB';
+}
+
+async function loadSystemHealth() {
+  try {
+    const r = await fetch('/api/system/health');
+    const d = await r.json();
+    document.getElementById('sys-status').textContent = d.status === 'ok' ? '✅ OK' : '❌ ' + d.status;
+    document.getElementById('sys-status').className = 'text-lg font-bold ' + (d.status === 'ok' ? 'text-green-400' : 'text-red-400');
+    document.getElementById('sys-uptime').textContent = formatUptime(d.uptime);
+    document.getElementById('sys-dbsize').textContent = d.database?.sizeMB ? d.database.sizeMB + ' MB' : '—';
+    document.getElementById('sys-dbtables').textContent = d.database?.tables || '—';
+    if (d.memory) {
+      document.getElementById('sys-mem-rss').textContent = formatBytes(d.memory.rss);
+      document.getElementById('sys-mem-heap').textContent = formatBytes(d.memory.heapUsed);
+      document.getElementById('sys-mem-heaptotal').textContent = formatBytes(d.memory.heapTotal);
+    }
+    document.getElementById('sys-integrity').textContent = d.database?.integrity === 'ok' ? '✅ OK' : '⚠️ ' + (d.database?.integrity || 'unknown');
+    document.getElementById('sys-integrity').className = 'text-lg font-bold ' + (d.database?.integrity === 'ok' ? 'text-green-400' : 'text-yellow-400');
+    if (d.database?.counts) {
+      document.getElementById('sys-counts').innerHTML = Object.entries(d.database.counts).map(([k,v]) =>
+        `<div class="flex justify-between"><span class="text-gray-400">${k}</span><span class="text-white">${v}</span></div>`
+      ).join('');
+    }
+  } catch(e) {
+    console.error('System health load failed:', e);
+  }
+}
+
+async function loadRetentionInfo() {
+  try {
+    const r = await fetch('/api/system/retention-info');
+    const d = await r.json();
+    if (d.audit_log) {
+      document.getElementById('ret-audit').textContent = d.audit_log.total;
+      document.getElementById('ret-audit-old').textContent = d.audit_log.olderThan90d;
+    }
+    if (d.email_notifications) {
+      document.getElementById('ret-notif').textContent = d.email_notifications.total;
+      document.getElementById('ret-notif-old').textContent = d.email_notifications.olderThan30d;
+    }
+    if (d.backups) {
+      document.getElementById('ret-backup').textContent = d.backups.total;
+      document.getElementById('ret-backup-old').textContent = d.backups.olderThan30d;
+    }
+  } catch(e) {
+    console.error('Retention info load failed:', e);
+  }
+}
+
+async function runCleanup() {
+  const btn = document.querySelector('button[onclick="runCleanup()"]');
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+  try {
+    const r = await fetch('/api/system/cleanup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    const resultDiv = document.getElementById('system-action-result');
+    resultDiv.classList.remove('hidden');
+    resultDiv.className = 'mt-3 text-sm text-green-400';
+    resultDiv.textContent = '✅ ' + d.message;
+    loadSystemHealth();
+    loadRetentionInfo();
+  } catch(e) {
+    const resultDiv = document.getElementById('system-action-result');
+    resultDiv.classList.remove('hidden');
+    resultDiv.className = 'mt-3 text-sm text-red-400';
+    resultDiv.textContent = '❌ Cleanup failed: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = '🧹 Run Cleanup (90d audit, 30d notifications, 30d backups)';
+}
+
+async function runOptimize() {
+  const btn = document.querySelector('button[onclick="runOptimize()"]');
+  btn.disabled = true;
+  btn.textContent = '⏳ Optimizing...';
+  try {
+    const r = await fetch('/api/system/optimize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    const resultDiv = document.getElementById('system-action-result');
+    resultDiv.classList.remove('hidden');
+    resultDiv.className = 'mt-3 text-sm text-green-400';
+    resultDiv.textContent = '✅ ' + d.message;
+    loadSystemHealth();
+  } catch(e) {
+    const resultDiv = document.getElementById('system-action-result');
+    resultDiv.classList.remove('hidden');
+    resultDiv.className = 'mt-3 text-sm text-red-400';
+    resultDiv.textContent = '❌ Optimization failed: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = '🗜️ Optimize Database (VACUUM + ANALYZE)';
+}
 
 </script>
 
