@@ -57,8 +57,9 @@ setInterval(() => {
 // Auth middleware - checks session token or allows public paths
 function authMiddleware(req, res, next) {
   // Public paths that don't require auth
-  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday'];
+  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday', '/client-portal'];
   if (publicPaths.includes(req.path)) return next();
+  if (req.path.startsWith('/api/portal')) return next();
   if (req.path === '/manifest.json' || req.path === '/sw.js') return next();
   if (req.path.startsWith('/icon')) return next();
   if (req.path.startsWith('/uploads/')) return next();
@@ -381,9 +382,24 @@ db.run(`CREATE TABLE IF NOT EXISTS clients (
   total_events INTEGER DEFAULT 0,
   total_revenue REAL DEFAULT 0,
   last_event_date TEXT DEFAULT '',
+  portal_token TEXT DEFAULT '',
+  portal_enabled INTEGER DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
+
+// Add portal_token to clients table (migration)
+db.run(`ALTER TABLE clients ADD COLUMN portal_token TEXT DEFAULT ''`, () => {});
+db.run(`ALTER TABLE clients ADD COLUMN portal_enabled INTEGER DEFAULT 1`, () => {});
+
+// Generate portal tokens for existing clients that have empty tokens
+db.all(`SELECT id FROM clients WHERE portal_token = '' OR portal_token IS NULL`, (err, clients) => {
+  if (err || !clients) return;
+  clients.forEach(c => {
+    const token = uuidv4().replace(/-/g, '').slice(0, 16);
+    db.run(`UPDATE clients SET portal_token = ? WHERE id = ?`, [token, c.id]);
+  });
+});
 
 // Add client_id to events table (migration)
 db.run(`ALTER TABLE events ADD COLUMN client_id INTEGER DEFAULT 0`, () => {});
@@ -4191,7 +4207,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.32.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.35.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4402,7 +4418,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.34.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.35.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4411,7 +4427,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.34.0',
+    version: '4.35.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5598,11 +5614,12 @@ app.post('/api/clients', (req, res) => {
 
   const tagsJson = Array.isArray(tags) ? JSON.stringify(tags) : (tags || '[]');
   const now = new Date().toISOString();
+  const portalToken = uuidv4().replace(/-/g, '').slice(0, 16);
 
   db.run(
-    `INSERT INTO clients (name, company, email, phone, address, vat_number, payment_terms, notes, tags, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [name, company || '', email || '', phone || '', address || '', vat_number || '', payment_terms || '30 days', notes || '', tagsJson, now],
+    `INSERT INTO clients (name, company, email, phone, address, vat_number, payment_terms, notes, tags, portal_token, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [name, company || '', email || '', phone || '', address || '', vat_number || '', payment_terms || '30 days', notes || '', tagsJson, portalToken, now],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -5622,6 +5639,8 @@ app.post('/api/clients', (req, res) => {
       res.json({
         success: true,
         id: this.lastID,
+        portal_token: portalToken,
+        portal_url: `/client-portal?token=${portalToken}`,
         message: `Client "${name}" created successfully`,
       });
     }
@@ -5631,7 +5650,7 @@ app.post('/api/clients', (req, res) => {
 // PUT /api/clients/:id - Update client
 app.put('/api/clients/:id', (req, res) => {
   const { id } = req.params;
-  const { name, company, email, phone, address, vat_number, payment_terms, notes, tags, is_active } = req.body;
+  const { name, company, email, phone, address, vat_number, payment_terms, notes, tags, is_active, portal_enabled } = req.body;
 
   if (!name) return res.status(400).json({ error: 'Client name is required' });
 
@@ -5640,9 +5659,9 @@ app.put('/api/clients/:id', (req, res) => {
 
   db.run(
     `UPDATE clients SET name = ?, company = ?, email = ?, phone = ?, address = ?,
-     vat_number = ?, payment_terms = ?, notes = ?, tags = ?, is_active = ?, updated_at = ?
+     vat_number = ?, payment_terms = ?, notes = ?, tags = ?, is_active = ?, portal_enabled = ?, updated_at = ?
      WHERE id = ?`,
-    [name, company || '', email || '', phone || '', address || '', vat_number || '', payment_terms || '30 days', notes || '', tagsJson, is_active !== undefined ? (is_active ? 1 : 0) : 1, now, id],
+    [name, company || '', email || '', phone || '', address || '', vat_number || '', payment_terms || '30 days', notes || '', tagsJson, is_active !== undefined ? (is_active ? 1 : 0) : 1, portal_enabled !== undefined ? (portal_enabled ? 1 : 0) : 1, now, id],
     function(err) {
       if (err) return res.status(500).json({ error: err.message });
       if (this.changes === 0) return res.status(404).json({ error: 'Client not found' });
@@ -6078,6 +6097,173 @@ app.broadcast = broadcast;
 
 // ==================== EVENT DAY MOBILE APP ====================
 
+// ==================== CLIENT SELF-SERVICE PORTAL ====================
+
+// Client portal auth middleware - validates token from query param or header
+function clientPortalAuth(req, res, next) {
+  const token = req.query.token || req.headers['x-client-token'] || req.body?.portal_token;
+  if (!token) return res.status(401).json({ error: 'Portal access token required' });
+
+  db.get(`SELECT * FROM clients WHERE portal_token = ? AND portal_enabled = 1 AND is_active = 1`, [token], (err, client) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!client) return res.status(401).json({ error: 'Invalid or expired portal token' });
+    req.portalClient = client;
+    next();
+  });
+}
+
+// GET /api/portal/events - Get client's events (portal auth)
+app.get('/api/portal/events', clientPortalAuth, (req, res) => {
+  const { status, from, to } = req.query;
+  const clientId = req.portalClient.id;
+  let where = ['e.client_id = ?'];
+  let params = [clientId];
+  if (status) { where.push('e.status = ?'); params.push(status); }
+  if (from) { where.push('e.date >= ?'); params.push(from); }
+  if (to) { where.push('e.date <= ?'); params.push(to); }
+  where.push('e.archived_at IS NULL');
+
+  db.all(
+    `SELECT e.*, c.name as client_name, c.company as client_company,
+            v.name as venue_name, v.city as venue_city
+     FROM events e
+     LEFT JOIN clients c ON e.client_id = c.id
+     LEFT JOIN venues v ON e.venue_id = v.id
+     WHERE ${where.join(' AND ')}
+     ORDER BY e.date DESC, e.time DESC`,
+    params,
+    (err, events) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, client: { id: clientId, name: req.portalClient.name, company: req.portalClient.company }, events: events || [] });
+    }
+  );
+});
+
+// GET /api/portal/event/:id - Get single event details (portal auth)
+app.get('/api/portal/event/:id', clientPortalAuth, (req, res) => {
+  const clientId = req.portalClient.id;
+  db.get(
+    `SELECT e.*, c.name as client_name, c.company as client_company,
+            v.name as venue_name, v.address as venue_address, v.city as venue_city
+     FROM events e
+     LEFT JOIN clients c ON e.client_id = c.id
+     LEFT JOIN venues v ON e.venue_id = v.id
+     WHERE e.id = ? AND e.client_id = ?`,
+    [req.params.id, clientId],
+    (err, event) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!event) return res.status(404).json({ error: 'Event not found' });
+
+      // Get assigned staff
+      db.all(
+        `SELECT s.name, s.role, s.phone FROM staff s
+         WHERE s.active = 1 AND s.name IN (SELECT value FROM json_each(?))`,
+        [event.staff || '[]'],
+        (err2, staff) => {
+          if (err2) staff = [];
+          // Get event documents
+          db.all(
+            `SELECT id, title, category, file_size, created_at FROM event_attachments WHERE event_id = ?`,
+            [req.params.id],
+            (err3, documents) => {
+              if (err3) documents = [];
+              // Get event review if exists
+              db.get(
+                `SELECT overall_rating, highlights, issues, recommendations, created_at FROM event_reviews WHERE event_id = ?`,
+                [req.params.id],
+                (err4, review) => {
+                  res.json({ success: true, event, staff: staff || [], documents: documents || [], review: review || null });
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// POST /api/portal/feedback - Submit attendee feedback (portal auth)
+app.post('/api/portal/feedback', clientPortalAuth, (req, res) => {
+  const { event_id, attendee_name, attendee_email, rating, feedback, category } = req.body;
+  if (!event_id) return res.status(400).json({ error: 'Event ID is required' });
+  if (!rating || rating < 1 || rating > 5) return res.status(400).json({ error: 'Rating must be 1-5' });
+
+  // Verify event belongs to this client
+  db.get(`SELECT id FROM events WHERE id = ? AND client_id = ?`, [event_id, req.portalClient.id], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found or access denied' });
+
+    db.run(
+      `INSERT INTO attendee_feedback (event_id, attendee_name, attendee_email, rating, feedback, category, is_public)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [event_id, attendee_name || req.portalClient.name, attendee_email || req.portalClient.email, rating, feedback || '', category || 'general'],
+      function(err2) {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ success: true, id: this.lastID, message: 'Feedback submitted successfully' });
+      }
+    );
+  });
+});
+
+// GET /api/portal/profile - Get client profile (portal auth)
+app.get('/api/portal/profile', clientPortalAuth, (req, res) => {
+  const c = req.portalClient;
+  res.json({
+    success: true,
+    client: {
+      id: c.id, name: c.name, company: c.company, email: c.email,
+      phone: c.phone, address: c.address, vat_number: c.vat_number,
+      payment_terms: c.payment_terms, tags: c.tags,
+      total_events: c.total_events, total_revenue: c.total_revenue,
+    }
+  });
+});
+
+// PUT /api/portal/profile - Update client profile (portal auth)
+app.put('/api/portal/profile', clientPortalAuth, (req, res) => {
+  const { email, phone, address, payment_terms, notes } = req.body;
+  const now = new Date().toISOString();
+  db.run(
+    `UPDATE clients SET email = COALESCE(?, email), phone = COALESCE(?, phone),
+     address = COALESCE(?, address), payment_terms = COALESCE(?, payment_terms),
+     notes = COALESCE(?, notes), updated_at = ?
+     WHERE id = ?`,
+    [email, phone, address, payment_terms, notes, now, req.portalClient.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, message: 'Profile updated successfully' });
+    }
+  );
+});
+
+// POST /api/portal/event/:id/confirm - Client confirms event details (portal auth)
+app.post('/api/portal/event/:id/confirm', clientPortalAuth, (req, res) => {
+  const clientId = req.portalClient.id;
+  db.get(`SELECT id, status FROM events WHERE id = ? AND client_id = ?`, [req.params.id, clientId], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (event.status === 'confirmed') return res.json({ success: true, message: 'Event already confirmed' });
+
+    db.run(`UPDATE events SET status = 'confirmed' WHERE id = ?`, [req.params.id], function(err2) {
+      if (err2) return res.status(500).json({ error: err2.message });
+      try { logAudit('confirm', 'event', req.params.id, event.event, `Client confirmed event`, { username: `portal:${req.portalClient.name}` }); } catch(e) {}
+      try { broadcast({ type: 'event_confirmed', eventId: req.params.id, clientId }); } catch(e) {}
+      res.json({ success: true, message: 'Event confirmed successfully' });
+    });
+  });
+});
+
+// Serve client-portal.html (public — token-based access)
+app.get('/client-portal', (req, res) => {
+  const filePath = path.join(__dirname, 'public', 'client-portal.html');
+  if (fsSync.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send('Client portal not found');
+  }
+});
+
 // Serve event-day.html (public — no auth required for mobile event managers)
 app.get('/event-day', (req, res) => {
   const filePath = path.join(__dirname, 'public', 'event-day.html');
@@ -6107,6 +6293,6 @@ seedBudgetsIfEmpty();
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.34 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.35 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

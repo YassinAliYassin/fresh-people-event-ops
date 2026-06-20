@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.34</title>
+    <title>Fresh People Event Ops v4.35</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -1653,6 +1653,23 @@
                         <p class="text-gray-400 text-xs">Total Revenue</p>
                         <p id="cdStatRevenue" class="text-xl font-bold text-yellow-400">R 0</p>
                     </div>
+                </div>
+
+                <!-- Portal Link -->
+                <div class="mb-4 bg-gray-700/50 rounded-lg p-3">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-semibold text-sm">🔗 Client Portal</h4>
+                        <label class="flex items-center gap-2">
+                            <input type="checkbox" id="cdPortalEnabled" checked class="rounded" onchange="togglePortalEnabled(this.checked)">
+                            <span class="text-xs text-gray-400">Enabled</span>
+                        </label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="cdPortalLink" readonly class="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-gray-300">
+                        <button onclick="copyPortalLink()" class="bg-gray-600 hover:bg-gray-500 text-white text-xs px-3 py-1 rounded transition">📋 Copy</button>
+                        <button onclick="openPortalLink()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1 rounded transition">🔗 Open</button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Share this link with your client so they can view events and submit feedback.</p>
                 </div>
 
                 <!-- Event History -->
@@ -5946,6 +5963,12 @@
                 document.getElementById('cdNotes').value = c.notes || '';
                 document.getElementById('cdActive').checked = !!c.is_active;
 
+                // Portal link
+                const portalUrl = c.portal_token ? `${location.origin}/client-portal?token=${c.portal_token}` : '';
+                document.getElementById('cdPortalLink').value = portalUrl || 'No portal token generated';
+                document.getElementById('cdPortalEnabled').checked = !!c.portal_enabled;
+                currentClientPortalToken = c.portal_token || '';
+
                 // Stats
                 document.getElementById('cdStatEvents').textContent = data.stats?.totalEvents || 0;
                 document.getElementById('cdStatCompleted').textContent = data.stats?.completedEvents || 0;
@@ -6002,6 +6025,50 @@
             modal.classList.add('hidden');
             modal.classList.remove('flex');
             currentClientId = null;
+            currentClientPortalToken = '';
+        }
+
+        // Portal link helpers
+        let currentClientPortalToken = '';
+
+        function copyPortalLink() {
+            const link = document.getElementById('cdPortalLink').value;
+            if (link && link !== 'No portal token generated') {
+                navigator.clipboard.writeText(link).then(() => {
+                    showToast('Portal link copied to clipboard!');
+                }).catch(() => {
+                    // Fallback
+                    const ta = document.createElement('textarea');
+                    ta.value = link;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    showToast('Portal link copied!');
+                });
+            }
+        }
+
+        function openPortalLink() {
+            const link = document.getElementById('cdPortalLink').value;
+            if (link && link !== 'No portal token generated') {
+                window.open(link, '_blank');
+            }
+        }
+
+        async function togglePortalEnabled(enabled) {
+            if (!currentClientId) return;
+            try {
+                const headers = getAuthHeadersJSON();
+                await fetch(`${API}/clients/${currentClientId}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ portal_enabled: enabled ? 1 : 0 })
+                });
+                showToast(enabled ? 'Client portal enabled' : 'Client portal disabled');
+            } catch(e) {
+                showToast('Failed to update portal status', 'error');
+            }
         }
 
         // Open new client modal (reuse detail modal with empty fields)
