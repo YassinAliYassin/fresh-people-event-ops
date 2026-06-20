@@ -4031,7 +4031,7 @@ app.post('/api/import/events', (req, res) => {
   
   const results = { imported: 0, errors: [], warnings: [] };
   
-  const stmt = db.prepare(`INSERT INTO events (event, client, date, time, location, services, staff, leader, notes, status, budget, estimated_cost, currency, guests, end_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const stmt = db.prepare(`INSERT INTO events (id, event, client, date, time, location, services, staff, leader, notes, status, budget, estimated_cost, currency, guests, end_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   
   db.serialize(() => {
     db.run('BEGIN TRANSACTION');
@@ -4252,7 +4252,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.38.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.39.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4463,7 +4463,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.38.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.39.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4472,7 +4472,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.38.0',
+    version: '4.39.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5633,7 +5633,7 @@ app.get('/api/reports/:id/pdf', (req, res) => {
 
       // Footer
       doc.fontSize(8).font('Helvetica').text(
-        `Fresh People Event Ops v4.38 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        `Fresh People Event Ops v4.39 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
         { align: 'center' }
       );
 
@@ -7018,6 +7018,6 @@ app.put('/api/timesheets/:id/assign-period', (req, res) => {
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.38 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.39 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

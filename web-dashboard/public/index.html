@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.38</title>
+    <title>Fresh People Event Ops v4.39</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.38</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.39</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -9563,7 +9563,13 @@ async function runOptimize() {
                 tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No purchase orders found</td></tr>';
                 return;
             }
-            tbody.innerHTML = allPOs.map(o => `
+            tbody.innerHTML = allPOs.map(o => {
+                const statusActions = [];
+                if (o.status === 'draft') statusActions.push(`<button onclick="updatePOStatus(${o.id},'sent')" class="text-blue-400 hover:text-blue-300 text-xs" title="Send to supplier">📤 Send</button>`);
+                if (o.status === 'sent') statusActions.push(`<button onclick="updatePOStatus(${o.id},'approved')" class="text-green-400 hover:text-green-300 text-xs" title="Approve">✓ Approve</button>`);
+                if (o.status === 'approved') statusActions.push(`<button onclick="updatePOStatus(${o.id},'delivered')" class="text-purple-400 hover:text-purple-300 text-xs" title="Mark delivered">📦 Deliver</button>`);
+                if (o.payment_status !== 'paid' && o.status !== 'cancelled') statusActions.push(`<button onclick="updatePOPayment(${o.id},'paid')" class="text-yellow-400 hover:text-yellow-300 text-xs" title="Mark paid">💵 Pay</button>`);
+                return `
                 <tr class="border-b border-gray-700 hover:bg-gray-750">
                     <td class="px-4 py-2 font-mono text-xs">${escapeHtml(o.po_number)}</td>
                     <td class="px-4 py-2">${escapeHtml(o.supplier_name || '—')}</td>
@@ -9573,11 +9579,12 @@ async function runOptimize() {
                     <td class="px-4 py-2"><span class="text-xs px-2 py-0.5 rounded ${o.status === 'delivered' ? 'bg-green-900 text-green-300' : o.status === 'approved' ? 'bg-blue-900 text-blue-300' : o.status === 'cancelled' ? 'bg-red-900 text-red-300' : 'bg-gray-700 text-gray-300'}">${o.status}</span></td>
                     <td class="px-4 py-2"><span class="text-xs px-2 py-0.5 rounded ${o.payment_status === 'paid' ? 'bg-green-900 text-green-300' : o.payment_status === 'partial' ? 'bg-yellow-900 text-yellow-300' : 'bg-red-900 text-red-300'}">${o.payment_status}</span></td>
                     <td class="px-4 py-2">
-                        <button onclick="viewPO(${o.id})" class="text-purple-400 hover:text-purple-300 text-xs mr-2">View</button>
-                        <button onclick="deletePO(${o.id})" class="text-red-400 hover:text-red-300 text-xs">Delete</button>
+                        <button onclick="viewPO(${o.id})" class="text-purple-400 hover:text-purple-300 text-xs mr-1">View</button>
+                        ${statusActions.join('<span class="mx-0.5 text-gray-600">|</span>')}
+                        <button onclick="deletePO(${o.id})" class="text-red-400 hover:text-red-300 text-xs ml-1">Delete</button>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
 
         async function openPOModal(po = null) {
@@ -9709,17 +9716,23 @@ async function runOptimize() {
                 delivery_date: document.getElementById('poFormDeliveryDate').value,
                 tax_rate: parseFloat(document.getElementById('poFormTaxRate').value) || 0,
                 notes: document.getElementById('poFormNotes').value,
-                items,
             };
             try {
                 const headers = getAuthHeaders();
                 let res;
                 if (id) {
+                    // Update PO header
                     res = await fetch(`${API}/purchase-orders/${id}`, { method: 'PUT', headers, body: JSON.stringify(body) });
+                    if (!res.ok) throw new Error((await res.json()).error || 'Failed to update PO');
+                    // Update line items via separate endpoint
+                    if (items.length > 0) {
+                        const itemsBody = { items: items.map((item, i) => ({...item, notes: '', sort_order: i})) };
+                        await fetch(`${API}/purchase-orders/${id}/items`, { method: 'PUT', headers, body: JSON.stringify(itemsBody) });
+                    }
                 } else {
-                    res = await fetch(`${API}/purchase-orders`, { method: 'POST', headers, body: JSON.stringify(body) });
+                    res = await fetch(`${API}/purchase-orders`, { method: 'POST', headers, body: JSON.stringify({...body, items}) });
+                    if (!res.ok) throw new Error((await res.json()).error || 'Failed to create PO');
                 }
-                if (!res.ok) throw new Error((await res.json()).error || 'Failed to save');
                 showToast(id ? 'Purchase order updated' : 'Purchase order created', 'success');
                 closePOModal();
                 loadPurchaseOrders();
@@ -9737,9 +9750,76 @@ async function runOptimize() {
                 const data = await res.json();
                 const po = data.purchase_order;
                 const items = data.items || [];
-                alert(`PO: ${po.po_number}\nSupplier: ${po.supplier_name}\nTotal: R ${Number(po.total).toLocaleString()}\nStatus: ${po.status}\n\nItems:\n${items.map(i => `• ${i.description} x${i.quantity} @ R${i.unit_price} = R${i.total_price}`).join('\n')}`);
+                document.getElementById('poViewNumber').textContent = po.po_number;
+                document.getElementById('poViewSupplier').textContent = po.supplier_name || '—';
+                document.getElementById('poViewCompany').textContent = po.supplier_company || '—';
+                document.getElementById('poViewEvent').textContent = po.event_name || 'General';
+                document.getElementById('poViewDescription').textContent = po.description || '—';
+                document.getElementById('poViewCategory').textContent = po.category || '—';
+                document.getElementById('poViewOrderDate').textContent = po.order_date || '—';
+                document.getElementById('poViewDeliveryDate').textContent = po.delivery_date || '—';
+                document.getElementById('poViewStatus').textContent = po.status;
+                document.getElementById('poViewStatus').className = `text-xs px-2 py-0.5 rounded ${po.status === 'delivered' ? 'bg-green-900 text-green-300' : po.status === 'approved' ? 'bg-blue-900 text-blue-300' : po.status === 'cancelled' ? 'bg-red-900 text-red-300' : 'bg-gray-700 text-gray-300'}`;
+                document.getElementById('poViewPayment').textContent = po.payment_status;
+                document.getElementById('poViewPayment').className = `text-xs px-2 py-0.5 rounded ${po.payment_status === 'paid' ? 'bg-green-900 text-green-300' : po.payment_status === 'partial' ? 'bg-yellow-900 text-yellow-300' : 'bg-red-900 text-red-300'}`;
+                document.getElementById('poViewSubtotal').textContent = 'R ' + Number(po.subtotal || 0).toFixed(2);
+                document.getElementById('poViewTax').textContent = 'R ' + Number(po.tax_amount || 0).toFixed(2);
+                document.getElementById('poViewTotal').textContent = 'R ' + Number(po.total || 0).toFixed(2);
+                document.getElementById('poViewTotal2').textContent = 'R ' + Number(po.total || 0).toFixed(2);
+                document.getElementById('poViewNotes').textContent = po.notes || '—';
+                const itemsTbody = document.getElementById('poViewItems');
+                if (items.length === 0) {
+                    itemsTbody.innerHTML = '<tr><td colspan="5" class="px-3 py-4 text-center text-gray-500 text-xs">No line items</td></tr>';
+                } else {
+                    itemsTbody.innerHTML = items.map((item, idx) => `
+                        <tr class="border-b border-gray-700">
+                            <td class="px-3 py-1.5 text-xs text-gray-400">${idx + 1}</td>
+                            <td class="px-3 py-1.5 text-xs">${escapeHtml(item.description)}</td>
+                            <td class="px-3 py-1.5 text-xs text-center">${item.quantity}</td>
+                            <td class="px-3 py-1.5 text-xs text-right">R ${Number(item.unit_price).toFixed(2)}</td>
+                            <td class="px-3 py-1.5 text-xs text-right font-semibold">R ${Number(item.total_price).toFixed(2)}</td>
+                        </tr>
+                    `).join('');
+                }
+                // Store current PO id for edit button
+                document.getElementById('poViewEditBtn').onclick = () => { closePOViewModal(); openPOModal({...po, items}); };
+                document.getElementById('poViewModal').classList.remove('hidden');
+                document.getElementById('poViewModal').classList.add('flex');
             } catch (e) {
                 showToast('Error loading PO: ' + e.message, 'error');
+            }
+        }
+
+        function closePOViewModal() {
+            document.getElementById('poViewModal').classList.add('hidden');
+            document.getElementById('poViewModal').classList.remove('flex');
+        }
+
+        async function updatePOStatus(id, status) {
+            if (!confirm(`Change PO status to "${status}"?`)) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/purchase-orders/${id}`, { method: 'PUT', headers, body: JSON.stringify({ status }) });
+                if (!res.ok) throw new Error('Failed to update status');
+                showToast(`PO status updated to ${status}`, 'success');
+                loadPurchaseOrders();
+                loadPOSummary();
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
+            }
+        }
+
+        async function updatePOPayment(id, paymentStatus) {
+            if (!confirm(`Mark payment as "${paymentStatus}"?`)) return;
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/purchase-orders/${id}`, { method: 'PUT', headers, body: JSON.stringify({ payment_status: paymentStatus, payment_date: new Date().toISOString().split('T')[0] }) });
+                if (!res.ok) throw new Error('Failed to update payment');
+                showToast(`Payment marked as ${paymentStatus}`, 'success');
+                loadPurchaseOrders();
+                loadPOSummary();
+            } catch (e) {
+                showToast('Error: ' + e.message, 'error');
             }
         }
 
@@ -10522,6 +10602,100 @@ async function runOptimize() {
             <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
                 <button onclick="closePOModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Cancel</button>
                 <button onclick="savePurchaseOrder()" class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded font-semibold">Save Order</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purchase Order View Modal -->
+    <div id="poViewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 p-4">
+        <div class="bg-gray-800 rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto border border-gray-700">
+            <div class="sticky top-0 bg-gray-800 border-b border-gray-700 p-4 flex items-center justify-between">
+                <h3 class="text-lg font-bold">PO #<span id="poViewNumber">—</span></h3>
+                <button onclick="closePOViewModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="p-4">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div class="bg-gray-750 rounded p-3">
+                        <div class="text-xs text-gray-400">Supplier</div>
+                        <div class="text-sm font-semibold" id="poViewSupplier">—</div>
+                        <div class="text-xs text-gray-500" id="poViewCompany">—</div>
+                    </div>
+                    <div class="bg-gray-750 rounded p-3">
+                        <div class="text-xs text-gray-400">Event</div>
+                        <div class="text-sm font-semibold" id="poViewEvent">—</div>
+                    </div>
+                    <div class="bg-gray-750 rounded p-3">
+                        <div class="text-xs text-gray-400">Status</div>
+                        <div class="mt-1"><span id="poViewStatus" class="text-xs px-2 py-0.5 rounded">—</span></div>
+                    </div>
+                    <div class="bg-gray-750 rounded p-3">
+                        <div class="text-xs text-gray-400">Payment</div>
+                        <div class="mt-1"><span id="poViewPayment" class="text-xs px-2 py-0.5 rounded">—</span></div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div>
+                        <div class="text-xs text-gray-400">Category</div>
+                        <div class="text-sm" id="poViewCategory">—</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400">Order Date</div>
+                        <div class="text-sm" id="poViewOrderDate">—</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400">Delivery Date</div>
+                        <div class="text-sm" id="poViewDeliveryDate">—</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-400">Total</div>
+                        <div class="text-lg font-bold text-green-400" id="poViewTotal">R 0.00</div>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <div class="text-xs text-gray-400 mb-1">Description</div>
+                    <div class="text-sm bg-gray-750 rounded p-2" id="poViewDescription">—</div>
+                </div>
+                <div class="mb-4">
+                    <h4 class="font-semibold text-sm mb-2">Line Items</h4>
+                    <div class="bg-gray-750 rounded border border-gray-700 overflow-hidden">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-700">
+                                <tr>
+                                    <th class="px-3 py-1.5 text-left text-xs">#</th>
+                                    <th class="px-3 py-1.5 text-left text-xs">Description</th>
+                                    <th class="px-3 py-1.5 text-center text-xs">Qty</th>
+                                    <th class="px-3 py-1.5 text-right text-xs">Price</th>
+                                    <th class="px-3 py-1.5 text-right text-xs">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody id="poViewItems">
+                                <tr><td colspan="5" class="px-3 py-4 text-center text-gray-500 text-xs">No line items</td></tr>
+                            </tbody>
+                            <tfoot class="bg-gray-700">
+                                <tr>
+                                    <td colspan="4" class="px-3 py-1.5 text-xs text-right">Subtotal:</td>
+                                    <td class="px-3 py-1.5 text-xs text-right font-semibold" id="poViewSubtotal">R 0.00</td>
+                                </tr>
+                                <tr>
+                                    <td colspan="4" class="px-3 py-1.5 text-xs text-right">Tax:</td>
+                                    <td class="px-3 py-1.5 text-xs text-right font-semibold" id="poViewTax">R 0.00</td>
+                                </tr>
+                                <tr class="border-t border-gray-600">
+                                    <td colspan="4" class="px-3 py-1.5 text-xs text-right font-bold">Total:</td>
+                                    <td class="px-3 py-1.5 text-xs text-right font-bold text-green-400" id="poViewTotal2">R 0.00</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <div class="text-xs text-gray-400 mb-1">Notes</div>
+                    <div class="text-sm bg-gray-750 rounded p-2" id="poViewNotes">—</div>
+                </div>
+            </div>
+            <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
+                <button onclick="closePOViewModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Close</button>
+                <button onclick="" id="poViewEditBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">✏️ Edit</button>
             </div>
         </div>
     </div>
