@@ -4167,7 +4167,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.26.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.27.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4183,6 +4183,54 @@ app.get('/api/export/full-backup', (req, res) => {
 });
 
 // ==================== END DATA IMPORT/EXPORT ====================
+
+// ==================== GLOBAL SEARCH ====================
+
+// GET /api/search - Global search across events, staff, clients, equipment, venues, documents
+app.get('/api/search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q || q.length < 2) return res.json({ results: [], total: 0 });
+  const like = `%${q}%`;
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  const results = [];
+
+  const queries = [
+    { type: 'event', label: 'Event', fields: ['id', 'event', 'client', 'location', 'notes'], table: 'events', where: `archived_at IS NULL AND (id LIKE ? OR event LIKE ? OR client LIKE ? OR location LIKE ? OR notes LIKE ?)` },
+    { type: 'staff', label: 'Staff', fields: ['id', 'name', 'role', 'phone'], table: 'staff', where: `active = 1 AND (name LIKE ? OR role LIKE ? OR phone LIKE ? OR skills LIKE ?)` },
+    { type: 'client', label: 'Client', fields: ['id', 'name', 'company', 'email'], table: 'clients', where: `is_active = 1 AND (name LIKE ? OR company LIKE ? OR email LIKE ?)` },
+    { type: 'equipment', label: 'Equipment', fields: ['id', 'name', 'category', 'serial_number'], table: 'equipment', where: `name LIKE ? OR category LIKE ? OR serial_number LIKE ?` },
+    { type: 'venue', label: 'Venue', fields: ['id', 'name', 'city'], table: 'venues', where: `is_active = 1 AND (name LIKE ? OR city LIKE ? OR address LIKE ?)` },
+    { type: 'document', label: 'Document', fields: ['id', 'title', 'category'], table: 'documents', where: `title LIKE ? OR category LIKE ?` }
+  ];
+
+  let done = 0;
+  queries.forEach(qItem => {
+    const allParams = [];
+    (qItem.where.match(/\?/g) || []).forEach(() => allParams.push(like));
+    db.all(`SELECT ${qItem.fields.join(', ')} FROM ${qItem.table} WHERE ${qItem.where} LIMIT ?`, [...allParams, limit], (err, rows) => {
+      if (!err && rows) {
+        rows.forEach(r => {
+          const matchedField = qItem.fields.find(f => r[f] && String(r[f]).toLowerCase().includes(q.toLowerCase()));
+          results.push({
+            type: qItem.type,
+            label: qItem.label,
+            id: r.id,
+            name: r.name || r.event || r.title || r.id,
+            detail: matchedField ? String(r[matchedField]).substring(0, 120) : '',
+            url: `/api/search/redirect?type=${qItem.type}&id=${r.id}`
+          });
+        });
+      }
+      done++;
+      if (done === queries.length) {
+        // Sort: events first, then staff, then clients, then others
+        const priority = { event: 0, staff: 1, client: 2, equipment: 3, venue: 4, document: 5 };
+        results.sort((a, b) => (priority[a.type] || 9) - (priority[b.type] || 9));
+        res.json({ results: results.slice(0, limit), total: results.length, query: q });
+      }
+    });
+  });
+});
 
 // ==================== EVENT ARCHIVE/RESTORE ====================
 
@@ -4330,7 +4378,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.26.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.27.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events

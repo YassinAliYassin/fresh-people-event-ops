@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.26</title>
+    <title>Fresh People Event Ops v4.27</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,12 +58,27 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.26</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.27</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <button onclick="switchTab('comms')" id="notifBellBtn" class="text-gray-400 hover:text-blue-400 text-sm relative" title="Notifications">
                     🔔 <span id="notifBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center text-xs">0</span>
                 </button>
+                <div class="relative">
+                    <div class="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5">
+                        <span class="text-gray-500">🔍</span>
+                        <input type="text" id="globalSearch" placeholder="Search events, staff, clients..." 
+                               class="bg-transparent text-sm text-white placeholder-gray-500 outline-none w-48 md:w-64"
+                               oninput="handleGlobalSearch(this.value)"
+                               onkeydown="handleSearchKeydown(event)"
+                               onfocus="if(this.value.length>=2) handleGlobalSearch(this.value)"
+                               autocomplete="off">
+                        <span class="text-gray-600 text-xs hidden md:inline">Ctrl+K</span>
+                    </div>
+                    <div id="searchResults" class="hidden absolute right-0 top-full mt-2 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 w-96 max-h-96 overflow-y-auto">
+                        <div id="searchResultsList" class="p-2"></div>
+                    </div>
+                </div>
                 <div class="relative">
                     <button onclick="toggleUserMenu()" class="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 hover:bg-gray-700 transition">
                         <div class="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs font-bold" id="userAvatar">A</div>
@@ -9467,6 +9482,76 @@ function updateImportHistory() {
         div.textContent = str;
         return div.innerHTML;
     }
+
+    // ==================== GLOBAL SEARCH ====================
+    let searchTimeout = null;
+
+    function handleGlobalSearch(query) {
+        clearTimeout(searchTimeout);
+        const resultsDiv = document.getElementById('searchResults');
+        const listDiv = document.getElementById('searchResultsList');
+        if (!query || query.length < 2) {
+            resultsDiv.classList.add('hidden');
+            return;
+        }
+        searchTimeout = setTimeout(() => {
+            fetch(`${API}/search?q=${encodeURIComponent(query)}&limit=15`, { headers: getHeaders() })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.results || data.results.length === 0) {
+                        listDiv.innerHTML = '<p class="text-gray-500 text-sm p-2">No results found</p>';
+                    } else {
+                        const typeIcons = { event: '📅', staff: '👤', client: '🏢', equipment: '🎒', venue: '🏛️', document: '📄' };
+                        const typeColors = { event: 'text-blue-400', staff: 'text-green-400', client: 'text-purple-400', equipment: 'text-orange-400', venue: 'text-cyan-400', document: 'text-yellow-400' };
+                        listDiv.innerHTML = data.results.map(r => `
+                            <div class="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-700/50 cursor-pointer transition" onclick="navigateToResult('${r.type}', '${r.id}')">
+                                <span class="text-lg mt-0.5">${typeIcons[r.type] || '📋'}</span>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-medium text-white truncate">${escapeHtml(r.name)}</div>
+                                    <div class="text-xs ${typeColors[r.type] || 'text-gray-400'}">${r.label}${r.detail ? ' · ' + escapeHtml(r.detail).substring(0, 60) : ''}</div>
+                                </div>
+                            </div>
+                        `).join('');
+                    }
+                    resultsDiv.classList.remove('hidden');
+                })
+                .catch(() => {
+                    listDiv.innerHTML = '<p class="text-red-400 text-sm p-2">Search error</p>';
+                    resultsDiv.classList.remove('hidden');
+                });
+        }, 250);
+    }
+
+    function handleSearchKeydown(e) {
+        if (e.key === 'Escape') {
+            document.getElementById('searchResults').classList.add('hidden');
+            document.getElementById('globalSearch').blur();
+        }
+    }
+
+    function navigateToResult(type, id) {
+        document.getElementById('searchResults').classList.add('hidden');
+        document.getElementById('globalSearch').value = '';
+        switch(type) {
+            case 'event': switchTab('dashboard'); setTimeout(()=>openEventDetail(id), 200); break;
+            case 'staff': switchTab('users'); break;
+            case 'client': switchTab('clients'); setTimeout(()=>openClientDetail(id), 200); break;
+            case 'equipment': switchTab('inventory'); break;
+            case 'venue': switchTab('venues'); break;
+            case 'document': switchTab('documents'); break;
+        }
+    }
+
+    // Global keyboard shortcut: Ctrl+K to focus search
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            document.getElementById('globalSearch').focus();
+        }
+        if (e.key === 'Escape') {
+            document.getElementById('searchResults').classList.add('hidden');
+        }
+    });
 
 </body>
 </html>
