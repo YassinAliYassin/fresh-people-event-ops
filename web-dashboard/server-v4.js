@@ -272,12 +272,17 @@ db.run(`CREATE TABLE IF NOT EXISTS staff_timesheets (
   total_pay REAL DEFAULT 0,
   notes TEXT DEFAULT '',
   status TEXT DEFAULT 'pending',
+  payroll_id INTEGER DEFAULT NULL,
   approved_by TEXT DEFAULT '',
   approved_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (staff_id) REFERENCES staff(id)
+  FOREIGN KEY (staff_id) REFERENCES staff(id),
+  FOREIGN KEY (payroll_id) REFERENCES payroll_periods(id)
 )`);
+
+// Add payroll_id column if missing (migration)
+db.run(`ALTER TABLE staff_timesheets ADD COLUMN payroll_id INTEGER DEFAULT NULL`, () => {});
 
 // Create payroll_periods table
 db.run(`CREATE TABLE IF NOT EXISTS payroll_periods (
@@ -294,6 +299,9 @@ db.run(`CREATE TABLE IF NOT EXISTS payroll_periods (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
+
+// Add updated_at column if missing (migration for existing payroll_periods tables)
+db.run(`ALTER TABLE payroll_periods ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, () => {});
 
 // Add check-in columns to events table (migration)
 db.run(`ALTER TABLE events ADD COLUMN check_in_enabled INTEGER DEFAULT 0`, () => {});
@@ -4243,7 +4251,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.36.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.37.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4454,7 +4462,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.36.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.37.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4463,7 +4471,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.36.0',
+    version: '4.37.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5624,7 +5632,7 @@ app.get('/api/reports/:id/pdf', (req, res) => {
 
       // Footer
       doc.fontSize(8).font('Helvetica').text(
-        `Fresh People Event Ops v4.36 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        `Fresh People Event Ops v4.37 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
         { align: 'center' }
       );
 
@@ -6227,6 +6235,11 @@ app.get('/api/dashboard/stats', async (req, res) => {
     // Budget stats
     const budgetStats = await dbQuery(`SELECT SUM(estimated_cost) as total_est, SUM(actual_cost) as total_actual, SUM(budget) as total_budget FROM events WHERE archived_at IS NULL`);
 
+    // Timesheet stats
+    const timesheetStats = await dbQuery(`SELECT COUNT(*) as total_entries, COALESCE(SUM(hours_worked),0) as total_hours, COALESCE(SUM(overtime_hours),0) as total_overtime, COALESCE(SUM(total_pay),0) as total_pay FROM staff_timesheets`);
+    const pendingTimesheets = await dbQuery(`SELECT COUNT(*) as count FROM staff_timesheets WHERE status='pending'`);
+    const openPayrollCount = await dbQuery(`SELECT COUNT(*) as count FROM payroll_periods WHERE status='open'`);
+
     // Auto-assign staff for upcoming events (staff utilization)
     const assignedStaff = await dbAll(`SELECT DISTINCT json_each.value as name FROM events, json_each(events.staff) WHERE events.archived_at IS NULL AND events.date >= ?`, [today]);
     const utilizedStaff = new Set(assignedStaff.map(s => s.name)).size;
@@ -6269,6 +6282,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
         totalActual: budgetStats?.total_actual || 0,
         totalBudget: budgetStats?.total_budget || 0,
         variance: (budgetStats?.total_actual || 0) - (budgetStats?.total_est || 0),
+      },
+      timesheets: {
+        totalEntries: timesheetStats?.total_entries || 0,
+        totalHours: timesheetStats?.total_hours || 0,
+        totalOvertime: timesheetStats?.total_overtime || 0,
+        totalPay: timesheetStats?.total_pay || 0,
+        pendingApprovals: pendingTimesheets?.count || 0,
+        openPayrolls: openPayrollCount?.count || 0,
       },
     });
   } catch (err) {
@@ -6414,6 +6435,33 @@ async function seedBudgetsIfEmpty() {
     console.log(`Seeded ${budgets.length} budget entries`);
   } catch (err) {
     console.error('Budget seeding error:', err);
+  }
+}
+
+// ==================== SEED PAYROLL PERIODS ====================
+
+async function seedPayrollPeriodsIfEmpty() {
+  try {
+    const existing = await dbQuery(`SELECT COUNT(*) as count FROM payroll_periods`);
+    if (existing?.count > 0) return;
+
+    const periods = [
+      { name: 'June 2026 - Week 1', start_date: '2026-06-01', end_date: '2026-06-07' },
+      { name: 'June 2026 - Week 2', start_date: '2026-06-08', end_date: '2026-06-14' },
+      { name: 'June 2026 - Week 3', start_date: '2026-06-15', end_date: '2026-06-21' },
+      { name: 'June 2026 - Week 4', start_date: '2026-06-22', end_date: '2026-06-30' },
+      { name: 'July 2026 - Week 1', start_date: '2026-07-01', end_date: '2026-07-07' },
+    ];
+
+    for (const p of periods) {
+      await dbQuery(
+        `INSERT INTO payroll_periods (name, start_date, end_date) VALUES (?,?,?)`,
+        [p.name, p.start_date, p.end_date]
+      );
+    }
+    console.log(`Seeded ${periods.length} payroll periods`);
+  } catch (err) {
+    console.error('Payroll seeding error:', err);
   }
 }
 
@@ -6705,11 +6753,103 @@ defaultPhones.forEach(p => {
   db.run(`UPDATE staff SET phone = ? WHERE name = ? AND (phone IS NULL OR phone = '' OR phone = 'N/A')`, [p.phone, p.name]);
 });
 
-// Seed budgets if empty
+// Seed budgets and payroll periods if empty
 seedBudgetsIfEmpty();
+seedPayrollPeriodsIfEmpty();
+
+// ==================== PAYROLL PERIODS CRUD ====================
+
+// GET /api/payroll/periods - List payroll periods
+app.get('/api/payroll/periods', (req, res) => {
+  const { status, limit = 50, offset = 0 } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (status) { where.push('status = ?'); params.push(status); }
+  db.all(`SELECT * FROM payroll_periods WHERE ${where.join(' AND ')} ORDER BY start_date DESC LIMIT ? OFFSET ?`,
+    [...params, parseInt(limit), parseInt(offset)], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, data: rows || [] });
+    });
+});
+
+// POST /api/payroll/periods - Create payroll period
+app.post('/api/payroll/periods', (req, res) => {
+  const { name, start_date, end_date, status = 'open' } = req.body;
+  if (!name || !start_date || !end_date) {
+    return res.status(400).json({ error: 'Name, start_date, and end_date are required' });
+  }
+  db.run(`INSERT INTO payroll_periods (name, start_date, end_date, status) VALUES (?,?,?,?)`,
+    [name, start_date, end_date, status], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      const newId = this.lastID;
+      broadcast({ type: 'payroll_period', action: 'created', data: { id: newId, name, start_date, end_date, status } });
+      res.json({ success: true, id: newId, message: 'Payroll period created' });
+    });
+});
+
+// PUT /api/payroll/periods/:id - Update payroll period
+app.put('/api/payroll/periods/:id', (req, res) => {
+  const { name, start_date, end_date, status } = req.body;
+  const updates = [];
+  const params = [];
+  if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+  if (start_date !== undefined) { updates.push('start_date = ?'); params.push(start_date); }
+  if (end_date !== undefined) { updates.push('end_date = ?'); params.push(end_date); }
+  if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  updates.push('updated_at = CURRENT_TIMESTAMP');
+  params.push(req.params.id);
+  db.run(`UPDATE payroll_periods SET ${updates.join(', ')} WHERE id = ?`,
+    params, function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Period not found' });
+      broadcast({ type: 'payroll_period', action: 'updated', data: { id: parseInt(req.params.id), name, start_date, end_date, status } });
+      res.json({ success: true, message: 'Payroll period updated' });
+    });
+});
+
+// DELETE /api/payroll/periods/:id - Delete payroll period
+app.delete('/api/payroll/periods/:id', (req, res) => {
+  // Unlink timesheets first
+  db.run(`UPDATE staff_timesheets SET payroll_id = NULL WHERE payroll_id = ?`, [req.params.id], (unlinkErr) => {
+    if (unlinkErr) return res.status(500).json({ error: unlinkErr.message });
+    db.run(`DELETE FROM payroll_periods WHERE id = ?`, [req.params.id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Period not found' });
+      res.json({ success: true, message: 'Payroll period deleted' });
+    });
+  });
+});
+
+// GET /api/payroll/periods/stats - Payroll summary stats
+app.get('/api/payroll/periods/stats', (req, res) => {
+  db.get(`SELECT
+    COUNT(*) as total_periods,
+    SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) as open_periods,
+    (SELECT COUNT(*) FROM staff_timesheets) as total_entries,
+    (SELECT COALESCE(SUM(total_pay),0) FROM staff_timesheets) as total_pay_disbursed,
+    (SELECT COALESCE(SUM(hours_worked),0) FROM staff_timesheets) as total_hours,
+    (SELECT COALESCE(SUM(overtime_hours),0) FROM staff_timesheets) as total_overtime,
+    (SELECT COUNT(*) FROM staff_timesheets WHERE status='pending') as pending_approvals
+    FROM payroll_periods`, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, stats: row });
+  });
+});
+
+// PUT /api/timesheets/:id/assign-period - Assign timesheet to a payroll period
+app.put('/api/timesheets/:id/assign-period', (req, res) => {
+  const { payroll_id } = req.body;
+  db.run(`UPDATE staff_timesheets SET payroll_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [payroll_id || null, req.params.id], function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Timesheet not found' });
+      res.json({ success: true, message: 'Timesheet assigned to payroll period' });
+    });
+});
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.36 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.37 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

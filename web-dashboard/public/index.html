@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.36</title>
+    <title>Fresh People Event Ops v4.37</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.29</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.37</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -7019,7 +7019,7 @@
         // ==================== PAYROLL & TIMESHEET ====================
 
         function switchPayrollSubTab(sub) {
-            const tabs = ['timesheets', 'rates'];
+            const tabs = ['timesheets', 'rates', 'periods'];
             tabs.forEach(t => {
                 const view = document.getElementById('payroll-view-' + t);
                 const btn = document.getElementById('payroll-sub-' + t);
@@ -7037,6 +7037,7 @@
                 activeBtn.classList.add('text-purple-400', 'border-b-2', 'border-purple-400');
             }
             if (sub === 'rates') loadStaffRates();
+            if (sub === 'periods') { loadPayrollPeriods(); loadPeriodStats(); }
         }
 
         function setPayrollThisMonth() {
@@ -7379,6 +7380,124 @@
                 }
             } catch (err) {
                 showToast('Update failed', 'error');
+            }
+        }
+
+        // ==================== PAYROLL PERIODS MANAGEMENT ====================
+
+        async function loadPeriodStats() {
+            try {
+                const r = await fetch('/api/payroll/periods/stats', { headers: authHeader() });
+                const d = await r.json();
+                const s = d.stats || {};
+                document.getElementById('periodStatTotal').textContent = s.total_periods || 0;
+                document.getElementById('periodStatOpen').textContent = s.open_periods || 0;
+                document.getElementById('periodStatPay').textContent = 'R ' + (s.total_pay_disbursed || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 });
+                document.getElementById('periodStatPending').textContent = s.pending_approvals || 0;
+            } catch (err) {
+                console.error('Failed to load period stats:', err);
+            }
+        }
+
+        async function loadPayrollPeriods() {
+            try {
+                const status = document.getElementById('periodFilterStatus')?.value || '';
+                let url = '/api/payroll/periods?limit=50';
+                if (status) url += '&status=' + encodeURIComponent(status);
+                const r = await fetch(url, { headers: authHeader() });
+                const d = await r.json();
+                const periods = d.data || [];
+                const tbody = document.getElementById('payrollPeriodsTableBody');
+                if (periods.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">No payroll periods found</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = periods.map(p => {
+                    const statusColor = p.status === 'open' ? 'text-green-400' : p.status === 'closed' ? 'text-gray-400' : 'text-yellow-400';
+                    return `<tr>
+                        <td class="px-4 py-2">${escapeHtml(p.name)}</td>
+                        <td class="px-4 py-2">${p.start_date}</td>
+                        <td class="px-4 py-2">${p.end_date}</td>
+                        <td class="px-4 py-2 ${statusColor} font-semibold">${p.status}</td>
+                        <td class="px-4 py-2">${p.total_staff || 0}</td>
+                        <td class="px-4 py-2">${(p.total_hours || 0).toFixed(1)}h</td>
+                        <td class="px-4 py-2">${(p.total_overtime || 0).toFixed(1)}h</td>
+                        <td class="px-4 py-2 text-green-400">R ${(p.total_pay || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}</td>
+                        <td class="px-4 py-2">
+                            <button onclick="closePeriod(${p.id}, '${escapeHtml(p.name)}')" class="text-yellow-400 hover:text-yellow-300 mr-2 text-xs" title="Close Period">🔒</button>
+                            <button onclick="deletePeriod(${p.id}, '${escapeHtml(p.name)}')" class="text-red-400 hover:text-red-300 text-xs" title="Delete">🗑️</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                console.error('Failed to load payroll periods:', err);
+                document.getElementById('payrollPeriodsTableBody').innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-red-400">Failed to load</td></tr>';
+            }
+        }
+
+        async function createPayrollPeriod() {
+            const name = document.getElementById('newPeriodName')?.value.trim();
+            const start_date = document.getElementById('newPeriodStart')?.value;
+            const end_date = document.getElementById('newPeriodEnd')?.value;
+            if (!name || !start_date || !end_date) return showToast('Please fill in all fields', 'warning');
+            if (end_date < start_date) return showToast('End date must be after start date', 'warning');
+            try {
+                const r = await fetch('/api/payroll/periods', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', ...authHeader() },
+                    body: JSON.stringify({ name, start_date, end_date, status: 'open' })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    showToast(`Period "${name}" created`, 'success');
+                    document.getElementById('newPeriodName').value = '';
+                    document.getElementById('newPeriodStart').value = '';
+                    document.getElementById('newPeriodEnd').value = '';
+                    loadPayrollPeriods();
+                    loadPeriodStats();
+                } else {
+                    showToast(d.error || 'Failed to create period', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to create period', 'error');
+            }
+        }
+
+        async function closePeriod(id, name) {
+            if (!confirm(`Close payroll period "${name}"?\n\nTimesheets can no longer be added to a closed period.`)) return;
+            try {
+                const r = await fetch('/api/payroll/periods/' + id, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', ...authHeader() },
+                    body: JSON.stringify({ status: 'closed' })
+                });
+                const d = await r.json();
+                if (d.success) {
+                    showToast(`Period "${name}" closed`, 'success');
+                    loadPayrollPeriods();
+                    loadPeriodStats();
+                } else {
+                    showToast(d.error || 'Failed to close period', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to close period', 'error');
+            }
+        }
+
+        async function deletePeriod(id, name) {
+            if (!confirm(`Delete payroll period "${name}"?\n\nAll timesheet associations will be unlinked.`)) return;
+            try {
+                const r = await fetch('/api/payroll/periods/' + id, { method: 'DELETE', headers: authHeader() });
+                const d = await r.json();
+                if (d.success) {
+                    showToast(`Period "${name}" deleted`, 'success');
+                    loadPayrollPeriods();
+                    loadPeriodStats();
+                } else {
+                    showToast(d.error || 'Failed to delete period', 'error');
+                }
+            } catch (err) {
+                showToast('Failed to delete period', 'error');
             }
         }
 
@@ -9692,10 +9811,11 @@ async function runOptimize() {
             </div>
         </div>
 
-        <!-- Sub Tabs: Timesheets | Staff Rates -->
+        <!-- Sub Tabs: Timesheets | Staff Rates | Periods -->
         <div class="flex gap-4 mb-4 border-b border-gray-700 pb-2">
             <button onclick="switchPayrollSubTab('timesheets')" id="payroll-sub-timesheets" class="pb-2 font-semibold text-sm text-purple-400 border-b-2 border-purple-400">📋 Timesheets</button>
             <button onclick="switchPayrollSubTab('rates')" id="payroll-sub-rates" class="pb-2 font-semibold text-sm text-gray-400">💰 Staff Rates</button>
+            <button onclick="switchPayrollSubTab('periods')" id="payroll-sub-periods" class="pb-2 font-semibold text-sm text-gray-400">📅 Periods</button>
         </div>
 
         <!-- Timesheets Sub-Tab -->
@@ -9824,6 +9944,82 @@ async function runOptimize() {
                         </thead>
                         <tbody id="staffRatesTableBody">
                             <tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payroll Periods Sub-Tab -->
+        <div id="payroll-view-periods" class="hidden">
+            <!-- Period Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <p class="text-gray-400 text-sm">Total Periods</p>
+                    <p id="periodStatTotal" class="text-2xl font-bold text-purple-400">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <p class="text-gray-400 text-sm">Open Periods</p>
+                    <p id="periodStatOpen" class="text-2xl font-bold text-green-400">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <p class="text-gray-400 text-sm">Total Pay</p>
+                    <p id="periodStatPay" class="text-2xl font-bold text-yellow-400">-</p>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <p class="text-gray-400 text-sm">Pending Approvals</p>
+                    <p id="periodStatPending" class="text-2xl font-bold text-red-400">-</p>
+                </div>
+            </div>
+
+            <!-- Create Period Form -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                <h3 class="text-lg font-bold mb-3">+ New Payroll Period</h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                    <div>
+                        <label class="text-xs text-gray-400">Name</label>
+                        <input type="text" id="newPeriodName" placeholder="e.g. July 2026 - Week 1" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">Start Date</label>
+                        <input type="date" id="newPeriodStart" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400">End Date</label>
+                        <input type="date" id="newPeriodEnd" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                    </div>
+                    <button onclick="createPayrollPeriod()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">Create</button>
+                </div>
+            </div>
+
+            <!-- Periods List -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+                    <h3 class="font-bold">Payroll Periods</h3>
+                    <select id="periodFilterStatus" onchange="loadPayrollPeriods()" class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-white">
+                        <option value="">All Status</option>
+                        <option value="open">Open</option>
+                        <option value="closed">Closed</option>
+                        <option value="processing">Processing</option>
+                    </select>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-2 text-left">Name</th>
+                                <th class="px-4 py-2 text-left">Start</th>
+                                <th class="px-4 py-2 text-left">End</th>
+                                <th class="px-4 py-2 text-left">Status</th>
+                                <th class="px-4 py-2 text-left">Staff</th>
+                                <th class="px-4 py-2 text-left">Hours</th>
+                                <th class="px-4 py-2 text-left">OT</th>
+                                <th class="px-4 py-2 text-left">Total Pay</th>
+                                <th class="px-4 py-2 text-left">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payrollPeriodsTableBody">
+                            <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Loading...</td></tr>
                         </tbody>
                     </table>
                 </div>
