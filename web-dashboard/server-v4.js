@@ -224,6 +224,10 @@ db.run(`ALTER TABLE staff ADD COLUMN hourly_rate REAL DEFAULT 0`, () => {});
 db.run(`ALTER TABLE staff ADD COLUMN overtime_rate REAL DEFAULT 0`, () => {});
 // Add pay_type column to staff table (migration) - 'hourly' or 'flat'
 db.run(`ALTER TABLE staff ADD COLUMN pay_type TEXT DEFAULT 'hourly'`, () => {});
+// Add created_at column to staff table (migration)
+db.run(`ALTER TABLE staff ADD COLUMN created_at TIMESTAMP`, () => {});
+// Backfill created_at for existing staff
+db.run(`UPDATE staff SET created_at = datetime('now') WHERE created_at IS NULL`, () => {});
 
 // Add archived_at column to events table (migration for archive/restore)
 db.run(`ALTER TABLE events ADD COLUMN archived_at TIMESTAMP DEFAULT NULL`, () => {});
@@ -345,6 +349,38 @@ db.run(`CREATE TABLE IF NOT EXISTS event_reviews (
   issues TEXT DEFAULT '',
   recommendations TEXT DEFAULT '',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create post_event_reports table for auto-generated post-event reports
+db.run(`CREATE TABLE IF NOT EXISTS post_event_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  report_type TEXT DEFAULT 'full',
+  title TEXT DEFAULT '',
+  status TEXT DEFAULT 'draft',
+  generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  sent_at TIMESTAMP DEFAULT NULL,
+  sent_to TEXT DEFAULT '',
+  event_summary TEXT DEFAULT '',
+  budget_summary TEXT DEFAULT '',
+  staff_summary TEXT DEFAULT '',
+  feedback_summary TEXT DEFAULT '',
+  checkin_summary TEXT DEFAULT '',
+  task_summary TEXT DEFAULT '',
+  highlights TEXT DEFAULT '',
+  issues TEXT DEFAULT '',
+  recommendations TEXT DEFAULT '',
+  overall_rating REAL DEFAULT 0,
+  attendee_count INTEGER DEFAULT 0,
+  staff_count INTEGER DEFAULT 0,
+  budget_estimated REAL DEFAULT 0,
+  budget_actual REAL DEFAULT 0,
+  tasks_completed INTEGER DEFAULT 0,
+  tasks_total INTEGER DEFAULT 0,
+  checkin_count INTEGER DEFAULT 0,
+  avg_feedback_rating REAL DEFAULT 0,
+  report_data TEXT DEFAULT '{}',
   FOREIGN KEY (event_id) REFERENCES events(id)
 )`);
 
@@ -4207,7 +4243,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.35.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.36.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4418,7 +4454,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.35.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.36.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4427,7 +4463,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.35.0',
+    version: '4.36.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5238,6 +5274,387 @@ app.delete('/api/reviews/:id', (req, res) => {
 
       res.json({ success: true });
     });
+  });
+});
+
+// ==================== POST-EVENT REPORTS ====================
+
+// POST /api/events/:id/report - Generate a post-event report
+app.post('/api/events/:id/report', (req, res) => {
+  const { id } = req.params;
+  const { report_type, auto_send, send_to } = req.body;
+
+  // Get event details
+  db.get(`SELECT e.*, c.name as client_name, c.company as client_company, c.email as client_email,
+          v.name as venue_name, v.city as venue_city
+          FROM events e
+          LEFT JOIN clients c ON e.client_id = c.id
+          LEFT JOIN venues v ON e.venue_id = v.id
+          WHERE e.id = ?`, [id], (err, event) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+
+    const now = new Date().toISOString();
+
+    // Gather budget data
+    db.get(`SELECT SUM(estimated_cost) as total_est, SUM(actual_cost) as total_actual FROM events WHERE id = ?`, [id], (err2, budgetRow) => {
+      const estCost = budgetRow?.total_est || event.estimated_cost || 0;
+      const actCost = budgetRow?.total_actual || event.actual_cost || 0;
+
+      // Gather staff data
+      db.all(`SELECT s.name, s.role FROM staff s WHERE s.active = 1 AND s.name IN (SELECT value FROM json_each(?))`,
+        [event.staff || '[]'], (err3, staffRows) => {
+          const staffList = staffRows || [];
+          const staffCount = staffList.length;
+
+          // Gather timesheet data
+          db.get(`SELECT COUNT(*) as count, SUM(hours_worked) as total_hours, SUM(total_pay) as total_pay FROM staff_timesheets WHERE event_id = ?`,
+            [id], (err4, timesheetRow) => {
+
+              // Gather feedback data
+              db.get(`SELECT COUNT(*) as count, AVG(rating) as avg_rating FROM attendee_feedback WHERE event_id = ?`,
+                [id], (err5, feedbackRow) => {
+                  const feedbackCount = feedbackRow?.count || 0;
+                  const avgFeedback = feedbackRow?.avg_rating ? Math.round(feedbackRow.avg_rating * 10) / 10 : 0;
+
+                  // Gather check-in data
+                  db.get(`SELECT COUNT(*) as count FROM event_check_ins WHERE event_id = ?`,
+                    [id], (err6, checkinRow) => {
+                      const checkinCount = checkinRow?.count || 0;
+
+                      // Gather task data
+                      db.get(`SELECT COUNT(*) as total, SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) as completed FROM event_tasks WHERE event_id = ?`,
+                        [id], (err7, taskRow) => {
+                          const tasksTotal = taskRow?.total || 0;
+                          const tasksCompleted = taskRow?.completed || 0;
+
+                          // Gather review data
+                          db.get(`SELECT AVG(overall_rating) as avg_rating, GROUP_CONCAT(highlights, ' | ') as highlights, GROUP_CONCAT(issues, ' | ') as issues, GROUP_CONCAT(recommendations, ' | ') as recommendations FROM event_reviews WHERE event_id = ?`,
+                            [id], (err8, reviewRow) => {
+                              const overallRating = reviewRow?.avg_rating ? Math.round(reviewRow.avg_rating * 10) / 10 : 0;
+
+                              // Build report title
+                              const reportTitle = `Post-Event Report: ${event.event || 'Event'} - ${event.date || 'N/A'}`;
+
+                              // Build summary fields
+                              const eventSummary = JSON.stringify({
+                                name: event.event, date: event.date, time: event.time,
+                                location: event.location, venue: event.venue_name,
+                                client: event.client_name, company: event.client_company,
+                                guests: event.guests, services: event.services, status: event.status
+                              });
+
+                              const budgetSummary = JSON.stringify({
+                                estimated: estCost, actual: actCost,
+                                variance: actCost - estCost,
+                                variance_pct: estCost > 0 ? Math.round(((actCost - estCost) / estCost) * 100) : 0
+                              });
+
+                              const staffSummary = JSON.stringify({
+                                assigned: staffList.map(s => ({ name: s.name, role: s.role })),
+                                count: staffCount,
+                                hours_worked: timesheetRow?.total_hours || 0,
+                                total_pay: timesheetRow?.total_pay || 0
+                              });
+
+                              const feedbackSummary = JSON.stringify({
+                                count: feedbackCount, avg_rating: avgFeedback
+                              });
+
+                              const checkinSummary = JSON.stringify({
+                                total_checkins: checkinCount,
+                                expected_guests: event.guests || 0
+                              });
+
+                              const taskSummary = JSON.stringify({
+                                total: tasksTotal, completed: tasksCompleted,
+                                completion_rate: tasksTotal > 0 ? Math.round((tasksCompleted / tasksTotal) * 100) : 0
+                              });
+
+                              const reportData = JSON.stringify({
+                                event, budget: { estimated: estCost, actual: actCost },
+                                staff: staffList, feedback: { count: feedbackCount, avg: avgFeedback },
+                                checkins: checkinCount, tasks: { total: tasksTotal, completed: tasksCompleted },
+                                review: { rating: overallRating, highlights: reviewRow?.highlights || '', issues: reviewRow?.issues || '' }
+                              });
+
+                              // Insert report
+                              db.run(
+                                `INSERT INTO post_event_reports
+                                 (event_id, report_type, title, status, event_summary, budget_summary, staff_summary,
+                                  feedback_summary, checkin_summary, task_summary, highlights, issues, recommendations,
+                                  overall_rating, attendee_count, staff_count, budget_estimated, budget_actual,
+                                  tasks_completed, tasks_total, checkin_count, avg_feedback_rating, report_data)
+                                 VALUES (?, ?, ?, 'generated', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                [
+                                  id, report_type || 'full', reportTitle,
+                                  eventSummary, budgetSummary, staffSummary,
+                                  feedbackSummary, checkinSummary, taskSummary,
+                                  reviewRow?.highlights || '', reviewRow?.issues || '', reviewRow?.recommendations || '',
+                                  overallRating, event.guests || 0, staffCount, estCost, actCost,
+                                  tasksCompleted, tasksTotal, checkinCount, avgFeedback, reportData
+                                ],
+                                function(err9) {
+                                  if (err9) return res.status(500).json({ error: err9.message });
+
+                                  const reportId = this.lastID;
+
+                                  // Auto-send if requested
+                                  if (auto_send && send_to) {
+                                    db.run(`UPDATE post_event_reports SET status = 'sent', sent_at = ?, sent_to = ? WHERE id = ?`,
+                                      [now, send_to, reportId]);
+                                  }
+
+                                  // Broadcast
+                                  try { broadcast({ type: 'report_generated', eventId: id, reportId }); } catch(e) {}
+
+                                  res.json({
+                                    success: true, id: reportId, title: reportTitle,
+                                    status: auto_send ? 'sent' : 'generated',
+                                    summary: {
+                                      overall_rating: overallRating, staff_count: staffCount,
+                                      budget_variance: actCost - estCost,
+                                      tasks_completed: tasksCompleted, tasks_total: tasksTotal,
+                                      checkin_count: checkinCount, feedback_count: feedbackCount,
+                                      avg_feedback: avgFeedback
+                                    }
+                                  });
+                                }
+                              );
+                            }
+                          );
+                        }
+                      );
+                    }
+                  );
+                }
+              );
+            }
+          );
+        }
+      );
+    });
+  });
+});
+
+// GET /api/events/:id/reports - Get all reports for an event
+app.get('/api/events/:id/reports', (req, res) => {
+  db.all(
+    `SELECT id, event_id, report_type, title, status, generated_at, sent_at, sent_to,
+            overall_rating, attendee_count, staff_count, budget_estimated, budget_actual,
+            tasks_completed, tasks_total, checkin_count, avg_feedback_rating
+     FROM post_event_reports WHERE event_id = ? ORDER BY generated_at DESC`,
+    [req.params.id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, reports: rows || [] });
+    }
+  );
+});
+
+// GET /api/reports/recent - Get recent reports across all events
+app.get('/api/reports/recent', (req, res) => {
+  const limit = parseInt(req.query.limit) || 50;
+  db.all(
+    `SELECT r.id, r.event_id, r.report_type, r.title, r.status, r.generated_at, r.sent_at, r.sent_to,
+            r.overall_rating, r.attendee_count, r.staff_count, r.budget_estimated, r.budget_actual,
+            r.tasks_completed, r.tasks_total, r.checkin_count, r.avg_feedback_rating,
+            e.event as event_name, e.date as event_date
+     FROM post_event_reports r
+     LEFT JOIN events e ON r.event_id = e.id
+     ORDER BY r.generated_at DESC LIMIT ?`,
+    [limit],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, reports: rows || [] });
+    }
+  );
+});
+
+// GET /api/reports/:id - Get full report details
+app.get('/api/reports/:id', (req, res) => {
+  db.get(`SELECT * FROM post_event_reports WHERE id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Report not found' });
+
+    // Parse JSON summaries
+    const report = { ...row };
+    ['event_summary','budget_summary','staff_summary','feedback_summary','checkin_summary','task_summary','report_data'].forEach(f => {
+      try { report[f] = JSON.parse(row[f] || '{}'); } catch(e) { report[f] = {}; }
+    });
+
+    res.json({ success: true, report });
+  });
+});
+
+// GET /api/reports/:id/pdf - Generate PDF report
+app.get('/api/reports/:id/pdf', (req, res) => {
+  db.get(`SELECT r.*, e.event as event_name, e.date as event_date, e.time as event_time,
+          e.location, e.guests, e.services, e.notes,
+          c.name as client_name, c.company as client_company
+          FROM post_event_reports r
+          LEFT JOIN events e ON r.event_id = e.id
+          LEFT JOIN clients c ON e.client_id = c.id
+          WHERE r.id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row) return res.status(404).json({ error: 'Report not found' });
+
+    try {
+      const doc = new PDFDocument({ margin: 50 });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="report-${row.event_id}.pdf"`);
+      doc.pipe(res);
+
+      // Title
+      doc.fontSize(24).font('Helvetica-Bold').text('Post-Event Report', { align: 'center' });
+      doc.moveDown(0.5);
+      doc.fontSize(14).font('Helvetica').text(row.title || 'Event Report', { align: 'center' });
+      doc.moveDown(0.3);
+      doc.fontSize(10).text(`Generated: ${new Date(row.generated_at).toLocaleString('en-ZA')}`, { align: 'center' });
+      doc.moveDown();
+
+      // Horizontal line
+      doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke('#cccccc');
+      doc.moveDown();
+
+      // Event Summary
+      let eventSummary = {};
+      let budgetSummary = {};
+      let staffSummary = {};
+      let feedbackSummary = {};
+      let checkinSummary = {};
+      let taskSummary = {};
+      try { eventSummary = JSON.parse(row.event_summary || '{}'); } catch(e) {}
+      try { budgetSummary = JSON.parse(row.budget_summary || '{}'); } catch(e) {}
+      try { staffSummary = JSON.parse(row.staff_summary || '{}'); } catch(e) {}
+      try { feedbackSummary = JSON.parse(row.feedback_summary || '{}'); } catch(e) {}
+      try { checkinSummary = JSON.parse(row.checkin_summary || '{}'); } catch(e) {}
+      try { taskSummary = JSON.parse(row.task_summary || '{}'); } catch(e) {}
+
+      doc.fontSize(16).font('Helvetica-Bold').text('Event Summary');
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica');
+      const summaryFields = [
+        ['Event', eventSummary.name || row.event_name || 'N/A'],
+        ['Date', eventSummary.date || row.event_date || 'N/A'],
+        ['Time', eventSummary.time || row.event_time || 'N/A'],
+        ['Location', eventSummary.location || row.location || 'N/A'],
+        ['Client', eventSummary.client || row.client_name || 'N/A'],
+        ['Company', eventSummary.company || row.client_company || 'N/A'],
+        ['Guests', String(eventSummary.guests || row.guests || 'N/A')],
+        ['Services', eventSummary.services || row.services || 'N/A'],
+      ];
+      summaryFields.forEach(([label, val]) => {
+        doc.font('Helvetica-Bold').text(`${label}: `, { continued: true }).font('Helvetica').text(String(val));
+      });
+      doc.moveDown();
+
+      // Budget Section
+      doc.fontSize(16).font('Helvetica-Bold').text('Budget Overview');
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica');
+      const est = budgetSummary.estimated || 0;
+      const act = budgetSummary.actual || 0;
+      const variance = budgetSummary.variance || (act - est);
+      doc.text(`Estimated Cost: R ${parseFloat(est).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`);
+      doc.text(`Actual Cost: R ${parseFloat(act).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`);
+      doc.text(`Variance: R ${parseFloat(variance).toLocaleString('en-ZA', { minimumFractionDigits: 2 })} (${budgetSummary.variance_pct || 0}%)`);
+      doc.moveDown();
+
+      // Staff Section
+      doc.fontSize(16).font('Helvetica-Bold').text('Staff Performance');
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica');
+      const staffList = staffSummary.assigned || [];
+      doc.text(`Staff Assigned: ${staffSummary.count || 0}`);
+      doc.text(`Hours Worked: ${staffSummary.hours_worked || 0}h`);
+      doc.text(`Total Payroll: R ${parseFloat(staffSummary.total_pay || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2 })}`);
+      if (staffList.length > 0) {
+        doc.moveDown(0.3);
+        staffList.forEach(s => {
+          doc.text(`  • ${s.name} (${s.role})`);
+        });
+      }
+      doc.moveDown();
+
+      // Tasks Section
+      doc.fontSize(16).font('Helvetica-Bold').text('Task Completion');
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica');
+      doc.text(`Completed: ${taskSummary.completed || 0} / ${taskSummary.total || 0}`);
+      doc.text(`Completion Rate: ${taskSummary.completion_rate || 0}%`);
+      doc.moveDown();
+
+      // Check-ins Section
+      doc.fontSize(16).font('Helvetica-Bold').text('Attendance');
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica');
+      doc.text(`Check-ins: ${checkinSummary.total_checkins || 0}`);
+      doc.text(`Expected Guests: ${checkinSummary.expected_guests || 0}`);
+      doc.moveDown();
+
+      // Feedback Section
+      doc.fontSize(16).font('Helvetica-Bold').text('Feedback Summary');
+      doc.moveDown(0.3);
+      doc.fontSize(10).font('Helvetica');
+      doc.text(`Feedback Count: ${feedbackSummary.count || 0}`);
+      doc.text(`Average Rating: ${feedbackSummary.avg_rating || 'N/A'} / 5`);
+      doc.text(`Overall Event Rating: ${row.overall_rating || 'N/A'} / 5`);
+      doc.moveDown();
+
+      // Highlights, Issues, Recommendations
+      if (row.highlights) {
+        doc.fontSize(16).font('Helvetica-Bold').text('Highlights');
+        doc.moveDown(0.3);
+        doc.fontSize(10).font('Helvetica').text(row.highlights);
+        doc.moveDown();
+      }
+      if (row.issues) {
+        doc.fontSize(16).font('Helvetica-Bold').text('Issues');
+        doc.moveDown(0.3);
+        doc.fontSize(10).font('Helvetica').text(row.issues);
+        doc.moveDown();
+      }
+      if (row.recommendations) {
+        doc.fontSize(16).font('Helvetica-Bold').text('Recommendations');
+        doc.moveDown(0.3);
+        doc.fontSize(10).font('Helvetica').text(row.recommendations);
+        doc.moveDown();
+      }
+
+      // Footer
+      doc.fontSize(8).font('Helvetica').text(
+        `Fresh People Event Ops v4.36 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        { align: 'center' }
+      );
+
+      doc.end();
+    } catch(e) {
+      res.status(500).json({ error: 'PDF generation failed: ' + e.message });
+    }
+  });
+});
+
+// POST /api/reports/:id/send - Mark report as sent
+app.post('/api/reports/:id/send', (req, res) => {
+  const { sent_to } = req.body;
+  db.run(
+    `UPDATE post_event_reports SET status = 'sent', sent_at = ?, sent_to = COALESCE(?, sent_to) WHERE id = ?`,
+    [new Date().toISOString(), sent_to || null, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Report not found' });
+      res.json({ success: true, message: 'Report marked as sent' });
+    }
+  );
+});
+
+// DELETE /api/reports/:id - Delete a report
+app.delete('/api/reports/:id', (req, res) => {
+  db.run(`DELETE FROM post_event_reports WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Report not found' });
+    res.json({ success: true });
   });
 });
 
@@ -6293,6 +6710,6 @@ seedBudgetsIfEmpty();
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.35 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.36 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

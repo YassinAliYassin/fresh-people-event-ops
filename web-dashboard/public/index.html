@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.35</title>
+    <title>Fresh People Event Ops v4.36</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -108,6 +108,7 @@
         <div class="flex gap-6 mb-6 border-b border-gray-700 pb-2 tab-nav">
             <button onclick="switchTab('dashboard')" id="tab-dashboard" class="pb-2 font-semibold tab-active">📊 Dashboard</button>
             <button onclick="switchTab('reports')" id="tab-reports" class="pb-2 font-semibold tab-inactive">📈 Reports & Analytics</button>
+<button onclick="switchTab('postreports')" id="tab-postreports" class="pb-2 font-semibold tab-inactive">📄 Reports</button>
             <button onclick="switchTab('recurring')" id="tab-recurring" class="pb-2 font-semibold tab-inactive">🔄 Recurring Events</button>
             <button onclick="switchTab('timeline')" id="tab-timeline" class="pb-2 font-semibold tab-inactive">📆 Staff Timeline</button>
             <button onclick="switchTab('autoassign')" id="tab-autoassign" class="pb-2 font-semibold tab-inactive">⚡ Auto-Assign</button>
@@ -740,6 +741,12 @@
                     <div id="r-topclients" class="space-y-2"></div>
                 </div>
             </div>
+        </div>
+
+        <!-- ==================== POST-EVENT REPORTS TAB ==================== -->
+        <div id="view-postreports" class="hidden">
+            <h2 class="text-2xl font-bold text-white mb-4">📄 Post-Event Reports</h2>
+            <div id="reportsList" class="space-y-4"></div>
         </div>
 
         <!-- ==================== RECURRING TAB ==================== -->
@@ -2635,7 +2642,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system', 'postreports'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2686,6 +2693,9 @@
                 loadCheckinStats();
                 loadCiEvents();
                 loadRecentCheckins();
+            }
+            if (tab === 'postreports') {
+                loadPostReports();
             }
             if (tab === 'reviews') {
                 loadReviewSummary();
@@ -5626,11 +5636,180 @@
             }
         }
 
-        async function viewEventReviews(eventId, eventName) {
-            const content = document.getElementById('viewReviewsContent');
-            content.innerHTML = '<p class="text-gray-500 text-sm">Loading...</p>';
-            document.getElementById('viewReviewsModal').classList.remove('hidden');
-            document.getElementById('viewReviewsModal').classList.add('flex');
+        // ==================== POST-EVENT REPORTS ====================
+
+        async function loadPostReports() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                // Fetch all completed events and existing reports
+                const [eventsRes, reportsRes] = await Promise.all([
+                    fetch(`${API}/events?status=completed&limit=100`, { headers }),
+                    fetch(`${API}/reports/recent?limit=50`, { headers }).catch(() => null)
+                ]);
+                const eventsData = await eventsRes.json();
+                const completedEvents = eventsData.events || eventsData || [];
+
+                let reports = [];
+                if (reportsRes) {
+                    const rData = await reportsRes.json();
+                    reports = rData.reports || rData || [];
+                }
+
+                const container = document.getElementById('reportsList');
+
+                // Build reports list
+                if (reports.length > 0) {
+                    container.innerHTML = reports.map(r => `
+                        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                            <div class="flex justify-between items-start mb-3">
+                                <div>
+                                    <h3 class="font-semibold text-white">${r.title || 'Untitled Report'}</h3>
+                                    <p class="text-gray-400 text-xs mt-1">Generated: ${r.generated_at ? new Date(r.generated_at).toLocaleString() : 'Unknown'}</p>
+                                </div>
+                                <span class="px-2 py-1 rounded text-xs font-medium ${r.status === 'sent' ? 'bg-green-600' : r.status === 'generated' ? 'bg-blue-600' : 'bg-gray-600'}">${r.status || 'draft'}</span>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-sm">
+                                <div><span class="text-gray-400">Rating:</span> <span class="text-yellow-400">${r.overall_rating > 0 ? '★ ' + r.overall_rating.toFixed(1) : '-'}</span></div>
+                                <div><span class="text-gray-400">Staff:</span> <span class="text-white">${r.staff_count || 0}</span></div>
+                                <div><span class="text-gray-400">Check-ins:</span> <span class="text-white">${r.checkin_count || 0}</span></div>
+                                <div><span class="text-gray-400">Tasks:</span> <span class="text-white">${r.tasks_completed || 0}/${r.tasks_total || 0}</span></div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="viewReport(${r.id})" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-xs">📄 View</button>
+                                <button onclick="downloadReportPDF(${r.id})" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-xs">📥 PDF</button>
+                                <button onclick="deleteReport(${r.id})" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                // Add "Generate New Report" section
+                const generateSection = document.createElement('div');
+                generateSection.className = 'bg-gray-800 rounded-lg p-4 border border-dashed border-gray-600 mt-4';
+                generateSection.innerHTML = `
+                    <h3 class="font-semibold text-white mb-3">➕ Generate New Report</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Select Event</label>
+                            <select id="reportEventSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                                <option value="">-- Choose a completed event --</option>
+                                ${completedEvents.map(e => `<option value="${e.id}">${e.event || e.name || 'Event'} (${e.date || ''})</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">Report Type</label>
+                            <select id="reportTypeSelect" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                                <option value="full">Full Report</option>
+                                <option value="summary">Executive Summary</option>
+                                <option value="financial">Financial Only</option>
+                                <option value="operations">Operations Only</option>
+                            </select>
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="generateReport()" class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-semibold text-sm">⚡ Generate</button>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(generateSection);
+
+                if (reports.length === 0 && completedEvents.length === 0) {
+                    container.innerHTML = '<p class="text-gray-500 text-sm text-center py-8">No completed events available for reporting.</p>';
+                }
+            } catch (err) {
+                console.error('Failed to load reports:', err);
+                document.getElementById('reportsList').innerHTML = '<p class="text-red-400 text-sm">Error loading reports: ' + err.message + '</p>';
+            }
+        }
+
+        async function generateReport() {
+            const eventId = document.getElementById('reportEventSelect').value;
+            const reportType = document.getElementById('reportTypeSelect').value;
+            if (!eventId) { showToast('Please select an event', 'warning'); return; }
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${eventId}/report`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ report_type: reportType, auto_send: false })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Report generated: ${data.title}`, 'success');
+                    loadPostReports();
+                } else {
+                    showToast('Error: ' + (data.error || 'Failed to generate'), 'error');
+                }
+            } catch (err) {
+                showToast('Error generating report: ' + err.message, 'error');
+            }
+        }
+
+        async function viewReport(reportId) {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/reports/${reportId}`, { headers });
+                const data = await res.json();
+                if (!data) { showToast('Report not found', 'error'); return; }
+
+                const modal = document.createElement('div');
+                modal.id = 'reportViewModal';
+                modal.className = 'fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4';
+                modal.innerHTML = `
+                    <div class="bg-gray-800 rounded-xl border border-gray-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-xl font-bold text-white">${data.title || 'Report'}</h2>
+                            <button onclick="document.getElementById('reportViewModal').remove()" class="text-gray-400 hover:text-white text-2xl">&times;</button>
+                        </div>
+                        <div class="space-y-4 text-sm">
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div class="bg-gray-700 rounded p-3"><div class="text-gray-400 text-xs">Status</div><div class="font-semibold">${data.status || '-'}</div></div>
+                                <div class="bg-gray-700 rounded p-3"><div class="text-gray-400 text-xs">Rating</div><div class="font-semibold text-yellow-400">${data.overall_rating > 0 ? '★ ' + data.overall_rating.toFixed(1) : '-'}</div></div>
+                                <div class="bg-gray-700 rounded p-3"><div class="text-gray-400 text-xs">Staff</div><div class="font-semibold">${data.staff_count || 0}</div></div>
+                                <div class="bg-gray-700 rounded p-3"><div class="text-gray-400 text-xs">Check-ins</div><div class="font-semibold">${data.checkin_count || 0}</div></div>
+                            </div>
+                            ${data.event_summary ? `<div><h4 class="font-semibold text-gray-300 mb-1">Event Summary</h4><p class="text-gray-400">${data.event_summary}</p></div>` : ''}
+                            ${data.budget_summary ? `<div><h4 class="font-semibold text-gray-300 mb-1">Budget</h4><p class="text-gray-400">${data.budget_summary}</p></div>` : ''}
+                            ${data.staff_summary ? `<div><h4 class="font-semibold text-gray-300 mb-1">Staff</h4><p class="text-gray-400">${data.staff_summary}</p></div>` : ''}
+                            ${data.highlights ? `<div><h4 class="font-semibold text-green-400 mb-1">✓ Highlights</h4><p class="text-gray-400">${data.highlights}</p></div>` : ''}
+                            ${data.issues ? `<div><h4 class="font-semibold text-red-400 mb-1">⚠ Issues</h4><p class="text-gray-400">${data.issues}</p></div>` : ''}
+                            ${data.recommendations ? `<div><h4 class="font-semibold text-blue-400 mb-1">💡 Recommendations</h4><p class="text-gray-400">${data.recommendations}</p></div>` : ''}
+                        </div>
+                        <div class="flex gap-2 mt-6">
+                            <button onclick="downloadReportPDF(${data.id})" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded text-sm">📥 Download PDF</button>
+                            <button onclick="document.getElementById('reportViewModal').remove()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm">Close</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            } catch (err) {
+                showToast('Error loading report: ' + err.message, 'error');
+            }
+        }
+
+        function downloadReportPDF(reportId) {
+            const headers = getAuthHeadersNoJSON();
+            window.open(`${API}/reports/${reportId}/pdf`, '_blank');
+        }
+
+        async function deleteReport(reportId) {
+            if (!confirm('Delete this report permanently?')) return;
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/reports/${reportId}`, { method: 'DELETE', headers });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Report deleted', 'success');
+                    loadPostReports();
+                } else {
+                    showToast('Error: ' + (data.error || 'Failed to delete'), 'error');
+                }
+            } catch (err) {
+                showToast('Error deleting report: ' + err.message, 'error');
+            }
+        }
+
+                async function viewEventReviews(eventId, eventName) {
+                    const content = document.getElementById('viewReviewsContent');
 
             try {
                 const headers = getAuthHeadersNoJSON();
