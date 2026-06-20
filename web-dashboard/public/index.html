@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.29</title>
+    <title>Fresh People Event Ops v4.31</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -2524,6 +2524,10 @@
                 loadPurchaseOrders();
                 loadPOSummary();
                 populateSupplierCategoryFilter();
+            }
+            if (tab === 'venues') {
+                loadVenues();
+                populateVenueSelect();
             }
             if (tab === 'comms') {
                 loadAnnouncements();
@@ -7409,6 +7413,431 @@ function updateImportHistory() {
     `).join('');
 }
 
+
+// ==================== VENUE MANAGEMENT ====================
+
+async function loadVenues() {
+    try {
+        const headers = getAuthHeadersNoJSON();
+        const search = document.getElementById('venueSearch')?.value || '';
+        const city = document.getElementById('venueFilterCity')?.value || '';
+        const type = document.getElementById('venueFilterType')?.value || '';
+        const sort = document.getElementById('venueSort')?.value || 'name';
+        let url = `${API}/venues?sort=${sort}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (city) url += `&city=${encodeURIComponent(city)}`;
+        if (type) url += `&type=${encodeURIComponent(type)}`;
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+        allVenues = data.data || data || [];
+        renderVenues();
+        loadVenueStats();
+        populateVenueCityFilter();
+    } catch (e) {
+        console.error('Error loading venues:', e);
+    }
+}
+
+async function loadVenueStats() {
+    try {
+        const headers = getAuthHeadersNoJSON();
+        const res = await fetch(`${API}/venues/stats/summary`, { headers });
+        const data = await res.json();
+        if (data.total_venues !== undefined) {
+            document.getElementById('venueStatTotal').textContent = data.total_venues;
+            document.getElementById('venueStatActive').textContent = data.active_venues;
+            document.getElementById('venueStatCapacity').textContent = data.total_capacity?.toLocaleString() || '-';
+            document.getElementById('venueStatRating').textContent = data.avg_rating?.toFixed(1) || '-';
+        }
+    } catch (e) {
+        console.error('Error loading venue stats:', e);
+    }
+}
+
+function populateVenueCityFilter() {
+    const select = document.getElementById('venueFilterCity');
+    if (!select) return;
+    const currentVal = select.value;
+    const cities = [...new Set(allVenues.map(v => v.city).filter(Boolean))].sort();
+    select.innerHTML = '<option value="">All Cities</option>' +
+        cities.map(c => `<option value="${c}" ${c === currentVal ? 'selected' : ''}>${c}</option>`).join('');
+}
+
+function renderVenues() {
+    const container = document.getElementById('venuesList');
+    const emptyState = document.getElementById('venuesEmpty');
+    if (!container) return;
+    if (!allVenues.length) {
+        container.innerHTML = '';
+        if (emptyState) emptyState.classList.remove('hidden');
+        return;
+    }
+    if (emptyState) emptyState.classList.add('hidden');
+    container.innerHTML = allVenues.map(v => `
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-purple-500 transition cursor-pointer" onclick="openVenueDetail(${v.id})">
+            <div class="flex justify-between items-start mb-2">
+                <h3 class="font-semibold text-white">${v.name}</h3>
+                <span class="text-xs px-2 py-0.5 rounded ${v.is_active ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${v.is_active ? 'Active' : 'Inactive'}</span>
+            </div>
+            <p class="text-sm text-gray-400 mb-1">📍 ${v.address || ''}${v.city ? ', ' + v.city : ''}</p>
+            <p class="text-sm text-gray-400 mb-1">🏷️ ${v.venue_type || 'N/A'} · Capacity: ${v.capacity || 'N/A'}</p>
+            <div class="flex justify-between items-center mt-2">
+                <span class="text-sm text-yellow-400">⭐ ${v.rating?.toFixed(1) || 'N/A'}</span>
+                <span class="text-sm text-gray-400">${v.event_count || 0} events</span>
+                <span class="text-sm text-green-400">${v.currency || 'ZAR'} ${v.rate_per_day?.toLocaleString() || 0}/day</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openVenueModal(venue = null) {
+    const modal = document.getElementById('venueModal');
+    if (!modal) { injectVenueModal(); return openVenueModal(venue); }
+    const title = document.getElementById('venueModalTitle');
+    const btn = document.getElementById('venueModalBtn');
+    if (venue) {
+        title.textContent = 'Edit Venue';
+        btn.textContent = 'Update Venue';
+        document.getElementById('venueFormId').value = venue.id;
+        document.getElementById('venueFormName').value = venue.name || '';
+        document.getElementById('venueFormAddress').value = venue.address || '';
+        document.getElementById('venueFormCity').value = venue.city || '';
+        document.getElementById('venueFormProvince').value = venue.province || '';
+        document.getElementById('venueFormPostal').value = venue.postal_code || '';
+        document.getElementById('venueFormCountry').value = venue.country || 'South Africa';
+        document.getElementById('venueFormCapacity').value = venue.capacity || '';
+        document.getElementById('venueFormType').value = venue.venue_type || 'indoor';
+        document.getElementById('venueFormContactName').value = venue.contact_name || '';
+        document.getElementById('venueFormContactPhone').value = venue.contact_phone || '';
+        document.getElementById('venueFormContactEmail').value = venue.contact_email || '';
+        document.getElementById('venueFormWebsite').value = venue.website || '';
+        document.getElementById('venueFormParking').value = venue.parking_spots || '';
+        document.getElementById('venueFormRateDay').value = venue.rate_per_day || '';
+        document.getElementById('venueFormRateHour').value = venue.rate_per_hour || '';
+        document.getElementById('venueFormNotes').value = venue.notes || '';
+        document.getElementById('venueFormTags').value = venue.tags || '';
+        document.getElementById('venueFormActive').value = venue.is_active ? '1' : '0';
+        document.getElementById('venueFormRating').value = venue.rating || '';
+        document.getElementById('venueFormParkingAvailable').checked = !!venue.has_parking;
+        document.getElementById('venueFormWifi').checked = !!venue.has_wifi;
+        document.getElementById('venueFormCatering').checked = !!venue.has_catering;
+        document.getElementById('venueFormAV').checked = !!venue.has_av_equipment;
+        document.getElementById('venueFormStage').checked = !!venue.has_stage;
+        document.getElementById('venueFormDanceFloor').checked = !!venue.has_dance_floor;
+    } else {
+        title.textContent = 'Add Venue';
+        btn.textContent = 'Add Venue';
+        document.getElementById('venueFormId').value = '';
+        ['venueFormName','venueFormAddress','venueFormCity','venueFormProvince','venueFormPostal','venueFormContactName','venueFormContactPhone','venueFormContactEmail','venueFormWebsite','venueFormNotes','venueFormTags'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        document.getElementById('venueFormCountry').value = 'South Africa';
+        document.getElementById('venueFormCapacity').value = '';
+        document.getElementById('venueFormType').value = 'indoor';
+        document.getElementById('venueFormParking').value = '';
+        document.getElementById('venueFormRateDay').value = '';
+        document.getElementById('venueFormRateHour').value = '';
+        document.getElementById('venueFormActive').value = '1';
+        document.getElementById('venueFormRating').value = '';
+        ['venueFormParkingAvailable','venueFormWifi','venueFormCatering','venueFormAV','venueFormStage','venueFormDanceFloor'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.checked = false;
+        });
+    }
+    modal.classList.remove('hidden');
+}
+
+function closeVenueModal() {
+    const modal = document.getElementById('venueModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function saveVenue() {
+    const id = document.getElementById('venueFormId').value;
+    const venue = {
+        name: document.getElementById('venueFormName').value,
+        address: document.getElementById('venueFormAddress').value,
+        city: document.getElementById('venueFormCity').value,
+        province: document.getElementById('venueFormProvince').value,
+        postal_code: document.getElementById('venueFormPostal').value,
+        country: document.getElementById('venueFormCountry').value,
+        capacity: parseInt(document.getElementById('venueFormCapacity').value) || 0,
+        venue_type: document.getElementById('venueFormType').value,
+        contact_name: document.getElementById('venueFormContactName').value,
+        contact_phone: document.getElementById('venueFormContactPhone').value,
+        contact_email: document.getElementById('venueFormContactEmail').value,
+        website: document.getElementById('venueFormWebsite').value,
+        parking_spots: parseInt(document.getElementById('venueFormParking').value) || 0,
+        rate_per_day: parseFloat(document.getElementById('venueFormRateDay').value) || 0,
+        rate_per_hour: parseFloat(document.getElementById('venueFormRateHour').value) || 0,
+        notes: document.getElementById('venueFormNotes').value,
+        tags: document.getElementById('venueFormTags').value,
+        is_active: document.getElementById('venueFormActive').value === '1',
+        rating: parseFloat(document.getElementById('venueFormRating').value) || 0,
+        has_parking: document.getElementById('venueFormParkingAvailable').checked ? 1 : 0,
+        has_wifi: document.getElementById('venueFormWifi').checked ? 1 : 0,
+        has_catering: document.getElementById('venueFormCatering').checked ? 1 : 0,
+        has_av_equipment: document.getElementById('venueFormAV').checked ? 1 : 0,
+        has_stage: document.getElementById('venueFormStage').checked ? 1 : 0,
+        has_dance_floor: document.getElementById('venueFormDanceFloor').checked ? 1 : 0,
+    };
+    if (!venue.name) { showToast('Venue name is required', 'error'); return; }
+    try {
+        const headers = getAuthHeaders();
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `${API}/venues/${id}` : `${API}/venues`;
+        const res = await fetch(url, { method, headers, body: JSON.stringify(venue) });
+        const data = await res.json();
+        if (data.success || data.id) {
+            showToast(id ? 'Venue updated successfully' : 'Venue added successfully', 'success');
+            closeVenueModal();
+            loadVenues();
+            populateVenueSelect();
+            if (typeof broadcast !== 'undefined') broadcast({ type: 'venue_updated' });
+        } else {
+            showToast(data.error || 'Failed to save venue', 'error');
+        }
+    } catch (e) {
+        showToast('Error saving venue: ' + e.message, 'error');
+    }
+}
+
+function openVenueDetail(id) {
+    const venue = allVenues.find(v => v.id === id);
+    if (!venue) return;
+    const modal = document.getElementById('venueDetailModal');
+    if (!modal) { injectVenueDetailModal(); return openVenueDetail(id); }
+    document.getElementById('venueDetailContent').innerHTML = `
+        <div class="space-y-4">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h3 class="text-xl font-bold text-white">${venue.name}</h3>
+                    <p class="text-gray-400">${venue.address || ''}${venue.city ? ', ' + venue.city : ''}</p>
+                </div>
+                <span class="text-xs px-2 py-1 rounded ${venue.is_active ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'}">${venue.is_active ? 'Active' : 'Inactive'}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Type</p><p class="text-white font-semibold">${venue.venue_type || 'N/A'}</p></div>
+                <div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Capacity</p><p class="text-white font-semibold">${venue.capacity?.toLocaleString() || 'N/A'}</p></div>
+                <div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Rating</p><p class="text-yellow-400 font-semibold">⭐ ${venue.rating?.toFixed(1) || 'N/A'}</p></div>
+                <div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Events</p><p class="text-white font-semibold">${venue.event_count || 0}</p></div>
+                <div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Rate/Day</p><p class="text-green-400 font-semibold">${venue.currency || 'ZAR'} ${venue.rate_per_day?.toLocaleString() || 0}</p></div>
+                <div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Rate/Hour</p><p class="text-green-400 font-semibold">${venue.currency || 'ZAR'} ${venue.rate_per_hour?.toLocaleString() || 0}</p></div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                ${venue.has_parking ? '<span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">🅿️ Parking</span>' : ''}
+                ${venue.has_wifi ? '<span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">📶 WiFi</span>' : ''}
+                ${venue.has_catering ? '<span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">🍽️ Catering</span>' : ''}
+                ${venue.has_av_equipment ? '<span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">🔊 AV Equipment</span>' : ''}
+                ${venue.has_stage ? '<span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">🎭 Stage</span>' : ''}
+                ${venue.has_dance_floor ? '<span class="text-xs bg-blue-900 text-blue-300 px-2 py-1 rounded">💃 Dance Floor</span>' : ''}
+            </div>
+            ${venue.contact_name ? `<div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Contact</p><p class="text-white">${venue.contact_name}${venue.contact_phone ? ' · ' + venue.contact_phone : ''}${venue.contact_email ? ' · ' + venue.contact_email : ''}</p></div>` : ''}
+            ${venue.notes ? `<div class="bg-gray-700 rounded p-3"><p class="text-xs text-gray-400">Notes</p><p class="text-white">${venue.notes}</p></div>` : ''}
+        </div>
+    `;
+    document.getElementById('venueDetailEditBtn').onclick = () => editVenueFromDetail(venue.id);
+    document.getElementById('venueDetailDeleteBtn').onclick = () => deleteVenueFromDetail(venue.id);
+    modal.classList.remove('hidden');
+}
+
+function closeVenueDetailModal() {
+    const modal = document.getElementById('venueDetailModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function editVenueFromDetail(id) {
+    closeVenueDetailModal();
+    const venue = allVenues.find(v => v.id === id);
+    if (venue) openVenueModal(venue);
+}
+
+function deleteVenueFromDetail(id) {
+    if (!confirm('Are you sure you want to delete this venue?')) return;
+    const headers = getAuthHeaders();
+    fetch(`${API}/venues/${id}`, { method: 'DELETE', headers })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Venue deleted', 'success');
+                closeVenueDetailModal();
+                loadVenues();
+                populateVenueSelect();
+            } else {
+                showToast(data.error || 'Failed to delete', 'error');
+            }
+        })
+        .catch(e => showToast('Error: ' + e.message, 'error'));
+}
+
+function populateVenueSelect() {
+    const select = document.getElementById('eventVenue');
+    if (!select) return;
+    const currentVal = select.value;
+    select.innerHTML = '<option value="0">— No Venue —</option>' +
+        allVenues.filter(v => v.is_active).map(v => `<option value="${v.id}" ${v.id == currentVal ? 'selected' : ''}>${v.name}${v.city ? ' (' + v.city + ')' : ''}</option>`).join('');
+}
+
+function selectVenueForEvent() {
+    const venueId = document.getElementById('eventVenue').value;
+    if (!venueId || venueId === '0') return;
+    const venue = allVenues.find(v => v.id == venueId);
+    if (venue) {
+        const locEl = document.getElementById('eventLocation');
+        if (locEl && !locEl.value) {
+            locEl.value = venue.address || venue.name;
+        }
+    }
+}
+
+function injectVenueModal() {
+    const div = document.createElement('div');
+    div.id = 'venueModal';
+    div.className = 'fixed inset-0 bg-black bg-opacity-70 z-50 hidden flex items-center justify-center p-4';
+    div.innerHTML = `
+        <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 id="venueModalTitle" class="text-lg font-bold text-white">Add Venue</h3>
+                <button onclick="closeVenueModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <form id="venueForm" class="p-4 space-y-4">
+                <input type="hidden" id="venueFormId">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Venue Name *</label>
+                        <input type="text" id="venueFormName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Type</label>
+                        <select id="venueFormType" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="indoor">Indoor</option>
+                            <option value="outdoor">Outdoor</option>
+                            <option value="both">Both</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Address</label>
+                    <input type="text" id="venueFormAddress" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">City</label>
+                        <input type="text" id="venueFormCity" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Province</label>
+                        <input type="text" id="venueFormProvince" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Postal Code</label>
+                        <input type="text" id="venueFormPostal" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Country</label>
+                        <input type="text" id="venueFormCountry" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" value="South Africa">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Capacity</label>
+                        <input type="number" id="venueFormCapacity" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Rate/Day (ZAR)</label>
+                        <input type="number" id="venueFormRateDay" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Rate/Hour (ZAR)</label>
+                        <input type="number" id="venueFormRateHour" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Contact Name</label>
+                        <input type="text" id="venueFormContactName" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Contact Phone</label>
+                        <input type="text" id="venueFormContactPhone" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Contact Email</label>
+                        <input type="email" id="venueFormContactEmail" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Website</label>
+                        <input type="text" id="venueFormWebsite" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Parking Spots</label>
+                        <input type="number" id="venueFormParking" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Rating</label>
+                        <input type="number" step="0.1" min="0" max="5" id="venueFormRating" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Amenities</label>
+                    <div class="flex flex-wrap gap-3">
+                        <label class="flex items-center gap-1 text-sm text-gray-300"><input type="checkbox" id="venueFormParkingAvailable"> 🅿️ Parking</label>
+                        <label class="flex items-center gap-1 text-sm text-gray-300"><input type="checkbox" id="venueFormWifi"> 📶 WiFi</label>
+                        <label class="flex items-center gap-1 text-sm text-gray-300"><input type="checkbox" id="venueFormCatering"> 🍽️ Catering</label>
+                        <label class="flex items-center gap-1 text-sm text-gray-300"><input type="checkbox" id="venueFormAV"> 🔊 AV</label>
+                        <label class="flex items-center gap-1 text-sm text-gray-300"><input type="checkbox" id="venueFormStage"> 🎭 Stage</label>
+                        <label class="flex items-center gap-1 text-sm text-gray-300"><input type="checkbox" id="venueFormDanceFloor"> 💃 Dance Floor</label>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Status</label>
+                        <select id="venueFormActive" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white">
+                            <option value="1">Active</option>
+                            <option value="0">Inactive</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-400 mb-1">Tags (comma-separated)</label>
+                        <input type="text" id="venueFormTags" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" placeholder="wedding, corporate, outdoor">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-1">Notes</label>
+                    <textarea id="venueFormNotes" rows="2" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white"></textarea>
+                </div>
+            </form>
+            <div class="flex justify-end gap-3 p-4 border-t border-gray-700">
+                <button onclick="closeVenueModal()" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white">Cancel</button>
+                <button id="venueModalBtn" onclick="saveVenue()" class="px-4 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white font-semibold">Add Venue</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(div);
+}
+
+function injectVenueDetailModal() {
+    const div = document.createElement('div');
+    div.id = 'venueDetailModal';
+    div.className = 'fixed inset-0 bg-black bg-opacity-70 z-50 hidden flex items-center justify-center p-4';
+    div.innerHTML = `
+        <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center p-4 border-b border-gray-700">
+                <h3 class="text-lg font-bold text-white">Venue Details</h3>
+                <button onclick="closeVenueDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div id="venueDetailContent" class="p-4"></div>
+            <div class="flex justify-end gap-3 p-4 border-t border-gray-700">
+                <button onclick="closeVenueDetailModal()" class="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-white">Close</button>
+                <button id="venueDetailEditBtn" class="px-4 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white font-semibold">Edit</button>
+                <button id="venueDetailDeleteBtn" class="px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold">Delete</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(div);
+}
+
 // ==================== END IMPORT/EXPORT FUNCTIONS ====================
 
 </script>
@@ -7980,6 +8409,7 @@ function updateImportHistory() {
         // ==================== SUPPLIER / VENDOR MANAGEMENT JS ====================
 
         let allSuppliers = [];
+        let allVenues = [];
         let currentSupplierDetail = null;
         let allPOs = [];
         let poEvents = [];
@@ -8531,7 +8961,76 @@ function updateImportHistory() {
         </div>
     </div>
 
-    <!-- ==================== PAYROLL TAB ==================== -->
+        <!-- ==================== SUPPLIERS TAB ==================== -->
+    <div id="view-suppliers" class="hidden">
+        <!-- Supplier Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Suppliers</p>
+                <p id="supplierStatTotal" class="text-2xl font-bold text-orange-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Active</p>
+                <p id="supplierStatActive" class="text-2xl font-bold text-green-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Total Spent</p>
+                <p id="supplierStatSpent" class="text-2xl font-bold text-blue-400">-</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <p class="text-gray-400 text-sm">Avg Rating</p>
+                <p id="supplierStatRating" class="text-2xl font-bold text-yellow-400">-</p>
+            </div>
+        </div>
+
+        <!-- Filters & Actions -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+            <div class="flex flex-col md:flex-row gap-3 items-end">
+                <div class="flex-1">
+                    <label class="text-xs text-gray-400">Search</label>
+                    <input type="text" id="supplierSearch" oninput="loadSuppliers()" placeholder="Search suppliers..." class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Category</label>
+                    <select id="supplierFilterCategory" onchange="loadSuppliers()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">All Categories</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Status</label>
+                    <select id="supplierFilterStatus" onchange="loadSuppliers()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="">All</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">Sort By</label>
+                    <select id="supplierSortBy" onchange="loadSuppliers()" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white mt-1">
+                        <option value="name">Name</option>
+                        <option value="category">Category</option>
+                        <option value="rating">Rating</option>
+                        <option value="total_spent">Total Spent</option>
+                    </select>
+                </div>
+                <button onclick="openSupplierModal()" class="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded font-semibold whitespace-nowrap">+ Add Supplier</button>
+            </div>
+        </div>
+
+        <!-- Suppliers Grid -->
+        <div id="suppliersList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <p class="text-gray-500 text-sm col-span-full">Loading suppliers...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="suppliersEmpty" class="hidden text-center py-12">
+            <p class="text-4xl mb-3">🏪</p>
+            <p class="text-gray-400 text-lg">No suppliers found</p>
+            <p class="text-gray-500 text-sm mt-1">Add your first supplier or adjust filters</p>
+        </div>
+    </div>
+
+<!-- ==================== PAYROLL TAB ==================== -->
     <div id="view-payroll" class="hidden">
         <!-- Payroll Stats -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
