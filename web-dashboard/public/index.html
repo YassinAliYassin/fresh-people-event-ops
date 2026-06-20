@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.31</title>
+    <title>Fresh People Event Ops v4.32</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -131,6 +131,7 @@
             <button onclick="switchTab('staff-schedule')" id="tab-staff-schedule" class="pb-2 font-semibold tab-inactive">📆 Staff Schedule</button>
             <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
             <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
+            <button onclick="switchTab('event-templates')" id="tab-event-templates" class="pb-2 font-semibold tab-inactive">📋 Templates</button>
         </div>
 
         <!-- ==================== ARCHIVE TAB ==================== -->
@@ -183,6 +184,72 @@
             <div id="auditStats" class="grid grid-cols-4 gap-4 mb-4"></div>
             <div id="auditList" class="bg-gray-800 rounded-lg p-4">
                 <p class="text-gray-400">Loading audit log...</p>
+            </div>
+        </div>
+
+        <!-- ==================== EVENT TEMPLATES TAB ==================== -->
+        <div id="view-event-templates" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-white">📋 Event Templates</h2>
+                <button onclick="openTemplateModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm font-semibold">+ New Template</button>
+            </div>
+            <div id="templateStats" class="grid grid-cols-3 gap-4 mb-4"></div>
+            <div id="templatesList" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <p class="text-gray-400">Loading templates...</p>
+            </div>
+        </div>
+
+        <!-- Template Add/Edit Modal -->
+        <div id="templateModal" class="fixed inset-0 bg-black bg-opacity-60 hidden z-50 flex items-center justify-center">
+            <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg mx-4 max-h-screen overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 id="templateModalTitle" class="text-lg font-bold text-white">New Template</h3>
+                    <button onclick="closeTemplateModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                </div>
+                <input type="hidden" id="templateEditId">
+                <div class="space-y-3">
+                    <div>
+                        <label class="text-gray-400 text-sm">Template Name *</label>
+                        <input type="text" id="templateName" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none" placeholder="e.g., Corporate Event">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm">Description</label>
+                        <textarea id="templateDesc" rows="2" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none" placeholder="Brief description..."></textarea>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-gray-400 text-sm">Default Duration (hrs)</label>
+                            <input type="number" id="templateDuration" value="4" min="1" max="48" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-sm">Pre-Arrival (hrs)</label>
+                            <input type="number" id="templatePreArrival" value="1" min="0" max="24" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm">Dress Code</label>
+                        <select id="templateDressCode" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none">
+                            <option value="All Black">All Black</option>
+                            <option value="Formal">Formal</option>
+                            <option value="Semi-Formal">Semi-Formal</option>
+                            <option value="Casual">Casual</option>
+                            <option value="Branded">Branded</option>
+                            <option value="White">White</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm">Default Services</label>
+                        <input type="text" id="templateServices" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none" placeholder="e.g., Waiters, Baristas, Security">
+                    </div>
+                    <div>
+                        <label class="text-gray-400 text-sm">Default Staff Count</label>
+                        <input type="number" id="templateStaffCount" value="6" min="1" max="50" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600 focus:border-blue-500 outline-none">
+                    </div>
+                </div>
+                <div class="flex gap-3 mt-6">
+                    <button onclick="saveTemplate()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-semibold">Save Template</button>
+                    <button onclick="closeTemplateModal()" class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-2 rounded font-semibold">Cancel</button>
+                </div>
             </div>
         </div>
 
@@ -386,8 +453,11 @@
                         </div>
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Time</label>
-                            <input type="time" id="eventTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
+                            <input type="time" id="eventTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required onchange="autoCalcCost()">
                         </div>
+                        <div>
+                            <label class="block text-sm text-gray-400 mb-1">End Time</label>
+                            <input type="time" id="eventEndTime" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" onchange="autoCalcCost()">
                         <div>
                             <label class="block text-sm text-gray-400 mb-1">Location</label>
                             <input type="text" id="eventLocation" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" required>
@@ -421,7 +491,8 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-sm text-gray-400 mb-1">Est. Cost (ZAR)</label>
-                                <input type="number" id="eventEstCost" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="0.00">
+                                <input type="number" id="eventEstCost" class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white" min="0" step="0.01" placeholder="0.00" onchange="autoCalcCost()">
+                                <p id="costPreview" class="text-xs text-blue-400 mt-1 hidden"></p>
                             </div>
                             <div>
                                 <label class="block text-sm text-gray-400 mb-1">Budget (ZAR)</label>
@@ -2453,7 +2524,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2548,6 +2619,9 @@
                 document.getElementById('schedEndDate').value = end;
                 document.getElementById('conflictDate').value = start;
                 loadStaffSchedule();
+            }
+            if (tab === 'event-templates') {
+                loadTemplates();
             }
         }
 
@@ -3574,6 +3648,58 @@
             }
         }
 
+        // Auto-calculate estimated cost from staff rates × duration
+        async function autoCalcCost() {
+            const staffVal = document.getElementById('eventStaff')?.value;
+            const timeVal = document.getElementById('eventTime')?.value;
+            const endTimeVal = document.getElementById('eventEndTime')?.value;
+            const estCostField = document.getElementById('eventEstCost');
+            if (!estCostField) return;
+            // Only auto-calculate if field is empty/zero
+            if (parseFloat(estCostField.value) > 0) return;
+            const staff = staffVal ? staffVal.split(',').map(s => s.trim()).filter(Boolean) : [];
+            if (staff.length === 0) return;
+            // Calculate duration in hours
+            let duration = 4; // default
+            if (timeVal) {
+                const start = parseTime(timeVal);
+                const end = endTimeVal ? parseTime(endTimeVal) : start + 4;
+                if (start !== null && end !== null) {
+                    duration = Math.max(1, Math.round((end - start) * 10) / 10);
+                }
+            }
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/staff`, { headers });
+                const data = await res.json();
+                const staffList = data.data || data || [];
+                let totalRate = 0;
+                staff.forEach(name => {
+                    const s = staffList.find(s => s.name === name);
+                    if (s && s.hourly_rate) totalRate += parseFloat(s.hourly_rate);
+                });
+                if (totalRate > 0) {
+                    const estimated = Math.round(totalRate * duration);
+                    estCostField.value = estimated;
+                    const costPreview = document.getElementById('costPreview');
+                    if (costPreview) {
+                        costPreview.textContent = `Auto-estimated: R ${estimated.toLocaleString()} (${staff.length} staff × ${duration}h × avg R${Math.round(totalRate/staff.length)}/hr)`;
+                        costPreview.classList.remove('hidden');
+                    }
+                }
+            } catch (e) { /* silent fail */ }
+        }
+
+        function parseTime(t) {
+            if (!t) return null;
+            const parts = t.split(':');
+            if (parts.length < 2) return null;
+            const h = parseInt(parts[0]);
+            const m = parseInt(parts[1]);
+            if (isNaN(h)) return null;
+            return h + (m || 0) / 60;
+        }
+
         // Create event
         document.getElementById('eventForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -4208,6 +4334,7 @@
             draggedStaffName = null;
             draggedFrom = null;
             renderStaffAssignment();
+            autoCalcCost();
         }
 
         function removeAssignedStaff(name) {
@@ -4215,6 +4342,7 @@
             availableStaffNames.push(name);
             availableStaffNames.sort();
             renderStaffAssignment();
+            autoCalcCost();
         }
 
         // Reset staff assignment pool when data loads
@@ -10092,6 +10220,164 @@ function injectVenueDetailModal() {
             document.getElementById('searchResults').classList.add('hidden');
         }
     });
+
+    // ==================== EVENT TEMPLATES TAB ====================
+    let allTemplates = [];
+
+    async function loadTemplates() {
+        try {
+            const headers = getAuthHeadersNoJSON();
+            const res = await fetch(`${API}/templates`, { headers });
+            const data = await res.json();
+            allTemplates = data.data || data || [];
+            renderTemplates();
+            renderTemplateStats();
+        } catch (e) {
+            console.error('Error loading templates:', e);
+        }
+    }
+
+    function renderTemplateStats() {
+        const container = document.getElementById('templateStats');
+        if (!container) return;
+        const total = allTemplates.length;
+        const totalServices = allTemplates.reduce((sum, t) => {
+            const svcs = t.default_services ? t.default_services.split(',').length : 0;
+            return sum + svcs;
+        }, 0);
+        const avgStaff = total > 0 ? Math.round(allTemplates.reduce((sum, t) => sum + (t.default_staff_count || 0), 0) / total) : 0;
+        container.innerHTML = `
+            <div class="bg-gray-800 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-white">${total}</p>
+                <p class="text-gray-400 text-sm">Total Templates</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-blue-400">${totalServices}</p>
+                <p class="text-gray-400 text-sm">Service Slots</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4 text-center">
+                <p class="text-2xl font-bold text-green-400">${avgStaff}</p>
+                <p class="text-gray-400 text-sm">Avg Staff</p>
+            </div>
+        `;
+    }
+
+    function renderTemplates() {
+        const container = document.getElementById('templatesList');
+        if (!container) return;
+        if (allTemplates.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 text-sm text-center py-8 col-span-2">No templates yet. Click "New Template" to create one.</p>';
+            return;
+        }
+        container.innerHTML = allTemplates.map(t => {
+            const services = t.default_services ? t.default_services.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const serviceBadges = services.map(s => `<span class="text-xs bg-blue-900 text-blue-300 px-2 py-0.5 rounded">${escapeHtml(s)}</span>`).join(' ');
+            return `
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-gray-600 transition">
+                    <div class="flex justify-between items-start mb-2">
+                        <h3 class="text-white font-semibold text-lg">${escapeHtml(t.name)}</h3>
+                        <div class="flex gap-1">
+                            <button onclick="editTemplate(${t.id})" class="text-xs bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded text-white" title="Edit">✏️</button>
+                            <button onclick="deleteTemplate(${t.id})" class="text-xs bg-red-700 hover:bg-red-600 px-2 py-1 rounded text-white" title="Delete">🗑️</button>
+                        </div>
+                    </div>
+                    ${t.description ? `<p class="text-gray-400 text-sm mb-3">${escapeHtml(t.description)}</p>` : ''}
+                    <div class="grid grid-cols-2 gap-2 text-sm mb-3">
+                        <div><span class="text-gray-500">Duration:</span> <span class="text-white">${t.default_duration_hours || '—'} hrs</span></div>
+                        <div><span class="text-gray-500">Pre-Arrival:</span> <span class="text-white">${t.pre_arrival_hours || '—'} hrs</span></div>
+                        <div><span class="text-gray-500">Dress Code:</span> <span class="text-white">${escapeHtml(t.dress_code || '—')}</span></div>
+                        <div><span class="text-gray-500">Staff Count:</span> <span class="text-white">${t.default_staff_count || '—'}</span></div>
+                    </div>
+                    ${serviceBadges ? `<div class="flex flex-wrap gap-1">${serviceBadges}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function openTemplateModal(template) {
+        const modal = document.getElementById('templateModal');
+        const title = document.getElementById('templateModalTitle');
+        if (template) {
+            title.textContent = 'Edit Template';
+            document.getElementById('templateEditId').value = template.id;
+            document.getElementById('templateName').value = template.name || '';
+            document.getElementById('templateDesc').value = template.description || '';
+            document.getElementById('templateDuration').value = template.default_duration_hours || 4;
+            document.getElementById('templatePreArrival').value = template.pre_arrival_hours || 1;
+            document.getElementById('templateDressCode').value = template.dress_code || 'All Black';
+            document.getElementById('templateServices').value = template.default_services || '';
+            document.getElementById('templateStaffCount').value = template.default_staff_count || 6;
+        } else {
+            title.textContent = 'New Template';
+            document.getElementById('templateEditId').value = '';
+            document.getElementById('templateName').value = '';
+            document.getElementById('templateDesc').value = '';
+            document.getElementById('templateDuration').value = '4';
+            document.getElementById('templatePreArrival').value = '1';
+            document.getElementById('templateDressCode').value = 'All Black';
+            document.getElementById('templateServices').value = '';
+            document.getElementById('templateStaffCount').value = '6';
+        }
+        modal.classList.remove('hidden');
+    }
+
+    function closeTemplateModal() {
+        document.getElementById('templateModal').classList.add('hidden');
+    }
+
+    function editTemplate(id) {
+        const t = allTemplates.find(t => t.id === id);
+        if (t) openTemplateModal(t);
+    }
+
+    async function saveTemplate() {
+        const id = document.getElementById('templateEditId').value;
+        const payload = {
+            name: document.getElementById('templateName').value.trim(),
+            description: document.getElementById('templateDesc').value.trim(),
+            default_duration_hours: parseInt(document.getElementById('templateDuration').value) || 4,
+            pre_arrival_hours: parseInt(document.getElementById('templatePreArrival').value) || 1,
+            dress_code: document.getElementById('templateDressCode').value,
+            default_services: document.getElementById('templateServices').value.trim(),
+            default_staff_count: parseInt(document.getElementById('templateStaffCount').value) || 6
+        };
+        if (!payload.name) { showToast('Template name is required', 'error'); return; }
+        try {
+            const headers = getAuthHeaders();
+            const url = id ? `${API}/templates/${id}` : `${API}/templates`;
+            const method = id ? 'PUT' : 'POST';
+            const res = await fetch(url, { method, headers, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if (data.success || data.id) {
+                showToast(id ? 'Template updated' : 'Template created', 'success');
+                closeTemplateModal();
+                loadTemplates();
+            } else {
+                showToast(data.error || 'Failed to save template', 'error');
+            }
+        } catch (e) {
+            showToast('Error saving template: ' + e.message, 'error');
+        }
+    }
+
+    async function deleteTemplate(id) {
+        const t = allTemplates.find(t => t.id === id);
+        if (!t) return;
+        if (!confirm(`Delete template "${t.name}"?`)) return;
+        try {
+            const headers = getAuthHeadersNoJSON();
+            const res = await fetch(`${API}/templates/${id}`, { method: 'DELETE', headers });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Template deleted', 'success');
+                loadTemplates();
+            } else {
+                showToast(data.error || 'Failed to delete', 'error');
+            }
+        } catch (e) {
+            showToast('Error deleting template: ' + e.message, 'error');
+        }
+    }
 
     // ==================== STAFF SCHEDULE TAB ====================
     function loadStaffSchedule() {

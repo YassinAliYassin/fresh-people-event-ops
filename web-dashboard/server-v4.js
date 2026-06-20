@@ -2725,6 +2725,21 @@ app.post('/api/templates', (req, res) => {
   );
 });
 
+// PUT /api/templates/:id - Update template
+app.put('/api/templates/:id', (req, res) => {
+  const { name, description, default_duration_hours, pre_arrival_hours, dress_code, default_services, default_staff_count } = req.body;
+  if (!name) return res.status(400).json({error: 'Name is required'});
+  db.run(
+    `UPDATE event_templates SET name=?, description=?, default_duration_hours=?, pre_arrival_hours=?, dress_code=?, default_services=?, default_staff_count=? WHERE id=?`,
+    [name, description || '', default_duration_hours || 4, pre_arrival_hours || 1, dress_code || 'All Black', default_services || '', default_staff_count || 8, req.params.id],
+    function(err) {
+      if (err) return res.status(500).json({error: err.message});
+      if (this.changes === 0) return res.status(404).json({error: 'Template not found'});
+      res.json({ success: true, id: parseInt(req.params.id), name });
+    }
+  );
+});
+
 // GET /api/conflicts - check for booking conflicts
 app.get('/api/conflicts', (req, res) => {
   db.all(`SELECT id, event, date, time, location, staff, status FROM events WHERE status != 'cancelled' OR status IS NULL`, [], (err, rows) => {
@@ -4173,7 +4188,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.31.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.32.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4384,7 +4399,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.31.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.32.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== STAFF SCHEDULING CALENDAR ====================
@@ -5783,8 +5798,23 @@ app.get('/event-day', (req, res) => {
 // Also serve at /eventday for convenience
 app.get('/eventday', (req, res) => res.redirect('/event-day'));
 
+// Seed staff phone numbers if NULL (one-time migration)
+const defaultPhones = [
+  { name: 'Mike', phone: '+27 21 555 0101' },
+  { name: 'Alex', phone: '+27 21 555 0202' },
+  { name: 'David', phone: '+27 21 555 0404' },
+  { name: 'John', phone: '+27 21 555 0505' },
+  { name: 'Thabo', phone: '+27 21 555 0606' },
+  { name: 'Ben', phone: '+27 21 555 0707' },
+  { name: 'Kevin', phone: '+27 21 555 0808' },
+  { name: 'Sipho', phone: '+27 21 555 0909' }
+];
+defaultPhones.forEach(p => {
+  db.run(`UPDATE staff SET phone = ? WHERE name = ? AND (phone IS NULL OR phone = '' OR phone = 'N/A')`, [p.phone, p.name]);
+});
+
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.31 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.32 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
