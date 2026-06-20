@@ -57,8 +57,9 @@ setInterval(() => {
 // Auth middleware - checks session token or allows public paths
 function authMiddleware(req, res, next) {
   // Public paths that don't require auth
-  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday', '/client-portal'];
+  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday', '/client-portal', '/feedback'];
   if (publicPaths.includes(req.path)) return next();
+  if (req.path.startsWith('/feedback/')) return next();
   if (req.path.startsWith('/api/portal')) return next();
   if (req.path === '/manifest.json' || req.path === '/sw.js') return next();
   if (req.path.startsWith('/icon')) return next();
@@ -4251,7 +4252,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.37.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.38.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4462,7 +4463,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.37.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.38.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4471,7 +4472,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.37.0',
+    version: '4.38.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5632,7 +5633,7 @@ app.get('/api/reports/:id/pdf', (req, res) => {
 
       // Footer
       doc.fontSize(8).font('Helvetica').text(
-        `Fresh People Event Ops v4.37 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        `Fresh People Event Ops v4.38 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
         { align: 'center' }
       );
 
@@ -5758,6 +5759,163 @@ app.get('/api/reviews/summary', (req, res) => {
                   });
                 }
               );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// ==================== FEEDBACK TRENDS & ANALYTICS ====================
+
+// GET /api/feedback/trends - Time-based feedback analytics with NPS
+app.get('/api/feedback/trends', (req, res) => {
+  const { period = '30', groupBy = 'week' } = req.query;
+  const days = parseInt(period) || 30;
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().split('T')[0];
+
+  // Rating distribution
+  db.all(
+    `SELECT rating, COUNT(*) as count
+     FROM attendee_feedback
+     WHERE created_at >= ?
+     GROUP BY rating
+     ORDER BY rating`,
+    [sinceStr],
+    (err, distribution) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // NPS calculation (rating 4-5 = promoter, 3 = passive, 1-2 = detractor)
+      db.get(
+        `SELECT
+           COUNT(*) as total,
+           SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as promoters,
+           SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as passives,
+           SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as detractors
+         FROM attendee_feedback
+         WHERE created_at >= ?`,
+        [sinceStr],
+        (err2, npsData) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          const total = npsData?.total || 0;
+          const nps = total > 0
+            ? Math.round(((npsData.promoters - npsData.detractors) / total) * 100)
+            : 0;
+
+          // Time series data
+          const dateFormat = groupBy === 'month' ? '%Y-%m' : '%Y-%W';
+          db.all(
+            `SELECT strftime('${dateFormat}', created_at) as period,
+                   COUNT(*) as count,
+                   AVG(rating) as avg_rating
+             FROM attendee_feedback
+             WHERE created_at >= ?
+             GROUP BY period
+             ORDER BY period`,
+            [sinceStr],
+            (err3, trends) => {
+              if (err3) return res.status(500).json({ error: err3.message });
+
+              // Top events by feedback count
+              db.all(
+                `SELECT e.id, e.event, e.date,
+                        COUNT(f.id) as feedback_count,
+                        AVG(f.rating) as avg_rating
+                 FROM attendee_feedback f
+                 JOIN events e ON f.event_id = e.id
+                 WHERE f.created_at >= ?
+                 GROUP BY e.id
+                 ORDER BY feedback_count DESC
+                 LIMIT 10`,
+                [sinceStr],
+                (err4, topEvents) => {
+                  if (err4) return res.status(500).json({ error: err4.message });
+
+                  // Recent feedback with event names
+                  db.all(
+                    `SELECT f.id, f.rating, f.feedback, f.category, f.attendee_name, f.created_at,
+                            e.event as event_name
+                     FROM attendee_feedback f
+                     LEFT JOIN events e ON f.event_id = e.id
+                     WHERE f.created_at >= ?
+                     ORDER BY f.created_at DESC
+                     LIMIT 20`,
+                    [sinceStr],
+                    (err5, recent) => {
+                      if (err5) return res.status(500).json({ error: err5.message });
+
+                      res.json({
+                        success: true,
+                        period: days,
+                        nps: {
+                          score: nps,
+                          total,
+                          promoters: npsData?.promoters || 0,
+                          passives: npsData?.passives || 0,
+                          detractors: npsData?.detractors || 0,
+                          promoter_pct: total > 0 ? Math.round(npsData.promoters / total * 100) : 0,
+                          passive_pct: total > 0 ? Math.round(npsData.passives / total * 100) : 0,
+                          detractor_pct: total > 0 ? Math.round(npsData.detractors / total * 100) : 0
+                        },
+                        distribution: distribution || [],
+                        trends: trends || [],
+                        top_events: topEvents || [],
+                        recent_feedback: recent || []
+                      });
+                    }
+                  );
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// GET /api/feedback/event/:id/summary - Per-event feedback summary
+app.get('/api/feedback/event/:id/summary', (req, res) => {
+  const { id } = req.params;
+
+  db.get(
+    `SELECT COUNT(*) as total, AVG(rating) as avg_rating,
+            SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as promoters,
+            SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as detractors
+     FROM attendee_feedback WHERE event_id = ?`,
+    [id],
+    (err, stats) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      db.all(
+        `SELECT rating, COUNT(*) as count FROM attendee_feedback WHERE event_id = ? GROUP BY rating ORDER BY rating`,
+        [id],
+        (err2, dist) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          db.all(
+            `SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+             FROM attendee_feedback WHERE event_id = ? GROUP BY category ORDER BY count DESC`,
+            [id],
+            (err3, cats) => {
+              if (err3) return res.status(500).json({ error: err3.message });
+
+              const total = stats?.total || 0;
+              const nps = total > 0 ? Math.round(((stats.promoters - stats.detractors) / total) * 100) : 0;
+
+              res.json({
+                success: true,
+                event_id: id,
+                total,
+                avg_rating: stats?.avg_rating ? Math.round(stats.avg_rating * 10) / 10 : 0,
+                nps,
+                distribution: dist || [],
+                categories: cats || []
+              });
             }
           );
         }
@@ -6738,6 +6896,16 @@ app.get('/event-day', (req, res) => {
 // Also serve at /eventday for convenience
 app.get('/eventday', (req, res) => res.redirect('/event-day'));
 
+// Serve public feedback page (public — no auth required, for event attendees)
+app.get('/feedback/:eventId', (req, res) => {
+  const filePath = path.join(__dirname, 'public', 'feedback.html');
+  if (fsSync.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send('Feedback page not found');
+  }
+});
+
 // Seed staff phone numbers if NULL (one-time migration)
 const defaultPhones = [
   { name: 'Mike', phone: '+27 21 555 0101' },
@@ -6850,6 +7018,6 @@ app.put('/api/timesheets/:id/assign-period', (req, res) => {
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.37 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.38 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

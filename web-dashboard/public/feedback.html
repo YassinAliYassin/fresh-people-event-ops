@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Feedback - Fresh People</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+        .container { max-width: 480px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; padding: 24px 0 16px; }
+        .header h1 { font-size: 1.4rem; color: #f8fafc; margin-bottom: 4px; }
+        .header p { font-size: 0.85rem; color: #94a3b8; }
+        .card { background: #1e293b; border-radius: 16px; padding: 24px; margin-bottom: 16px; border: 1px solid #334155; }
+        .event-info { text-align: center; padding: 20px; }
+        .event-info .icon { font-size: 2.5rem; margin-bottom: 8px; }
+        .event-info h2 { font-size: 1.2rem; color: #f1f5f9; margin-bottom: 4px; }
+        .event-info .meta { font-size: 0.85rem; color: #94a3b8; }
+        .event-info .meta span { display: inline-block; margin: 2px 8px; }
+        .loading { text-align: center; padding: 40px; color: #64748b; }
+        .loading .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #334155; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .error { text-align: center; padding: 30px; color: #f87171; }
+        .error .icon { font-size: 3rem; margin-bottom: 12px; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 0.85rem; color: #94a3b8; margin-bottom: 8px; font-weight: 500; }
+        .form-group label .required { color: #f87171; }
+        .form-group input, .form-group textarea, .form-group select { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px 14px; color: #e2e8f0; font-size: 1rem; outline: none; transition: border-color 0.2s; }
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { border-color: #6366f1; }
+        .form-group textarea { min-height: 100px; resize: vertical; }
+        .rating-section { text-align: center; }
+        .rating-stars { display: flex; justify-content: center; gap: 8px; margin: 12px 0; }
+        .rating-star { font-size: 2.2rem; cursor: pointer; transition: transform 0.15s, opacity 0.15s; opacity: 0.35; }
+        .rating-star:hover { transform: scale(1.15); }
+        .rating-star.active { opacity: 1; }
+        .rating-star.hover { opacity: 0.7; }
+        .rating-label { font-size: 0.9rem; color: #94a3b8; min-height: 24px; }
+        .category-select { display: flex; flex-wrap: wrap; gap: 8px; }
+        .category-chip { background: #0f172a; border: 1px solid #334155; border-radius: 20px; padding: 8px 16px; font-size: 0.85rem; color: #94a3b8; cursor: pointer; transition: all 0.2s; }
+        .category-chip:hover { border-color: #6366f1; color: #e2e8f0; }
+        .category-chip.selected { background: #6366f1; border-color: #6366f1; color: #fff; }
+        .submit-btn { width: 100%; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: none; border-radius: 12px; padding: 14px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s, transform 0.1s; }
+        .submit-btn:hover { opacity: 0.9; }
+        .submit-btn:active { transform: scale(0.98); }
+        .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .success-screen { text-align: center; padding: 40px 20px; }
+        .success-screen .icon { font-size: 4rem; margin-bottom: 16px; }
+        .success-screen h2 { font-size: 1.4rem; color: #f1f5f9; margin-bottom: 8px; }
+        .success-screen p { color: #94a3b8; margin-bottom: 20px; }
+        .success-screen .rating-display { font-size: 2rem; margin: 16px 0; }
+        .footer { text-align: center; padding: 20px; color: #475569; font-size: 0.75rem; }
+        .nps-section { text-align: center; }
+        .nps-scale { display: flex; gap: 4px; justify-content: center; margin: 12px 0; flex-wrap: wrap; }
+        .nps-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #94a3b8; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+        .nps-btn:hover { border-color: #6366f1; color: #e2e8f0; }
+        .nps-btn.selected { border-color: #6366f1; background: #6366f1; color: #fff; }
+        .nps-labels { display: flex; justify-content: space-between; font-size: 0.7rem; color: #64748b; padding: 0 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎪 Fresh People Events</h1>
+            <p>We'd love your feedback!</p>
+        </div>
+
+        <div id="loadingState" class="loading">
+            <div class="spinner"></div>
+            <p>Loading event details...</p>
+        </div>
+
+        <div id="errorState" class="error" style="display:none;">
+            <div class="icon">😕</div>
+            <h3 id="errorTitle">Event not found</h3>
+            <p id="errorMessage">This event may have been removed or the link is incorrect.</p>
+        </div>
+
+        <div id="feedbackForm" style="display:none;">
+            <div class="card event-info">
+                <div class="icon">🎉</div>
+                <h2 id="eventName">-</h2>
+                <div class="meta">
+                    <span id="eventDate">📅 -</span>
+                    <span id="eventLocation">📍 -</span>
+                </div>
+            </div>
+
+            <form id="feedbackFormData" onsubmit="submitFeedback(event)">
+                <div class="card rating-section">
+                    <div class="form-group">
+                        <label>How would you rate your overall experience? <span class="required">*</span></label>
+                        <div class="rating-stars" id="ratingStars">
+                            <span class="rating-star" data-value="1" onclick="setRating(1)" onmouseover="hoverRating(1)" onmouseout="resetHover()">★</span>
+                            <span class="rating-star" data-value="2" onclick="setRating(2)" onmouseover="hoverRating(2)" onmouseout="resetHover()">★</span>
+                            <span class="rating-star" data-value="3" onclick="setRating(3)" onmouseover="hoverRating(3)" onmouseout="resetHover()">★</span>
+                            <span class="rating-star" data-value="4" onclick="setRating(4)" onmouseover="hoverRating(4)" onmouseout="resetHover()">★</span>
+                            <span class="rating-star" data-value="5" onclick="setRating(5)" onmouseover="hoverRating(5)" onmouseout="resetHover()">★</span>
+                        </div>
+                        <div class="rating-label" id="ratingLabel">Tap a star to rate</div>
+                        <input type="hidden" id="ratingValue" value="0">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label>What aspect would you like to highlight?</label>
+                        <div class="category-select" id="categorySelect">
+                            <div class="category-chip" onclick="toggleCategory(this, 'venue')">🏛️ Venue</div>
+                            <div class="category-chip" onclick="toggleCategory(this, 'catering')">🍽️ Catering</div>
+                            <div class="category-chip" onclick="toggleCategory(this, 'staff')">👥 Staff</div>
+                            <div class="category-chip" onclick="toggleCategory(this, 'entertainment')">🎵 Entertainment</div>
+                            <div class="category-chip" onclick="toggleCategory(this, 'setup')">🎨 Setup & Decor</div>
+                            <div class="category-chip" onclick="toggleCategory(this, 'general')">✨ Overall</div>
+                        </div>
+                        <input type="hidden" id="categoryValue" value="general">
+                    </div>
+                </div>
+
+                <div class="card nps-section">
+                    <div class="form-group">
+                        <label>How likely are you to recommend us to a friend?</label>
+                        <div class="nps-scale" id="npsScale">
+                            <button type="button" class="nps-btn" onclick="setNPS(0)">0</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(1)">1</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(2)">2</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(3)">3</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(4)">4</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(5)">5</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(6)">6</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(7)">7</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(8)">8</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(9)">9</button>
+                            <button type="button" class="nps-btn" onclick="setNPS(10)">10</button>
+                        </div>
+                        <div class="nps-labels"><span>Not likely</span><span>Very likely</span></div>
+                        <input type="hidden" id="npsValue" value="-1">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label>Share your thoughts</label>
+                        <textarea id="feedbackText" placeholder="Tell us what you loved or what we could improve..."></textarea>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="form-group">
+                        <label>Your name (optional)</label>
+                        <input type="text" id="attendeeName" placeholder="Anonymous">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0;">
+                        <label>Your email (optional)</label>
+                        <input type="email" id="attendeeEmail" placeholder="you@example.com">
+                    </div>
+                </div>
+
+                <button type="submit" class="submit-btn" id="submitBtn">Submit Feedback ✨</button>
+            </form>
+        </div>
+
+        <div id="successScreen" style="display:none;">
+            <div class="card success-screen">
+                <div class="icon">🎉</div>
+                <h2>Thank You!</h2>
+                <p>Your feedback helps us create better experiences.</p>
+                <div class="rating-display" id="submittedRating"></div>
+                <p style="color:#64748b; font-size:0.8rem;">Fresh People Events Team</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            Powered by Fresh People Event Operations
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+        const eventId = window.location.pathname.split('/').pop();
+        let currentRating = 0;
+        let currentNPS = -1;
+
+        async function loadEvent() {
+            try {
+                const res = await fetch(`${API}/events/${eventId}`);
+                if (!res.ok) {
+                    if (res.status === 404) throw new Error('Event not found');
+                    throw new Error('Failed to load event');
+                }
+                const data = await res.json();
+                const event = data.event || data;
+                
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('feedbackForm').style.display = 'block';
+                
+                document.getElementById('eventName').textContent = event.event || 'Event';
+                document.getElementById('eventDate').textContent = '📅 ' + (event.date || '') + (event.time ? ' at ' + event.time.split('-')[0] : '');
+                document.getElementById('eventLocation').textContent = '📍 ' + (event.location || '');
+            } catch (err) {
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('errorState').style.display = 'block';
+                document.getElementById('errorTitle').textContent = err.message === 'Event not found' ? 'Event Not Found' : 'Something went wrong';
+                document.getElementById('errorMessage').textContent = err.message === 'Event not found' 
+                    ? 'This event may have been removed or the link is incorrect.' 
+                    : 'Please try again later.';
+            }
+        }
+
+        function setRating(val) {
+            currentRating = val;
+            document.getElementById('ratingValue').value = val;
+            const stars = document.querySelectorAll('.rating-star');
+            stars.forEach((s, i) => {
+                s.classList.toggle('active', i < val);
+                s.classList.remove('hover');
+            });
+            const labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent!'];
+            document.getElementById('ratingLabel').textContent = labels[val] || '';
+        }
+
+        function hoverRating(val) {
+            const stars = document.querySelectorAll('.rating-star');
+            stars.forEach((s, i) => {
+                s.classList.toggle('hover', i < val);
+            });
+        }
+
+        function resetHover() {
+            document.querySelectorAll('.rating-star').forEach(s => s.classList.remove('hover'));
+        }
+
+        function toggleCategory(el, cat) {
+            document.querySelectorAll('.category-chip').forEach(c => c.classList.remove('selected'));
+            el.classList.add('selected');
+            document.getElementById('categoryValue').value = cat;
+        }
+
+        function setNPS(val) {
+            currentNPS = val;
+            document.getElementById('npsValue').value = val;
+            document.querySelectorAll('.nps-btn').forEach((b, i) => {
+                b.classList.toggle('selected', i === val);
+            });
+        }
+
+        async function submitFeedback(e) {
+            e.preventDefault();
+            const rating = parseInt(document.getElementById('ratingValue').value);
+            if (rating < 1 || rating > 5) {
+                alert('Please select a star rating');
+                return;
+            }
+
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Submitting...';
+
+            const body = {
+                rating,
+                category: document.getElementById('categoryValue').value,
+                feedback: document.getElementById('feedbackText').value,
+                attendee_name: document.getElementById('attendeeName').value || 'Anonymous',
+                attendee_email: document.getElementById('attendeeEmail').value || '',
+                nps: currentNPS >= 0 ? currentNPS : null
+            };
+
+            try {
+                const res = await fetch(`${API}/events/${eventId}/feedback`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('feedbackForm').style.display = 'none';
+                    document.getElementById('successScreen').style.display = 'block';
+                    document.getElementById('submittedRating').textContent = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+                } else {
+                    alert(data.error || 'Failed to submit feedback');
+                    btn.disabled = false;
+                    btn.textContent = 'Submit Feedback ✨';
+                }
+            } catch (err) {
+                alert('Error submitting feedback. Please try again.');
+                btn.disabled = false;
+                btn.textContent = 'Submit Feedback ✨';
+            }
+        }
+
+        // Initialize
+        loadEvent();
+    </script>
+</body>
+</html>
