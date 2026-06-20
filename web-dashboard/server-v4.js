@@ -2436,7 +2436,7 @@ app.get('/api/events', (req, res) => {
 // POST /api/events (with staff shortage warning)
 app.post('/api/events', async (req, res) => {
   try {
-    const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time, venue_id } = req.body;
+    const { event, date, time, location, client, client_id, client_email, services, staff, notes, estimated_cost, actual_cost, currency, budget, guests, end_time, venue_id, template_id } = req.body;
     const id = await generateEventID(date);
     const staffList = staff || [];
     const activeStaffCount = await getActiveStaffCount();
@@ -2493,6 +2493,8 @@ app.post('/api/events', async (req, res) => {
         try { broadcast({ type: 'event_created', event: newEvent }); } catch(e) { console.error('Broadcast failed:', e); }
         // Audit log
         try { logAudit('create', 'event', newEvent.id, event, `Created event on ${date} at ${location}`, req); } catch(e) {}
+        // Auto-create tasks from templates
+        try { await autoCreateTasksFromTemplate(id, event, template_id); } catch(e) { console.error('Auto-create tasks failed:', e); }
         res.json(newEvent);
       }
     );
@@ -4400,7 +4402,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.33.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.34.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4409,7 +4411,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.33.0',
+    version: '4.34.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5839,6 +5841,182 @@ app.get('/api/dashboard/stats', async (req, res) => {
   }
 });
 
+// ==================== RECENT ACTIVITY FEED ====================
+
+app.get('/api/activity', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const activities = [];
+
+    // Recent events (created)
+    const recentEvents = await dbAll(
+      `SELECT id, event, date, status, created_at, 'event_created' as type FROM events WHERE archived_at IS NULL ORDER BY id DESC LIMIT ?`,
+      [limit]
+    );
+    recentEvents.forEach(e => {
+      activities.push({
+        id: `evt-${e.id}`,
+        type: 'event_created',
+        icon: '📅',
+        title: `Event Created: ${e.event}`,
+        subtitle: `${e.date} · ${e.status || 'pending'}`,
+        timestamp: e.created_at,
+        link: 'events',
+        entityId: e.id,
+      });
+    });
+
+    // Recent staff additions
+    const recentStaff = await dbAll(
+      `SELECT id, name, role, 'staff_added' as type FROM staff WHERE active=1 ORDER BY id DESC LIMIT ?`,
+      [Math.floor(limit / 4)]
+    );
+    recentStaff.forEach(s => {
+      activities.push({
+        id: `staff-${s.id}`,
+        type: 'staff_added',
+        icon: '👤',
+        title: `Staff Added: ${s.name}`,
+        subtitle: `Role: ${s.role || 'team member'}`,
+        timestamp: new Date().toISOString(),
+        link: 'users',
+        entityId: s.id,
+      });
+    });
+
+    // Recent client additions
+    const recentClients = await dbAll(
+      `SELECT id, name, company, created_at, 'client_added' as type FROM clients WHERE is_active=1 ORDER BY id DESC LIMIT ?`,
+      [Math.floor(limit / 4)]
+    );
+    recentClients.forEach(c => {
+      activities.push({
+        id: `client-${c.id}`,
+        type: 'client_added',
+        icon: '🏢',
+        title: `Client Added: ${c.name}`,
+        subtitle: c.company || 'No company',
+        timestamp: c.created_at || new Date().toISOString(),
+        link: 'clients',
+        entityId: c.id,
+      });
+    });
+
+    // Recent reviews
+    const recentReviews = await dbAll(
+      `SELECT id, event_id, reviewer, overall_rating, created_at, 'review_added' as type FROM event_reviews ORDER BY id DESC LIMIT ?`,
+      [Math.floor(limit / 4)]
+    );
+    recentReviews.forEach(r => {
+      activities.push({
+        id: `review-${r.id}`,
+        type: 'review_added',
+        icon: '⭐',
+        title: `Review: ${r.reviewer || 'Anonymous'}`,
+        subtitle: `Rating: ${'★'.repeat(r.overall_rating || 0)}${'☆'.repeat(5 - (r.overall_rating || 0))} · Event ${r.event_id}`,
+        timestamp: r.created_at,
+        link: 'reviews',
+        entityId: r.id,
+      });
+    });
+
+    // Recent audit log entries
+    const recentAudit = await dbAll(
+      `SELECT id, action, entity_type, entity_name, username, created_at, 'audit' as type FROM audit_log ORDER BY id DESC LIMIT ?`,
+      [Math.floor(limit / 2)]
+    );
+    recentAudit.forEach(a => {
+      const icons = { create: '➕', update: '✏️', delete: '🗑️', archive: '📦', restore: '♻️' };
+      activities.push({
+        id: `audit-${a.id}`,
+        type: `audit_${a.action}`,
+        icon: icons[a.action] || '📋',
+        title: `${a.action.charAt(0).toUpperCase() + a.action.slice(1)} ${a.entity_type}: ${a.entity_name || 'Unknown'}`,
+        subtitle: `by ${a.username || 'System'}`,
+        timestamp: a.created_at,
+        link: 'audit',
+        entityId: a.id,
+      });
+    });
+
+    // Sort by timestamp descending and limit
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    res.json({
+      success: true,
+      activities: activities.slice(0, limit),
+      total: activities.length,
+    });
+  } catch (err) {
+    console.error('Activity feed error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==================== BUDGET SEEDING ====================
+
+async function seedBudgetsIfEmpty() {
+  try {
+    const existing = await dbQuery(`SELECT COUNT(*) as count FROM budgets`);
+    if (existing?.count > 0) return;
+
+    const budgets = [
+      { name: 'Q1 2026 Events', amount: 150000, period: 'quarterly', category: 'events', start_date: '2026-01-01', end_date: '2026-03-31' },
+      { name: 'Q2 2026 Events', amount: 200000, period: 'quarterly', category: 'events', start_date: '2026-04-01', end_date: '2026-06-30' },
+      { name: 'Q3 2026 Events', amount: 180000, period: 'quarterly', category: 'events', start_date: '2026-07-01', end_date: '2026-09-30' },
+      { name: 'Staff Payroll June', amount: 45000, period: 'monthly', category: 'payroll', start_date: '2026-06-01', end_date: '2026-06-30' },
+      { name: 'Equipment Maintenance', amount: 25000, period: 'quarterly', category: 'maintenance', start_date: '2026-04-01', end_date: '2026-06-30' },
+      { name: 'Marketing & Promo', amount: 35000, period: 'quarterly', category: 'marketing', start_date: '2026-04-01', end_date: '2026-06-30' },
+    ];
+
+    for (const b of budgets) {
+      await dbQuery(
+        `INSERT INTO budgets (name, amount, period, category, start_date, end_date) VALUES (?,?,?,?,?,?)`,
+        [b.name, b.amount, b.period, b.category, b.start_date, b.end_date]
+      );
+    }
+    console.log(`Seeded ${budgets.length} budget entries`);
+  } catch (err) {
+    console.error('Budget seeding error:', err);
+  }
+}
+
+// ==================== TASK AUTO-CREATION FROM TEMPLATES ====================
+
+async function autoCreateTasksFromTemplate(eventId, eventName, templateId) {
+  if (!templateId) return;
+  try {
+    const template = await dbQuery(`SELECT * FROM task_templates WHERE event_type = ? OR category = ? LIMIT 1`, [eventName, 'general']);
+    if (!template) return;
+
+    // Get all task templates sorted by sort_order
+    const templates = await dbAll(
+      `SELECT * FROM task_templates WHERE event_type = ? OR event_type IS NULL OR event_type = '' ORDER BY sort_order ASC, id ASC`,
+      [eventName]
+    );
+
+    // If no event-specific templates, use general ones
+    const taskTemplates = templates.length > 0 ? templates : await dbAll(
+      `SELECT * FROM task_templates WHERE category = 'general' OR category IS NULL ORDER BY sort_order ASC, id ASC`
+    );
+
+    for (const tmpl of taskTemplates) {
+      await dbQuery(
+        `INSERT INTO event_tasks (event_id, title, description, category, priority, status, assigned_to, sort_order, created_by) VALUES (?,?,?,?,?,?,?,?,?)`,
+        [eventId, tmpl.name, tmpl.description || '', tmpl.category || 'general', tmpl.priority || 'medium', 'pending', tmpl.default_assignee || '', tmpl.sort_order || 0, 'system']
+      );
+    }
+
+    if (taskTemplates.length > 0) {
+      console.log(`Auto-created ${taskTemplates.length} tasks for event ${eventId} from templates`);
+      // Update task count on event
+      await dbQuery(`UPDATE events SET task_count = ?, tasks_completed = 0 WHERE id = ?`, [taskTemplates.length, eventId]);
+    }
+  } catch (err) {
+    console.error('Auto-create tasks error:', err);
+  }
+}
+
 // ==================== WEBSOCKET SERVER ====================
 
 const { WebSocketServer } = require('ws');
@@ -5924,8 +6102,11 @@ defaultPhones.forEach(p => {
   db.run(`UPDATE staff SET phone = ? WHERE name = ? AND (phone IS NULL OR phone = '' OR phone = 'N/A')`, [p.phone, p.name]);
 });
 
+// Seed budgets if empty
+seedBudgetsIfEmpty();
+
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.33 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.34 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
