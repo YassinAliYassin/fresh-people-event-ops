@@ -4173,7 +4173,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.29.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.30.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4384,7 +4384,105 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.29.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.30.0', timestamp: new Date().toISOString() });
+});
+
+// ==================== STAFF SCHEDULING CALENDAR ====================
+
+// GET /api/staff/schedule - Staff assignments by date range
+app.get('/api/staff/schedule', (req, res) => {
+  const { start, end, staff_id } = req.query;
+  const startDate = start || new Date().toISOString().split('T')[0];
+  const endDate = end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  let sql = `SELECT e.id, e.event, e.date, e.time, e.end_time, e.location, e.status, e.staff, e.leader, e.guests, s.name as staff_name, s.role as staff_role, s.id as staff_id
+    FROM events e, json_each(e.staff)
+    LEFT JOIN staff s ON json_each.value = s.name
+    WHERE e.archived_at IS NULL AND e.date >= ? AND e.date <= ?`;
+  const params = [startDate, endDate];
+
+  if (staff_id) {
+    sql += ` AND s.id = ?`;
+    params.push(staff_id);
+  }
+
+  sql += ` ORDER BY e.date ASC, e.time ASC`;
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    // Group by date
+    const schedule = {};
+    rows.forEach(r => {
+      if (!schedule[r.date]) schedule[r.date] = [];
+      schedule[r.date].push({
+        eventId: r.id,
+        eventName: r.event,
+        time: r.time,
+        endTime: r.end_time,
+        location: r.location,
+        status: r.status,
+        staffName: r.staff_name,
+        staffRole: r.staff_role,
+        staffId: r.staff_id,
+        leader: r.leader,
+        guests: r.guests
+      });
+    });
+
+    // Also get events without staff assigned
+    db.all(`SELECT id, event, date, time, end_time, location, status, staff, leader, guests FROM events WHERE archived_at IS NULL AND date >= ? AND date <= ? ORDER BY date ASC, time ASC`, [startDate, endDate], (err2, events) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      res.json({ schedule, events, startDate, endDate, total: events.length });
+    });
+  });
+});
+
+// GET /api/staff/conflicts - Detect staff double-bookings
+app.get('/api/staff/conflicts', (req, res) => {
+  const { date } = req.query;
+  const targetDate = date || new Date().toISOString().split('T')[0];
+
+  db.all(`SELECT e.id, e.event, e.date, e.time, e.end_time, e.staff, e.leader FROM events e WHERE e.archived_at IS NULL AND e.date = ? ORDER BY e.time ASC`, [targetDate], (err, events) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const conflicts = [];
+    const staffMap = {};
+
+    events.forEach(evt => {
+      let staffList = [];
+      try { staffList = JSON.parse(evt.staff) || []; } catch(e) { staffList = []; }
+      if (evt.leader) staffList.push(evt.leader);
+
+      staffList.forEach(name => {
+        if (!name) return;
+        if (!staffMap[name]) staffMap[name] = [];
+        staffMap[name].push({ eventId: evt.id, eventName: evt.event, time: evt.time, endTime: evt.end_time });
+      });
+    });
+
+    Object.entries(staffMap).forEach(([name, assignments]) => {
+      if (assignments.length > 1) {
+        // Check for time overlap
+        for (let i = 0; i < assignments.length; i++) {
+          for (let j = i + 1; j < assignments.length; j++) {
+            const a = assignments[i];
+            const b = assignments[j];
+            const aStart = a.time;
+            const aEnd = a.end_time || a.time;
+            const bStart = b.time;
+            const bEnd = b.end_time || b.time;
+            if (aStart < bEnd && bStart < aEnd) {
+              conflicts.push({ staff: name, event1: a, event2: b });
+            }
+          }
+        }
+      }
+    });
+
+    res.json({ date: targetDate, conflicts, events: events.length });
+  });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -5687,6 +5785,6 @@ app.get('/eventday', (req, res) => res.redirect('/event-day'));
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.29 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.30 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

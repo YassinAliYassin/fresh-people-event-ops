@@ -128,6 +128,7 @@
             <button onclick="switchTab('comms')" id="tab-comms" class="pb-2 font-semibold tab-inactive">💬 Comms</button>
             <button onclick="switchTab('calendar')" id="tab-calendar" class="pb-2 font-semibold tab-inactive">📅 Calendar</button>
             <button onclick="switchTab('import-export')" id="tab-import-export" class="pb-2 font-semibold tab-inactive">📦 Import/Export</button>
+            <button onclick="switchTab('staff-schedule')" id="tab-staff-schedule" class="pb-2 font-semibold tab-inactive">📆 Staff Schedule</button>
             <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
             <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
         </div>
@@ -182,6 +183,35 @@
             <div id="auditStats" class="grid grid-cols-4 gap-4 mb-4"></div>
             <div id="auditList" class="bg-gray-800 rounded-lg p-4">
                 <p class="text-gray-400">Loading audit log...</p>
+            </div>
+        </div>
+
+        <!-- ==================== STAFF SCHEDULE TAB ==================== -->
+        <div id="view-staff-schedule" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-white">📆 Staff Schedule</h2>
+                <div class="flex gap-2 items-center">
+                    <label class="text-gray-400 text-sm">From:</label>
+                    <input type="date" id="schedStartDate" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffSchedule()">
+                    <label class="text-gray-400 text-sm">To:</label>
+                    <input type="date" id="schedEndDate" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffSchedule()">
+                    <button onclick="loadStaffSchedule()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm">Load</button>
+                </div>
+            </div>
+
+            <!-- Conflict Detection -->
+            <div class="bg-gray-800 rounded-lg p-4 mb-4">
+                <div class="flex items-center gap-3 mb-3">
+                    <h3 class="text-lg font-semibold text-white">⚠️ Conflict Detection</h3>
+                    <input type="date" id="conflictDate" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffConflicts()">
+                    <button onclick="loadStaffConflicts()" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Check</button>
+                </div>
+                <div id="conflictResults" class="text-sm text-gray-400">Select a date to check for staff conflicts</div>
+            </div>
+
+            <!-- Schedule Content -->
+            <div id="staffScheduleContent">
+                <p class="text-gray-400">Select a date range and click Load to view staff schedule</p>
             </div>
         </div>
 
@@ -2423,7 +2453,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'import-export', 'staff-schedule', 'archive', 'audit'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2504,6 +2534,16 @@
             }
             if (tab === 'import-export') {
                 // Import/Export tab loaded
+            }
+            if (tab === 'staff-schedule') {
+                const today = new Date();
+                const start = today.toISOString().slice(0, 10);
+                const end = new Date();
+                end.setDate(end.getDate() + 30);
+                document.getElementById('schedStartDate').value = start;
+                document.getElementById('schedEndDate').value = end;
+                document.getElementById('conflictDate').value = start;
+                loadStaffSchedule();
             }
         }
 
@@ -9553,6 +9593,105 @@ function updateImportHistory() {
             document.getElementById('searchResults').classList.add('hidden');
         }
     });
+
+    // ==================== STAFF SCHEDULE TAB ====================
+    function loadStaffSchedule() {
+        const start = document.getElementById('schedStartDate').value;
+        const end = document.getElementById('schedEndDate').value;
+        if (!start || !end) return;
+        fetch(`/api/staff/schedule?start=${start}&end=${end}`, { headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { showToast(data.error, 'error'); return; }
+                renderStaffSchedule(data);
+                loadStaffConflicts();
+            })
+            .catch(err => showToast('Failed to load schedule: ' + err.message, 'error'));
+    }
+
+    function loadStaffConflicts() {
+        const date = document.getElementById('conflictDate').value;
+        if (!date) return;
+        fetch(`/api/staff/conflicts?date=${date}`, { headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => {
+                const div = document.getElementById('conflictResults');
+                if (!data.conflicts || data.conflicts.length === 0) {
+                    div.innerHTML = '<p class="text-green-400 text-sm">✅ No conflicts detected for this date</p>';
+                } else {
+                    div.innerHTML = data.conflicts.map(c => `
+                        <div class="bg-red-900/30 border border-red-700 rounded-lg p-3 mb-2">
+                            <div class="text-red-400 font-semibold">⚠️ ${escapeHtml(c.staff)}</div>
+                            <div class="text-sm text-gray-300 mt-1">
+                                <div>📅 ${c.event1.eventName} (${c.event1.time}${c.event1.endTime ? '-' + c.event1.endTime : ''})</div>
+                                <div>📅 ${c.event2.eventName} (${c.event2.time}${c.event2.endTime ? '-' + c.event2.endTime : ''})</div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            });
+    }
+
+    function renderStaffSchedule(data) {
+        const div = document.getElementById('staffScheduleContent');
+        const dates = Object.keys(data.schedule).sort();
+        if (dates.length === 0 && data.events.length === 0) {
+            div.innerHTML = '<p class="text-gray-400">No events found in selected date range</p>';
+            return;
+        }
+
+        // Build a staff assignment map
+        const staffMap = {};
+        dates.forEach(date => {
+            data.schedule(date].forEach(item => {
+                if (!staffMap[item.staffName]) staffMap[item.staffName] = { role: item.staffRole, events: [] };
+                staffMap[item.staffName].events.push({ date, ...item });
+            });
+        });
+
+        // Render date-by-date view
+        let html = '<div class="space-y-4">';
+        dates.forEach(date => {
+            const items = data.schedule[date];
+            const dateLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-ZA', { weekday: 'short', day: 'numeric', month: 'short' });
+            html += `<div class="bg-gray-800 rounded-lg p-4">`;
+            html += `<h3 class="text-lg font-semibold text-white mb-3">📅 ${dateLabel}</h3>`;
+            html += '<div class="space-y-2">';
+            items.forEach(item => {
+                const statusColors = { confirmed: 'bg-green-600', pending: 'bg-yellow-600', completed: 'bg-blue-600', cancelled: 'bg-red-600' };
+                const sc = statusColors[item.status] || 'bg-gray-600';
+                html += `
+                    <div class="flex items-center gap-3 bg-gray-900 rounded-lg p-3">
+                        <div class="text-sm text-gray-400 w-20">${item.time}</div>
+                        <div class="flex-1">
+                            <div class="text-white font-medium text-sm">${escapeHtml(item.eventName)}</div>
+                            <div class="text-xs text-gray-400">${escapeHtml(item.location)} · ${item.staffName} (${item.staffRole})</div>
+                        </div>
+                        <span class="px-2 py-0.5 rounded text-xs ${sc}">${item.status}</span>
+                    </div>`;
+            });
+            html += '</div></div>';
+        });
+        html += '</div>';
+
+        // Render staff summary
+        html += '<div class="mt-6 bg-gray-800 rounded-lg p-4">';
+        html += '<h3 class="text-lg font-semibold text-white mb-3">👥 Staff Assignment Summary</h3>';
+        html += '<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">';
+        Object.entries(staffMap).forEach(([name, info]) => {
+            html += `
+                <div class="bg-gray-900 rounded-lg p-3">
+                    <div class="text-white font-medium">${escapeHtml(name)}</div>
+                    <div class="text-xs text-gray-400 mb-2">${info.role || 'staff'} · ${info.events.length} event(s)</div>
+                    <div class="flex flex-wrap gap-1">
+                        ${info.events.map(e => `<span class="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded">${e.date.slice(5)}</span>`).join('')}
+                    </div>
+                </div>`;
+        });
+        html += '</div></div>';
+
+        div.innerHTML = html;
+    }
 
 </body>
 </html>
