@@ -1776,23 +1776,29 @@ app.get('/api/tasks', (req, res) => {
 // GET /api/tasks/stats - Task statistics
 app.get('/api/tasks/stats', (req, res) => {
   const { event_id } = req.query;
-  let where = '';
+  const conditions = [];
   const params = [];
-  if (event_id) { where = ' WHERE event_id = ?'; params.push(event_id); }
+  if (event_id) { conditions.push('event_id = ?'); params.push(event_id); }
+  const where = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
 
   db.get(`SELECT COUNT(*) as total FROM event_tasks${where}`, params, (err, total) => {
     if (err) return res.status(500).json({ error: err.message });
-    db.get(`SELECT COUNT(*) as completed FROM event_tasks${where} AND completed = 1`, params, (err2, completed) => {
+    const cConds = [...conditions, 'completed = 1'];
+    db.get(`SELECT COUNT(*) as completed FROM event_tasks WHERE ${cConds.join(' AND ')}`, params, (err2, completed) => {
       if (err2) return res.status(500).json({ error: err2.message });
-      db.get(`SELECT COUNT(*) as pending FROM event_tasks${where} AND status = 'pending'`, params, (err3, pending) => {
+      const pConds = [...conditions, "status = 'pending'"];
+      db.get(`SELECT COUNT(*) as pending FROM event_tasks WHERE ${pConds.join(' AND ')}`, params, (err3, pending) => {
         if (err3) return res.status(500).json({ error: err3.message });
-        db.get(`SELECT COUNT(*) as in_progress FROM event_tasks${where} AND status = 'in_progress'`, params, (err4, inProgress) => {
+        const ipConds = [...conditions, "status = 'in_progress'"];
+        db.get(`SELECT COUNT(*) as in_progress FROM event_tasks WHERE ${ipConds.join(' AND ')}`, params, (err4, inProgress) => {
           if (err4) return res.status(500).json({ error: err4.message });
-          db.get(`SELECT COUNT(*) as overdue FROM event_tasks${where} AND completed = 0 AND due_time != '' AND due_time < datetime('now')`, params, (err5, overdue) => {
+          const oConds = [...conditions, "completed = 0", "due_time != ''", "due_time < datetime('now')"];
+          db.get(`SELECT COUNT(*) as overdue FROM event_tasks WHERE ${oConds.join(' AND ')}`, params, (err5, overdue) => {
             if (err5) return res.status(500).json({ error: err5.message });
-            db.all(`SELECT priority, COUNT(*) as count FROM event_tasks${where} GROUP BY priority`, params, (err6, byPriority) => {
+            const gWhere = conditions.length > 0 ? ' WHERE ' + conditions.join(' AND ') : '';
+            db.all(`SELECT priority, COUNT(*) as count FROM event_tasks${gWhere} GROUP BY priority`, params, (err6, byPriority) => {
               if (err6) return res.status(500).json({ error: err6.message });
-              db.all(`SELECT category, COUNT(*) as count FROM event_tasks${where} GROUP BY category ORDER BY count DESC`, params, (err7, byCategory) => {
+              db.all(`SELECT category, COUNT(*) as count FROM event_tasks${gWhere} GROUP BY category ORDER BY count DESC`, params, (err7, byCategory) => {
                 if (err7) return res.status(500).json({ error: err7.message });
                 res.json({
                   total: total?.total || 0,
@@ -4167,7 +4173,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.28.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.29.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4378,7 +4384,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.28.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.29.0', timestamp: new Date().toISOString() });
 });
 
 // POST /api/events/recurring - create recurring events
@@ -5498,6 +5504,117 @@ app.get('/api/clients/stats/summary', (req, res) => {
   });
 });
 
+
+// Helper: promisify db.get
+function dbQuery(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+}
+
+// Helper: promisify db.all
+function dbAll(sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+}
+
+// GET /api/dashboard/stats - Consolidated dashboard statistics
+app.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    // Event counts
+    const totalEvents = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE archived_at IS NULL`);
+    const confirmed = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE status='confirmed' AND archived_at IS NULL`);
+    const pending = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE (status='pending' OR status IS NULL) AND archived_at IS NULL`);
+    const completed = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE status='completed' AND archived_at IS NULL`);
+    const cancelled = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE status='cancelled' AND archived_at IS NULL`);
+    const archived = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE archived_at IS NOT NULL`);
+
+    // Today's events
+    const today = new Date().toISOString().split('T')[0];
+    const todaysEvents = await dbAll(`SELECT id, event, time, location, status FROM events WHERE date = ? AND archived_at IS NULL ORDER BY time ASC`, [today]);
+
+    // This week's events
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    const weekEnd = new Date(); weekEnd.setDate(weekEnd.getDate() + 6 - weekEnd.getDay());
+    const weekStartStr = weekStart.toISOString().split('T')[0];
+    const weekEndStr = weekEnd.toISOString().split('T')[0];
+    const weekCount = await dbQuery(`SELECT COUNT(*) as count FROM events WHERE date >= ? AND date <= ? AND archived_at IS NULL`, [weekStartStr, weekEndStr]);
+
+    // Staff stats
+    const totalStaff = await dbQuery(`SELECT COUNT(*) as count FROM staff WHERE active=1`);
+    const staffRoles = await dbAll(`SELECT role, COUNT(*) as count FROM staff WHERE active=1 GROUP BY role`);
+
+    // Client stats
+    const totalClients = await dbQuery(`SELECT COUNT(*) as count FROM clients WHERE is_active=1`);
+
+    // Equipment stats
+    const totalEquipment = await dbQuery(`SELECT SUM(quantity) as total FROM equipment WHERE status='available'`);
+    const equipmentCategories = await dbQuery(`SELECT COUNT(DISTINCT category) as count FROM equipment`);
+
+    // Review stats
+    const reviewStats = await dbQuery(`SELECT COUNT(*) as count, AVG(overall_rating) as avg FROM event_reviews WHERE overall_rating > 0`);
+    const feedbackStats = await dbQuery(`SELECT COUNT(*) as count, AVG(rating) as avg FROM attendee_feedback`);
+
+    // Budget stats
+    const budgetStats = await dbQuery(`SELECT SUM(estimated_cost) as total_est, SUM(actual_cost) as total_actual, SUM(budget) as total_budget FROM events WHERE archived_at IS NULL`);
+
+    // Auto-assign staff for upcoming events (staff utilization)
+    const assignedStaff = await dbAll(`SELECT DISTINCT json_each.value as name FROM events, json_each(events.staff) WHERE events.archived_at IS NULL AND events.date >= ?`, [today]);
+    const utilizedStaff = new Set(assignedStaff.map(s => s.name)).size;
+    const utilizationRate = totalStaff?.count > 0 ? Math.round(utilizedStaff / totalStaff.count * 100) : 0;
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      events: {
+        total: totalEvents?.count || 0,
+        pending: pending?.count || 0,
+        confirmed: confirmed?.count || 0,
+        completed: completed?.count || 0,
+        cancelled: cancelled?.count || 0,
+        archived: archived?.count || 0,
+        today: todaysEvents || [],
+        thisWeek: weekCount?.count || 0,
+      },
+      staff: {
+        active: totalStaff?.count || 0,
+        roles: staffRoles || [],
+        utilized: utilizedStaff,
+        utilizationRate: utilizationRate,
+      },
+      clients: {
+        active: totalClients?.count || 0,
+      },
+      equipment: {
+        availableItems: totalEquipment?.total || 0,
+        categories: equipmentCategories?.count || 0,
+      },
+      reviews: {
+        total: reviewStats?.count || 0,
+        avgRating: reviewStats?.avg ? Math.round(reviewStats.avg * 10) / 10 : 0,
+        feedbackCount: feedbackStats?.count || 0,
+        avgFeedbackRating: feedbackStats?.avg ? Math.round(feedbackStats.avg * 10) / 10 : 0,
+      },
+      budget: {
+        totalEstimated: budgetStats?.total_est || 0,
+        totalActual: budgetStats?.total_actual || 0,
+        totalBudget: budgetStats?.total_budget || 0,
+        variance: (budgetStats?.total_actual || 0) - (budgetStats?.total_est || 0),
+      },
+    });
+  } catch (err) {
+    console.error('Dashboard stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==================== WEBSOCKET SERVER ====================
 
 const { WebSocketServer } = require('ws');
@@ -5570,6 +5687,6 @@ app.get('/eventday', (req, res) => res.redirect('/event-day'));
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.28 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.29 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
