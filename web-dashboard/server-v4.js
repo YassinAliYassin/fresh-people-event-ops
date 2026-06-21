@@ -854,6 +854,51 @@ db.run(`CREATE TABLE IF NOT EXISTS event_comments (
   FOREIGN KEY (event_id) REFERENCES events(id)
 )`);
 
+// Create report_schedules table for automated report generation
+db.run(`CREATE TABLE IF NOT EXISTS report_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  schedule_type TEXT DEFAULT 'auto',
+  trigger_days_after INTEGER DEFAULT 1,
+  report_type TEXT DEFAULT 'full',
+  auto_send INTEGER DEFAULT 0,
+  send_to TEXT DEFAULT '',
+  enabled INTEGER DEFAULT 1,
+  last_run_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create event_health_scores table for event health tracking
+db.run(`CREATE TABLE IF NOT EXISTS event_health_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  overall_score INTEGER DEFAULT 0,
+  budget_score INTEGER DEFAULT 0,
+  staff_score INTEGER DEFAULT 0,
+  task_score INTEGER DEFAULT 0,
+  timeline_score INTEGER DEFAULT 0,
+  expense_score INTEGER DEFAULT 0,
+  feedback_score INTEGER DEFAULT 0,
+  checklist_score INTEGER DEFAULT 0,
+  calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create event_alerts table for automated alerts
+db.run(`CREATE TABLE IF NOT EXISTS event_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  alert_type TEXT NOT NULL,
+  severity TEXT DEFAULT 'info',
+  title TEXT NOT NULL,
+  message TEXT DEFAULT '',
+  is_read INTEGER DEFAULT 0,
+  is_dismissed INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
 // Create notification_center table for in-app notifications
 db.run(`CREATE TABLE IF NOT EXISTS notification_center (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4575,9 +4620,9 @@ app.get('/api/export/schema', (req, res) => {
 
 // GET /api/export/full-backup - Full JSON backup of all data
 app.get('/api/export/full-backup', (req, res) => {
-  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_expenses', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_shifts', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
+  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_expenses', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_shifts', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log', 'report_schedules', 'event_health_scores', 'event_alerts'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.44.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.45.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4788,7 +4833,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.44.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.45.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4797,7 +4842,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.44.0',
+    version: '4.45.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -6322,7 +6367,7 @@ app.get('/api/reports/:id/pdf', (req, res) => {
 
       // Footer
       doc.fontSize(8).font('Helvetica').text(
-        `Fresh People Event Ops v4.41 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        `Fresh People Event Ops v4.45 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
         { align: 'center' }
       );
 
@@ -6352,6 +6397,300 @@ app.delete('/api/reports/:id', (req, res) => {
   db.run(`DELETE FROM post_event_reports WHERE id = ?`, [req.params.id], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     if (this.changes === 0) return res.status(404).json({ error: 'Report not found' });
+    res.json({ success: true });
+  });
+});
+
+// ==================== REPORT SCHEDULING ====================
+
+// POST /api/events/:id/report-schedule - Create/update report schedule for an event
+app.post('/api/events/:id/report-schedule', (req, res) => {
+  const { id } = req.params;
+  const { trigger_days_after, report_type, auto_send, send_to, enabled } = req.body;
+
+  db.get(`SELECT id FROM report_schedules WHERE event_id = ?`, [id], (err, existing) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (existing) {
+      db.run(
+        `UPDATE report_schedules SET trigger_days_after=?, report_type=?, auto_send=?, send_to=?, enabled=? WHERE event_id=?`,
+        [trigger_days_after || 1, report_type || 'full', auto_send ? 1 : 0, send_to || '', enabled !== false ? 1 : 0, id],
+        function(err2) {
+          if (err2) return res.status(500).json({ error: err2.message });
+          res.json({ success: true, message: 'Report schedule updated', schedule_id: existing.id });
+        }
+      );
+    } else {
+      db.run(
+        `INSERT INTO report_schedules (event_id, trigger_days_after, report_type, auto_send, send_to, enabled)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, trigger_days_after || 1, report_type || 'full', auto_send ? 1 : 0, send_to || '', enabled !== false ? 1 : 0],
+        function(err2) {
+          if (err2) return res.status(500).json({ error: err2.message });
+          res.json({ success: true, message: 'Report schedule created', schedule_id: this.lastID });
+        }
+      );
+    }
+  });
+});
+
+// GET /api/events/:id/report-schedule - Get report schedule for an event
+app.get('/api/events/:id/report-schedule', (req, res) => {
+  db.get(`SELECT * FROM report_schedules WHERE event_id = ?`, [req.params.id], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, schedule: row || null });
+  });
+});
+
+// GET /api/report-schedules - Get all enabled report schedules
+app.get('/api/report-schedules', (req, res) => {
+  db.all(
+    `SELECT rs.*, e.event as event_name, e.date as event_date, e.status as event_status
+     FROM report_schedules rs
+     JOIN events e ON rs.event_id = e.id
+     WHERE rs.enabled = 1
+     ORDER BY e.date DESC`,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, schedules: rows || [] });
+    }
+  );
+});
+
+// ==================== EVENT HEALTH SCORE & ALERTS ====================
+
+// POST /api/events/:id/health-score - Calculate and store health score for an event
+app.post('/api/events/:id/health-score', (req, res) => {
+  const { id } = req.params;
+
+  // Gather all metrics in parallel via callbacks
+  let metrics = {};
+  let pending = 7;
+  let errors = [];
+
+  function done() {
+    pending--;
+    if (pending > 0) return;
+    if (errors.length > 0) return res.status(500).json({ error: errors[0] });
+
+    // Calculate overall score (weighted average)
+    const weights = { budget: 20, staff: 20, task: 20, timeline: 15, expense: 10, feedback: 10, checklist: 5 };
+    const overall = Math.round(
+      (metrics.budget_score * weights.budget +
+       metrics.staff_score * weights.staff +
+       metrics.task_score * weights.task +
+       metrics.timeline_score * weights.timeline +
+       metrics.expense_score * weights.expense +
+       metrics.feedback_score * weights.feedback +
+       metrics.checklist_score * weights.checklist) / 100
+    );
+
+    // Upsert health score
+    db.get(`SELECT id FROM event_health_scores WHERE event_id = ?`, [id], (err, existing) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (existing) {
+        db.run(
+          `UPDATE event_health_scores SET overall_score=?, budget_score=?, staff_score=?, task_score=?, timeline_score=?, expense_score=?, feedback_score=?, checklist_score=?, calculated_at=CURRENT_TIMESTAMP WHERE event_id=?`,
+          [overall, metrics.budget_score, metrics.staff_score, metrics.task_score, metrics.timeline_score, metrics.expense_score, metrics.feedback_score, metrics.checklist_score, id],
+          function(err2) {
+            if (err2) return res.status(500).json({ error: err2.message });
+            generateAlerts(id, metrics, overall);
+            res.json({ success: true, event_id: id, overall_score: overall, scores: metrics, health_id: existing.id });
+          }
+        );
+      } else {
+        db.run(
+          `INSERT INTO event_health_scores (event_id, overall_score, budget_score, staff_score, task_score, timeline_score, expense_score, feedback_score, checklist_score)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, overall, metrics.budget_score, metrics.staff_score, metrics.task_score, metrics.timeline_score, metrics.expense_score, metrics.feedback_score, metrics.checklist_score],
+          function(err2) {
+            if (err2) return res.status(500).json({ error: err2.message });
+            generateAlerts(id, metrics, overall);
+            res.json({ success: true, event_id: id, overall_score: overall, scores: metrics, health_id: this.lastID });
+          }
+        );
+      }
+    });
+  }
+
+  // Budget score: compare estimated vs actual cost
+  db.get(`SELECT estimated_cost, actual_cost, budget FROM events WHERE id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    if (!row) { metrics.budget_score = 50; return done(); }
+    const budget = row.budget || row.estimated_cost || 0;
+    const actual = row.actual_cost || 0;
+    if (budget <= 0) { metrics.budget_score = 50; }
+    else if (actual <= 0) { metrics.budget_score = 70; } // No actuals yet, neutral
+    else {
+      const variance = (actual - budget) / budget;
+      if (variance <= 0) metrics.budget_score = 100; // Under budget
+      else if (variance <= 0.1) metrics.budget_score = 85;
+      else if (variance <= 0.2) metrics.budget_score = 65;
+      else if (variance <= 0.5) metrics.budget_score = 40;
+      else metrics.budget_score = 20;
+    }
+    done();
+  });
+
+  // Staff score: check if event has staff assigned
+  db.get(`SELECT COUNT(*) as cnt FROM staff_shifts WHERE event_id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    const shifts = row ? row.cnt : 0;
+    db.get(`SELECT staff FROM events WHERE id = ?`, [id], (err2, evRow) => {
+      if (err2) { errors.push(err2.message); return done(); }
+      const staffList = parseStaff(evRow ? evRow.staff : null);
+      const staffCount = staffList.length + shifts;
+      if (staffCount === 0) metrics.staff_score = 10;
+      else if (staffCount <= 2) metrics.staff_score = 50;
+      else if (staffCount <= 5) metrics.staff_score = 75;
+      else metrics.staff_score = 100;
+      done();
+    });
+  });
+
+  // Task score: completion rate of tasks
+  db.get(`SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed FROM tasks WHERE event_id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    if (!row || row.total === 0) { metrics.task_score = 50; } // No tasks = neutral
+    else { metrics.task_score = Math.round((row.completed / row.total) * 100); }
+    done();
+  });
+
+  // Timeline score: check timeline items
+  db.get(`SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' OR status='done' THEN 1 ELSE 0 END) as completed FROM event_day_timeline WHERE event_id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    if (!row || row.total === 0) { metrics.timeline_score = 50; }
+    else { metrics.timeline_score = Math.round((row.completed / row.total) * 100); }
+    done();
+  });
+
+  // Expense score: tracking coverage
+  db.get(`SELECT COUNT(*) as cnt, SUM(amount) as total FROM event_expenses WHERE event_id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    db.get(`SELECT estimated_cost FROM events WHERE id = ?`, [id], (err2, evRow) => {
+      if (err2) { errors.push(err2.message); return done(); }
+      const estimated = evRow ? (evRow.estimated_cost || 0) : 0;
+      const expenses = row ? (row.total || 0) : 0;
+      if (estimated <= 0 && expenses <= 0) { metrics.expense_score = 50; }
+      else if (estimated <= 0) { metrics.expense_score = 60; }
+      else {
+        const coverage = expenses / estimated;
+        if (coverage >= 0.8) metrics.expense_score = 90;
+        else if (coverage >= 0.5) metrics.expense_score = 70;
+        else if (coverage >= 0.2) metrics.expense_score = 50;
+        else metrics.expense_score = 30;
+      }
+      done();
+    });
+  });
+
+  // Feedback score: based on feedback count and rating
+  db.get(`SELECT COUNT(*) as cnt, AVG(rating) as avg_rating FROM attendee_feedback WHERE event_id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    if (!row || row.cnt === 0) { metrics.feedback_score = 50; }
+    else {
+      const ratingScore = ((row.avg_rating || 3) / 5) * 100;
+      const volumeBonus = Math.min(row.cnt * 5, 20);
+      metrics.feedback_score = Math.min(Math.round(ratingScore + volumeBonus), 100);
+    }
+    done();
+  });
+
+  // Checklist score: based on event status progression
+  db.get(`SELECT status FROM events WHERE id = ?`, [id], (err, row) => {
+    if (err) { errors.push(err.message); return done(); }
+    if (!row) { metrics.checklist_score = 0; }
+    else {
+      const statusMap = { 'planning': 20, 'pending': 30, 'confirmed': 60, 'in-progress': 80, 'completed': 100, 'cancelled': 0 };
+      metrics.checklist_score = statusMap[row.status] || 30;
+    }
+    done();
+  });
+});
+
+// Auto-generate alerts based on health scores
+function generateAlerts(eventId, scores, overall) {
+  const alerts = [];
+  if (overall < 40) alerts.push({ type: 'critical', severity: 'critical', title: 'Event Health Critical', message: `Overall health score is ${overall}%. Immediate attention required.` });
+  else if (overall < 60) alerts.push({ type: 'warning', severity: 'warning', title: 'Event Health Low', message: `Overall health score is ${overall}%. Review recommended.` });
+  if (scores.budget_score < 40) alerts.push({ type: 'budget', severity: 'critical', title: 'Budget Overrun Risk', message: 'Event is significantly over budget.' });
+  else if (scores.budget_score < 60) alerts.push({ type: 'budget', severity: 'warning', title: 'Budget Warning', message: 'Event is approaching budget limit.' });
+  if (scores.staff_score < 30) alerts.push({ type: 'staffing', severity: 'warning', title: 'Understaffed', message: 'Event has insufficient staff assigned.' });
+  if (scores.task_score < 40) alerts.push({ type: 'tasks', severity: 'warning', title: 'Tasks Behind', message: 'Less than 40% of tasks are completed.' });
+  if (scores.timeline_score < 40) alerts.push({ type: 'timeline', severity: 'warning', title: 'Timeline Behind', message: 'Event timeline items are behind schedule.' });
+
+  alerts.forEach(a => {
+    db.run(
+      `INSERT INTO event_alerts (event_id, alert_type, severity, title, message) VALUES (?, ?, ?, ?, ?)`,
+      [eventId, a.type, a.severity, a.title, a.message]
+    );
+  });
+}
+
+// GET /api/events/:id/health-score - Get latest health score for an event
+app.get('/api/events/:id/health-score', (req, res) => {
+  db.get(
+    `SELECT * FROM event_health_scores WHERE event_id = ? ORDER BY calculated_at DESC LIMIT 1`,
+    [req.params.id],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, health: row || null });
+    }
+  );
+});
+
+// GET /api/health-scores - Get all latest health scores
+app.get('/api/health-scores', (req, res) => {
+  db.all(
+    `SELECT hs.*, e.event as event_name, e.date as event_date, e.status as event_status
+     FROM event_health_scores hs
+     JOIN events e ON hs.event_id = e.id
+     WHERE hs.calculated_at = (
+       SELECT MAX(calculated_at) FROM event_health_scores WHERE event_id = hs.event_id
+     )
+     ORDER BY hs.overall_score ASC`,
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, scores: rows || [] });
+    }
+  );
+});
+
+// GET /api/alerts - Get alerts with filters
+app.get('/api/alerts', (req, res) => {
+  const { event_id, severity, is_dismissed, limit } = req.query;
+  let sql = `SELECT a.*, e.event as event_name FROM event_alerts a LEFT JOIN events e ON a.event_id = e.id WHERE 1=1`;
+  const params = [];
+  if (event_id) { sql += ` AND a.event_id = ?`; params.push(event_id); }
+  if (severity) { sql += ` AND a.severity = ?`; params.push(severity); }
+  if (is_dismissed !== undefined) { sql += ` AND a.is_dismissed = ?`; params.push(is_dismissed === 'true' ? 1 : 0); }
+  sql += ` ORDER BY a.created_at DESC`;
+  if (limit) { sql += ` LIMIT ?`; params.push(parseInt(limit)); }
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, alerts: rows || [] });
+  });
+});
+
+// PUT /api/alerts/:id/read - Mark alert as read
+app.put('/api/alerts/:id/read', (req, res) => {
+  db.run(`UPDATE event_alerts SET is_read = 1 WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// PUT /api/alerts/:id/dismiss - Dismiss alert
+app.put('/api/alerts/:id/dismiss', (req, res) => {
+  db.run(`UPDATE event_alerts SET is_dismissed = 1 WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true });
+  });
+});
+
+// DELETE /api/alerts/:id - Delete alert
+app.delete('/api/alerts/:id', (req, res) => {
+  db.run(`DELETE FROM event_alerts WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
     res.json({ success: true });
   });
 });
@@ -8164,6 +8503,6 @@ app.get('/api/shifts/calendar', (req, res) => {
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.44 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.45 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

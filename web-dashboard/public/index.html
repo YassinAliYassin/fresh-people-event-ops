@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.44</title>
+    <title>Fresh People Event Ops v4.45</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.44</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.45</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -139,6 +139,91 @@
             <button onclick="switchTab('event-templates')" id="tab-event-templates" class="pb-2 font-semibold tab-inactive">📋 Templates</button>
             <button onclick="switchTab('system')" id="tab-system" class="pb-2 font-semibold tab-inactive">⚙️ System</button>
             <button onclick="switchTab('feedback-analytics')" id="tab-feedback-analytics" class="pb-2 font-semibold tab-inactive">📊 Feedback Analytics</button>
+            <button onclick="switchTab('health')" id="tab-health" class="pb-2 font-semibold tab-inactive">🏥 Health & Alerts</button>
+        </div>
+
+        <!-- ==================== HEALTH & ALERTS TAB ==================== -->
+        <div id="view-health" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold">🏥 Event Health & Alerts</h2>
+                <div class="flex gap-2">
+                    <select id="healthEventFilter" onchange="loadHealthScores()" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+                        <option value="">All Events</option>
+                    </select>
+                    <button onclick="recalculateAllHealth()" class="bg-purple-600 hover:bg-purple-700 text-white rounded-lg px-4 py-2 text-sm">🔄 Recalculate All</button>
+                </div>
+            </div>
+
+            <!-- Health Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs mb-1">Avg Health Score</div>
+                    <div class="text-2xl font-bold" id="healthAvgScore">--</div>
+                    <div class="text-xs mt-1" id="healthAvgLabel">--</div>
+                </div>
+                <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs mb-1">Critical Events</div>
+                    <div class="text-2xl font-bold text-red-400" id="healthCriticalCount">0</div>
+                    <div class="text-xs text-gray-500 mt-1">Score &lt; 40%</div>
+                </div>
+                <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs mb-1">Warning Events</div>
+                    <div class="text-2xl font-bold text-yellow-400" id="healthWarningCount">0</div>
+                    <div class="text-xs text-gray-500 mt-1">Score 40-60%</div>
+                </div>
+                <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs mb-1">Healthy Events</div>
+                    <div class="text-2xl font-bold text-green-400" id="healthHealthyCount">0</div>
+                    <div class="text-xs text-gray-500 mt-1">Score &gt; 60%</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Health Scores Table -->
+                <div class="lg:col-span-2 bg-gray-800 rounded-xl border border-gray-700 p-4">
+                    <h3 class="font-semibold mb-3">Event Health Scores</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-gray-400 text-xs border-b border-gray-700">
+                                    <th class="text-left py-2 px-2">Event</th>
+                                    <th class="text-center py-2 px-2">Overall</th>
+                                    <th class="text-center py-2 px-2">Budget</th>
+                                    <th class="text-center py-2 px-2">Staff</th>
+                                    <th class="text-center py-2 px-2">Tasks</th>
+                                    <th class="text-center py-2 px-2">Timeline</th>
+                                    <th class="text-center py-2 px-2">Expenses</th>
+                                    <th class="text-center py-2 px-2">Feedback</th>
+                                    <th class="text-center py-2 px-2">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="healthScoresTable"></tbody>
+                        </table>
+                    </div>
+                    <div id="healthScoresEmpty" class="text-center text-gray-500 py-8">No health scores calculated yet. Click "Recalculate All" to generate scores.</div>
+                </div>
+
+                <!-- Alerts Panel -->
+                <div class="bg-gray-800 rounded-xl border border-gray-700 p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-semibold">Active Alerts</h3>
+                        <button onclick="loadAlerts()" class="text-blue-400 text-xs hover:underline">Refresh</button>
+                    </div>
+                    <div id="alertsList" class="space-y-2 max-h-96 overflow-y-auto"></div>
+                    <div id="alertsEmpty" class="text-center text-gray-500 py-8">No active alerts</div>
+                </div>
+            </div>
+
+            <!-- Health Score Detail Modal -->
+            <div id="healthDetailModal" class="hidden fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
+                <div class="bg-gray-800 rounded-2xl border border-gray-700 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-bold" id="healthDetailTitle">Event Health Detail</h3>
+                        <button onclick="closeHealthDetailModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                    </div>
+                    <div id="healthDetailContent"></div>
+                </div>
+            </div>
         </div>
 
         <!-- ==================== SYSTEM TAB ==================== -->
@@ -6655,6 +6740,236 @@
                 console.error('Failed to load feedback analytics:', err);
             }
         }
+
+        // ==================== HEALTH & ALERTS ====================
+
+        async function loadHealthScores() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/health-scores`, { headers });
+                const data = await res.json();
+                if (!data.success) return;
+
+                const scores = data.scores || [];
+                const tbody = document.getElementById('healthScoresTable');
+                const empty = document.getElementById('healthScoresEmpty');
+
+                if (scores.length === 0) {
+                    tbody.innerHTML = '';
+                    empty.classList.remove('hidden');
+                    document.getElementById('healthAvgScore').textContent = '--';
+                    document.getElementById('healthCriticalCount').textContent = '0';
+                    document.getElementById('healthWarningCount').textContent = '0';
+                    document.getElementById('healthHealthyCount').textContent = '0';
+                    return;
+                }
+
+                empty.classList.add('hidden');
+
+                // Summary stats
+                const avgScore = Math.round(scores.reduce((s, r) => s + (r.overall_score || 0), 0) / scores.length);
+                const critical = scores.filter(s => (s.overall_score || 0) < 40).length;
+                const warning = scores.filter(s => (s.overall_score || 0) >= 40 && (s.overall_score || 0) < 60).length;
+                const healthy = scores.filter(s => (s.overall_score || 0) >= 60).length;
+
+                const avgEl = document.getElementById('healthAvgScore');
+                avgEl.textContent = avgScore + '%';
+                avgEl.className = 'text-2xl font-bold ' + (avgScore >= 60 ? 'text-green-400' : avgScore >= 40 ? 'text-yellow-400' : 'text-red-400');
+                document.getElementById('healthAvgLabel').textContent = avgScore >= 60 ? 'Good' : avgScore >= 40 ? 'Needs Attention' : 'Critical';
+                document.getElementById('healthCriticalCount').textContent = critical;
+                document.getElementById('healthWarningCount').textContent = warning;
+                document.getElementById('healthHealthyCount').textContent = healthy;
+
+                // Table
+                tbody.innerHTML = scores.map(s => {
+                    const scoreColor = (v) => v >= 70 ? 'text-green-400' : v >= 40 ? 'text-yellow-400' : 'text-red-400';
+                    const scoreBg = (v) => v >= 70 ? 'bg-green-900/30' : v >= 40 ? 'bg-yellow-900/30' : 'bg-red-900/30';
+                    return `
+                    <tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
+                        <td class="py-2 px-2">
+                            <div class="font-medium text-sm">${s.event_name || s.event_id}</div>
+                            <div class="text-xs text-gray-500">${s.event_date || ''} · ${s.event_status || ''}</div>
+                        </td>
+                        <td class="text-center py-2 px-2"><span class="px-2 py-0.5 rounded text-xs font-bold ${scoreBg(s.overall_score)} ${scoreColor(s.overall_score)}">${s.overall_score || 0}%</span></td>
+                        <td class="text-center py-2 px-2 ${scoreColor(s.budget_score)} text-xs">${s.budget_score || 0}</td>
+                        <td class="text-center py-2 px-2 ${scoreColor(s.staff_score)} text-xs">${s.staff_score || 0}</td>
+                        <td class="text-center py-2 px-2 ${scoreColor(s.task_score)} text-xs">${s.task_score || 0}</td>
+                        <td class="text-center py-2 px-2 ${scoreColor(s.timeline_score)} text-xs">${s.timeline_score || 0}</td>
+                        <td class="text-center py-2 px-2 ${scoreColor(s.expense_score)} text-xs">${s.expense_score || 0}</td>
+                        <td class="text-center py-2 px-2 ${scoreColor(s.feedback_score)} text-xs">${s.feedback_score || 0}</td>
+                        <td class="text-center py-2 px-2">
+                            <button onclick="viewHealthDetail('${s.event_id}')" class="text-blue-400 hover:text-blue-300 text-xs" title="View Detail">📊</button>
+                            <button onclick="calcHealth('${s.event_id}')" class="text-purple-400 hover:text-purple-300 text-xs ml-1" title="Recalculate">🔄</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+
+                // Populate event filter
+                const filter = document.getElementById('healthEventFilter');
+                const currentVal = filter.value;
+                filter.innerHTML = '<option value="">All Events</option>' + scores.map(s => `<option value="${s.event_id}">${s.event_name || s.event_id}</option>`).join('');
+                filter.value = currentVal;
+
+            } catch (err) {
+                console.error('Failed to load health scores:', err);
+            }
+        }
+
+        async function calcHealth(eventId) {
+            try {
+                const headers = getAuthHeaders();
+                const res = await fetch(`${API}/events/${eventId}/health-score`, { method: 'POST', headers });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Health score: ${data.overall_score}%`, 'success');
+                    loadHealthScores();
+                    loadAlerts();
+                } else {
+                    showToast('Failed to calculate health score', 'error');
+                }
+            } catch (err) {
+                showToast('Error calculating health score', 'error');
+            }
+        }
+
+        async function recalculateAllHealth() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events?limit=100`, { headers });
+                const data = await res.json();
+                const events = data.events || data || [];
+                let done = 0;
+                for (const ev of events) {
+                    try {
+                        const hHeaders = getAuthHeaders();
+                        await fetch(`${API}/events/${ev.id}/health-score`, { method: 'POST', headers: hHeaders });
+                        done++;
+                    } catch(e) {}
+                }
+                showToast(`Recalculated health for ${done} events`, 'success');
+                setTimeout(() => { loadHealthScores(); loadAlerts(); }, 1000);
+            } catch (err) {
+                showToast('Error recalculating health scores', 'error');
+            }
+        }
+
+        async function viewHealthDetail(eventId) {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/events/${eventId}/health-score`, { headers });
+                const data = await res.json();
+                if (!data.health) {
+                    showToast('No health data. Calculate first.', 'warning');
+                    return;
+                }
+                const h = data.health;
+                document.getElementById('healthDetailTitle').textContent = `Health Detail - ${eventId}`;
+                document.getElementById('healthDetailContent').innerHTML = `
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Overall</div>
+                            <div class="text-xl font-bold ${h.overall_score >= 60 ? 'text-green-400' : h.overall_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.overall_score}%</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Budget</div>
+                            <div class="text-xl font-bold ${h.budget_score >= 60 ? 'text-green-400' : h.budget_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.budget_score}</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Staff</div>
+                            <div class="text-xl font-bold ${h.staff_score >= 60 ? 'text-green-400' : h.staff_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.staff_score}</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Tasks</div>
+                            <div class="text-xl font-bold ${h.task_score >= 60 ? 'text-green-400' : h.task_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.task_score}</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Timeline</div>
+                            <div class="text-xl font-bold ${h.timeline_score >= 60 ? 'text-green-400' : h.timeline_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.timeline_score}</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Expenses</div>
+                            <div class="text-xl font-bold ${h.expense_score >= 60 ? 'text-green-400' : h.expense_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.expense_score}</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Feedback</div>
+                            <div class="text-xl font-bold ${h.feedback_score >= 60 ? 'text-green-400' : h.feedback_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.feedback_score}</div>
+                        </div>
+                        <div class="bg-gray-700/50 rounded-lg p-3 text-center">
+                            <div class="text-xs text-gray-400">Status</div>
+                            <div class="text-xl font-bold ${h.checklist_score >= 60 ? 'text-green-400' : h.checklist_score >= 40 ? 'text-yellow-400' : 'text-red-400'}">${h.checklist_score}</div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 text-center">Last calculated: ${h.calculated_at || 'Unknown'}</div>
+                `;
+                document.getElementById('healthDetailModal').classList.remove('hidden');
+            } catch (err) {
+                showToast('Error loading health detail', 'error');
+            }
+        }
+
+        function closeHealthDetailModal() {
+            document.getElementById('healthDetailModal').classList.add('hidden');
+        }
+
+        async function loadAlerts() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/alerts?is_dismissed=false&limit=50`, { headers });
+                const data = await res.json();
+                const alerts = data.alerts || [];
+                const list = document.getElementById('alertsList');
+                const empty = document.getElementById('alertsEmpty');
+
+                if (alerts.length === 0) {
+                    list.innerHTML = '';
+                    empty.classList.remove('hidden');
+                    return;
+                }
+
+                empty.classList.add('hidden');
+                const severityColors = { critical: 'border-red-500 bg-red-900/20', warning: 'border-yellow-500 bg-yellow-900/20', info: 'border-blue-500 bg-blue-900/20' };
+                const severityIcons = { critical: '🔴', warning: '🟡', info: '🔵' };
+
+                list.innerHTML = alerts.map(a => `
+                    <div class="rounded-lg border-l-4 p-3 ${severityColors[a.severity] || severityColors.info}">
+                        <div class="flex justify-between items-start">
+                            <div class="flex-1">
+                                <div class="text-sm font-medium">${severityIcons[a.severity] || ''} ${a.title}</div>
+                                <div class="text-xs text-gray-400 mt-1">${a.message}</div>
+                                <div class="text-xs text-gray-500 mt-1">${a.event_name || a.event_id} · ${a.created_at ? new Date(a.created_at).toLocaleString() : ''}</div>
+                            </div>
+                            <div class="flex gap-1 ml-2">
+                                <button onclick="dismissAlert(${a.id})" class="text-gray-400 hover:text-white text-xs" title="Dismiss">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load alerts:', err);
+            }
+        }
+
+        async function dismissAlert(alertId) {
+            try {
+                const headers = getAuthHeaders();
+                await fetch(`${API}/alerts/${alertId}/dismiss`, { method: 'PUT', headers });
+                loadAlerts();
+            } catch (err) {
+                console.error('Failed to dismiss alert:', err);
+            }
+        }
+
+        // Auto-load health data when tab is opened
+        document.addEventListener('DOMContentLoaded', () => {
+            const origSwitchTab = window.switchTab;
+            window.switchTab = function(tab) {
+                origSwitchTab(tab);
+                if (tab === 'health') {
+                    loadHealthScores();
+                    loadAlerts();
+                }
+            };
+        });
 
         // ==================== POST-EVENT REPORTS ====================
 
