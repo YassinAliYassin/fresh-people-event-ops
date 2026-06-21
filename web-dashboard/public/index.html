@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.41</title>
+    <title>Fresh People Event Ops v4.43</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.41</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.43</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -131,6 +131,7 @@
             <button onclick="switchTab('compare')" id="tab-compare" class="pb-2 font-semibold tab-inactive">⚖️ Compare</button>
             <button onclick="switchTab('import-export')" id="tab-import-export" class="pb-2 font-semibold tab-inactive">📦 Import/Export</button>
             <button onclick="switchTab('staff-schedule')" id="tab-staff-schedule" class="pb-2 font-semibold tab-inactive">📆 Staff Schedule</button>
+            <button onclick="switchTab('shifts')" id="tab-shifts" class="pb-2 font-semibold tab-inactive">🕐 Shifts</button>
             <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
             <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
             <button onclick="switchTab('event-templates')" id="tab-event-templates" class="pb-2 font-semibold tab-inactive">📋 Templates</button>
@@ -467,6 +468,79 @@
             <!-- Schedule Content -->
             <div id="staffScheduleContent">
                 <p class="text-gray-400">Select a date range and click Load to view staff schedule</p>
+            </div>
+        </div>
+
+        <!-- ==================== SHIFTS TAB ==================== -->
+        <div id="view-shifts" class="hidden">
+            <div class="mb-4 flex flex-wrap justify-between items-center gap-3">
+                <h2 class="text-xl font-bold text-white">🕐 Shift Management</h2>
+                <div class="flex gap-2 items-center flex-wrap">
+                    <input type="date" id="shiftFilterDate" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadShifts()">
+                    <select id="shiftFilterStaff" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadShifts()">
+                        <option value="">All Staff</option>
+                    </select>
+                    <select id="shiftFilterStatus" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadShifts()">
+                        <option value="">All Status</option>
+                        <option value="scheduled">Scheduled</option>
+                        <option value="checked_in">Checked In</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                    <button onclick="loadShifts()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm">🔄 Refresh</button>
+                    <button onclick="openShiftModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm font-semibold">+ New Shift</button>
+                </div>
+            </div>
+
+            <!-- Shift Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Total Shifts</div>
+                    <div class="text-2xl font-bold mt-1 text-blue-400" id="shiftStatTotal">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Total Hours</div>
+                    <div class="text-2xl font-bold mt-1 text-purple-400" id="shiftStatHours">0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Total Pay</div>
+                    <div class="text-2xl font-bold mt-1 text-green-400" id="shiftStatPay">R 0</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs uppercase tracking-wide">Conflicts</div>
+                    <div class="text-2xl font-bold mt-1 text-red-400" id="shiftStatConflicts">0</div>
+                </div>
+            </div>
+
+            <!-- Conflict Alert -->
+            <div id="shiftConflictAlert" class="hidden bg-red-900/30 border border-red-700 rounded-lg p-4 mb-4">
+                <h3 class="text-red-400 font-semibold mb-2">⚠️ Shift Conflicts Detected</h3>
+                <div id="shiftConflictList" class="text-sm text-red-300"></div>
+            </div>
+
+            <!-- Shifts Table -->
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-700">
+                            <tr>
+                                <th class="px-4 py-2 text-left">Staff</th>
+                                <th class="px-4 py-2 text-left">Event</th>
+                                <th class="px-4 py-2 text-left">Date</th>
+                                <th class="px-4 py-2 text-left">Start</th>
+                                <th class="px-4 py-2 text-left">End</th>
+                                <th class="px-4 py-2 text-left">Role</th>
+                                <th class="px-4 py-2 text-right">Hours</th>
+                                <th class="px-4 py-2 text-right">Pay</th>
+                                <th class="px-4 py-2 text-center">Status</th>
+                                <th class="px-4 py-2 text-center">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shiftsTableBody">
+                            <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">Loading shifts...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -2789,7 +2863,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'compare', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system', 'postreports', 'feedback-analytics'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'compare', 'import-export', 'staff-schedule', 'shifts', 'archive', 'audit', 'event-templates', 'system', 'postreports', 'feedback-analytics'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2890,6 +2964,9 @@
                 document.getElementById('schedEndDate').value = end;
                 document.getElementById('conflictDate').value = start;
                 loadStaffSchedule();
+            }
+            if (tab === 'shifts') {
+                initShiftsTab();
             }
             if (tab === 'event-templates') {
                 loadTemplates();
@@ -9792,9 +9869,10 @@ async function runOptimize() {
         let currentSupplierDetail = null;
         let allPOs = [];
         let poEvents = [];
+        let currentPOId = null;
 
         function switchSupplierSubTab(sub) {
-            const tabs = ['suppliers', 'purchase-orders'];
+            const tabs = ['suppliers', 'purchase-orders', 'performance'];
             tabs.forEach(t => {
                 const view = document.getElementById('supplier-view-' + t);
                 const btn = document.getElementById('supplier-sub-' + t);
@@ -9806,6 +9884,7 @@ async function runOptimize() {
                     btn.classList.toggle('border-b-2', t === sub);
                 }
             });
+            if (sub === 'performance') loadSupplierPerformance();
         }
 
         async function loadSuppliers() {
@@ -10066,6 +10145,99 @@ async function runOptimize() {
             }
         }
 
+        let perfCategoryChart = null;
+        let perfSupplierChart = null;
+
+        async function loadSupplierPerformance() {
+            try {
+                const headers = getAuthHeadersNoJSON();
+                const period = document.getElementById('perfPeriod')?.value || '12';
+                const res = await fetch(`${API}/suppliers/performance?period=${period}`, { headers });
+                const data = await res.json();
+                const summary = data.summary || {};
+                const suppliers = data.suppliers || [];
+                const categories = data.categories || [];
+
+                // Summary cards
+                document.getElementById('perfTotalSpend').textContent = 'R ' + Number(summary.total_spend || 0).toLocaleString();
+                document.getElementById('perfTotalPOs').textContent = summary.total_pos || 0;
+                document.getElementById('perfAvgPO').textContent = 'R ' + Number(summary.avg_po_value || 0).toLocaleString();
+                document.getElementById('perfUnpaid').textContent = 'R ' + Number(summary.unpaid_total || 0).toLocaleString();
+
+                // Performance table
+                const tbody = document.getElementById('perfTableBody');
+                if (suppliers.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No performance data available</td></tr>';
+                } else {
+                    tbody.innerHTML = suppliers.map(s => `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750">
+                            <td class="px-4 py-2 font-semibold">${escapeHtml(s.name)}</td>
+                            <td class="px-4 py-2 text-xs text-gray-400">${escapeHtml(s.category || '—')}</td>
+                            <td class="px-4 py-2 text-right">${s.total_orders || 0}</td>
+                            <td class="px-4 py-2 text-right font-semibold">R ${Number(s.total_spent || 0).toLocaleString()}</td>
+                            <td class="px-4 py-2 text-right">R ${Number(s.avg_order_value || 0).toLocaleString()}</td>
+                            <td class="px-4 py-2 text-right text-green-400">${s.delivered_orders || 0}</td>
+                            <td class="px-4 py-2 text-right ${Number(s.outstanding || 0) > 0 ? 'text-red-400 font-semibold' : 'text-gray-500'}">R ${Number(s.outstanding || 0).toLocaleString()}</td>
+                            <td class="px-4 py-2 text-center">${'★'.repeat(Math.round(s.rating || 0))}<span class="text-gray-600">${'★'.repeat(5 - Math.round(s.rating || 0))}</span></td>
+                        </tr>
+                    `).join('');
+                }
+
+                // Category chart
+                if (perfCategoryChart) perfCategoryChart.destroy();
+                const catCtx = document.getElementById('perfCategoryChart')?.getContext('2d');
+                if (catCtx) {
+                    perfCategoryChart = new Chart(catCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: categories.map(c => c.category || 'Unknown'),
+                            datasets: [{
+                                data: categories.map(c => c.spend || 0),
+                                backgroundColor: ['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#84cc16'],
+                                borderWidth: 0
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: { position: 'bottom', labels: { color: '#9ca3af', font: { size: 10 } } }
+                            }
+                        }
+                    });
+                }
+
+                // Supplier chart
+                if (perfSupplierChart) perfSupplierChart.destroy();
+                const supCtx = document.getElementById('perfSupplierChart')?.getContext('2d');
+                if (supCtx) {
+                    const topSuppliers = suppliers.slice(0, 6);
+                    perfSupplierChart = new Chart(supCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: topSuppliers.map(s => s.name?.substring(0, 12) || ''),
+                            datasets: [{
+                                label: 'Total Spent (R)',
+                                data: topSuppliers.map(s => s.total_spent || 0),
+                                backgroundColor: '#8b5cf6',
+                                borderRadius: 4
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            indexAxis: 'y',
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                                y: { ticks: { color: '#9ca3af' }, grid: { display: false } }
+                            }
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Error loading supplier performance:', e);
+            }
+        }
+
         function renderPurchaseOrders() {
             const tbody = document.getElementById('poTableBody');
             if (!tbody) return;
@@ -10291,13 +10463,20 @@ async function runOptimize() {
                         </tr>
                     `).join('');
                 }
-                // Store current PO id for edit button
+                // Store current PO id for edit button and PDF export
+                currentPOId = po.id;
                 document.getElementById('poViewEditBtn').onclick = () => { closePOViewModal(); openPOModal({...po, items}); };
                 document.getElementById('poViewModal').classList.remove('hidden');
                 document.getElementById('poViewModal').classList.add('flex');
             } catch (e) {
                 showToast('Error loading PO: ' + e.message, 'error');
             }
+        }
+
+        function exportPOPdf() {
+            if (!currentPOId) return showToast('No PO selected', 'error');
+            const headers = getAuthHeadersNoJSON();
+            window.open(`${API}/purchase-orders/${currentPOId}/pdf`, '_blank');
         }
 
         function closePOViewModal() {
@@ -10807,10 +10986,11 @@ async function runOptimize() {
                 </div>
             </div>
 
-            <!-- Sub Tabs: Suppliers | Purchase Orders -->
+            <!-- Sub Tabs: Suppliers | Purchase Orders | Performance -->
             <div class="flex gap-4 mb-4 border-b border-gray-700 pb-2">
                 <button onclick="switchSupplierSubTab('suppliers')" id="supplier-sub-suppliers" class="pb-2 font-semibold text-sm text-purple-400 border-b-2 border-purple-400">🏪 Suppliers</button>
                 <button onclick="switchSupplierSubTab('purchase-orders')" id="supplier-sub-purchase-orders" class="pb-2 font-semibold text-sm text-gray-400">📦 Purchase Orders</button>
+                <button onclick="switchSupplierSubTab('performance')" id="supplier-sub-performance" class="pb-2 font-semibold text-sm text-gray-400">📊 Performance</button>
             </div>
 
             <!-- Suppliers Sub-Tab -->
@@ -10901,6 +11081,73 @@ async function runOptimize() {
                             </thead>
                             <tbody id="poTableBody">
                                 <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No purchase orders found</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Sub-Tab -->
+            <div id="supplier-view-performance" class="hidden">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold">📊 Supplier Performance Analytics</h3>
+                    <select id="perfPeriod" onchange="loadSupplierPerformance()" class="bg-gray-700 border border-gray-600 rounded px-3 py-1 text-sm text-white">
+                        <option value="3">3 Months</option>
+                        <option value="6">6 Months</option>
+                        <option value="12" selected>12 Months</option>
+                    </select>
+                </div>
+
+                <!-- Performance Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs uppercase tracking-wide">Total Spend</div>
+                        <div class="text-2xl font-bold mt-1 text-green-400" id="perfTotalSpend">R 0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs uppercase tracking-wide">Total POs</div>
+                        <div class="text-2xl font-bold mt-1 text-blue-400" id="perfTotalPOs">0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs uppercase tracking-wide">Avg PO Value</div>
+                        <div class="text-2xl font-bold mt-1 text-purple-400" id="perfAvgPO">R 0</div>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <div class="text-gray-400 text-xs uppercase tracking-wide">Unpaid</div>
+                        <div class="text-2xl font-bold mt-1 text-red-400" id="perfUnpaid">R 0</div>
+                    </div>
+                </div>
+
+                <!-- Charts Row -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <h4 class="text-sm font-semibold mb-3">Spend by Category</h4>
+                        <canvas id="perfCategoryChart" height="200"></canvas>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <h4 class="text-sm font-semibold mb-3">Top Suppliers by Spend</h4>
+                        <canvas id="perfSupplierChart" height="200"></canvas>
+                    </div>
+                </div>
+
+                <!-- Supplier Performance Table -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-700">
+                                <tr>
+                                    <th class="px-4 py-2 text-left">Supplier</th>
+                                    <th class="px-4 py-2 text-left">Category</th>
+                                    <th class="px-4 py-2 text-right">Orders</th>
+                                    <th class="px-4 py-2 text-right">Total Spent</th>
+                                    <th class="px-4 py-2 text-right">Avg Order</th>
+                                    <th class="px-4 py-2 text-right">Delivered</th>
+                                    <th class="px-4 py-2 text-right">Outstanding</th>
+                                    <th class="px-4 py-2 text-center">Rating</th>
+                                </tr>
+                            </thead>
+                            <tbody id="perfTableBody">
+                                <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Loading performance data...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -11205,6 +11452,7 @@ async function runOptimize() {
             </div>
             <div class="sticky bottom-0 bg-gray-800 border-t border-gray-700 p-4 flex items-center justify-end gap-3">
                 <button onclick="closePOViewModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded">Close</button>
+                <button onclick="exportPOPdf()" id="poViewPdfBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded font-semibold">📄 PDF</button>
                 <button onclick="" id="poViewEditBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded font-semibold">✏️ Edit</button>
             </div>
         </div>
@@ -12058,6 +12306,320 @@ async function runOptimize() {
         html += '</div></div>';
 
         div.innerHTML = html;
+    }
+
+    // ==================== SHIFT MANAGEMENT ====================
+
+    let allShifts = [];
+
+    function initShiftsTab() {
+        // Set default date filter to today
+        const today = new Date().toISOString().slice(0, 10);
+        document.getElementById('shiftFilterDate').value = today;
+        // Load staff dropdown
+        loadShiftStaffFilter();
+        // Load all staff for modal
+        fetch('/api/staff', { headers: getHeaders() })
+            .then(r => r.json())
+            .then(data => { window._allStaff = data.staff || data || []; })
+            .catch(() => { window._allStaff = []; });
+        // Load shifts
+        loadShifts();
+        // Load conflicts
+        loadShiftConflicts();
+    }
+
+    async function loadShiftStaffFilter() {
+        try {
+            const res = await fetch('/api/staff', { headers: getHeaders() });
+            const data = await res.json();
+            const staff = data.staff || data || [];
+            const select = document.getElementById('shiftFilterStaff');
+            select.innerHTML = '<option value="">All Staff</option>' +
+                staff.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+        } catch (e) {
+            console.error('Error loading staff filter:', e);
+        }
+    }
+
+    async function loadShifts() {
+        try {
+            const date = document.getElementById('shiftFilterDate').value;
+            const staffId = document.getElementById('shiftFilterStaff').value;
+            const status = document.getElementById('shiftFilterStatus').value;
+            let url = '/api/shifts?';
+            if (date) url += `date=${date}&`;
+            if (staffId) url += `staff_id=${staffId}&`;
+            if (status) url += `status=${status}&`;
+            const res = await fetch(url, { headers: getHeaders() });
+            const data = await res.json();
+            allShifts = data.data || [];
+            renderShiftsTable(allShifts);
+            loadShiftStats();
+        } catch (e) {
+            console.error('Error loading shifts:', e);
+            document.getElementById('shiftsTableBody').innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-red-400">Error loading shifts</td></tr>';
+        }
+    }
+
+    function renderShiftsTable(shifts) {
+        const tbody = document.getElementById('shiftsTableBody');
+        if (shifts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">No shifts found</td></tr>';
+            return;
+        }
+        const statusColors = {
+            scheduled: 'bg-blue-600',
+            checked_in: 'bg-green-600',
+            completed: 'bg-gray-600',
+            cancelled: 'bg-red-600',
+            no_show: 'bg-yellow-600'
+        };
+        tbody.innerHTML = shifts.map(s => {
+            const sc = statusColors[s.status] || 'bg-gray-600';
+            const pay = Number(s.shift_pay || 0).toLocaleString();
+            return `
+                <tr class="border-b border-gray-700 hover:bg-gray-750">
+                    <td class="px-4 py-2 font-semibold">${escapeHtml(s.staff_name || 'Unknown')}</td>
+                    <td class="px-4 py-2 text-xs text-gray-400">${escapeHtml(s.event_name || '—')}</td>
+                    <td class="px-4 py-2">${s.shift_date || '—'}</td>
+                    <td class="px-4 py-2">${s.start_time || '—'}</td>
+                    <td class="px-4 py-2">${s.end_time || '—'}</td>
+                    <td class="px-4 py-2 text-xs">${escapeHtml(s.role || 'general')}</td>
+                    <td class="px-4 py-2 text-right">${Number(s.hours_worked || 0).toFixed(1)}</td>
+                    <td class="px-4 py-2 text-right text-green-400">R ${pay}</td>
+                    <td class="px-4 py-2 text-center"><span class="px-2 py-0.5 rounded text-xs text-white ${sc}">${s.status || 'scheduled'}</span></td>
+                    <td class="px-4 py-2 text-center">
+                        ${s.status === 'scheduled' ? `<button onclick="updateShiftStatus(${s.id}, 'checked_in')" class="text-green-400 hover:text-green-300 text-xs mr-1" title="Check In">✅</button>` : ''}
+                        ${s.status === 'checked_in' ? `<button onclick="updateShiftStatus(${s.id}, 'completed')" class="text-blue-400 hover:text-blue-300 text-xs mr-1" title="Complete">✔️</button>` : ''}
+                        <button onclick="editShift(${s.id})" class="text-yellow-400 hover:text-yellow-300 text-xs mr-1" title="Edit">✏️</button>
+                        <button onclick="deleteShift(${s.id})" class="text-red-400 hover:text-red-300 text-xs" title="Delete">🗑️</button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function loadShiftStats() {
+        try {
+            const statsRes = await fetch('/api/shifts/stats/summary', { headers: getHeaders() });
+            const statsData = await statsRes.json();
+            const stats = statsData.stats || {};
+            document.getElementById('shiftStatTotal').textContent = stats.total_shifts || 0;
+            document.getElementById('shiftStatHours').textContent = Number(stats.total_hours || 0).toFixed(1);
+            document.getElementById('shiftStatPay').textContent = 'R ' + Number(stats.total_pay || 0).toLocaleString();
+        } catch (e) {
+            console.error('Error loading shift stats:', e);
+        }
+    }
+
+    async function loadShiftConflicts() {
+        try {
+            const res = await fetch('/api/shifts/conflicts', { headers: getHeaders() });
+            const data = await res.json();
+            const conflicts = data.conflicts || [];
+            document.getElementById('shiftStatConflicts').textContent = conflicts.length;
+            const alertDiv = document.getElementById('shiftConflictAlert');
+            const listDiv = document.getElementById('shiftConflictList');
+            if (conflicts.length > 0) {
+                alertDiv.classList.remove('hidden');
+                listDiv.innerHTML = conflicts.map(c =>
+                    `<div class="mb-1">⚠️ <strong>${escapeHtml(c.staff_name)}</strong> double-booked on ${c.shift_date}: ${c.start1}-${c.end1} (${escapeHtml(c.event1_name || 'shift')}) overlaps with ${c.start2}-${c.end2} (${escapeHtml(c.event2_name || 'shift')})</div>`
+                ).join('');
+            } else {
+                alertDiv.classList.add('hidden');
+            }
+        } catch (e) {
+            console.error('Error loading shift conflicts:', e);
+        }
+    }
+
+    function openShiftModal(shift = null) {
+        const isEdit = !!shift;
+        const staffOptions = (window._allStaff || []).map(s =>
+            `<option value="${s.id}" ${shift && shift.staff_id == s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`
+        ).join('');
+
+        const modalHtml = `
+            <div id="shiftModal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+                <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-md max-h-[90vh] overflow-y-auto">
+                    <div class="p-4 border-b border-gray-700 flex justify-between items-center">
+                        <h3 class="text-lg font-bold text-white">${isEdit ? '✏️ Edit Shift' : '➕ New Shift'}</h3>
+                        <button onclick="closeShiftModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                    </div>
+                    <div class="p-4 space-y-3">
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Staff Member</label>
+                            <select id="shiftStaffId" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                                <option value="">Select staff...</option>
+                                ${staffOptions}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Event (optional)</label>
+                            <select id="shiftEventId" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                                <option value="">No event</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Date</label>
+                                <input type="date" id="shiftDate" value="${shift ? shift.shift_date : new Date().toISOString().slice(0, 10)}" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                            </div>
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Role</label>
+                                <input type="text" id="shiftRole" value="${shift ? escapeHtml(shift.role || '') : 'general'}" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600" placeholder="e.g. waiter, barista">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Start Time</label>
+                                <input type="time" id="shiftStartTime" value="${shift ? shift.start_time : '08:00'}" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                            </div>
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">End Time</label>
+                                <input type="time" id="shiftEndTime" value="${shift ? shift.end_time : '17:00'}" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Hourly Rate (R)</label>
+                                <input type="number" id="shiftHourlyRate" value="${shift ? (shift.hourly_rate || 0) : ''}" step="0.01" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600" placeholder="0.00">
+                            </div>
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Status</label>
+                                <select id="shiftStatusSelect" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600">
+                                    <option value="scheduled" ${shift && shift.status === 'scheduled' ? 'selected' : ''}>Scheduled</option>
+                                    <option value="checked_in" ${shift && shift.status === 'checked_in' ? 'selected' : ''}>Checked In</option>
+                                    <option value="completed" ${shift && shift.status === 'completed' ? 'selected' : ''}>Completed</option>
+                                    <option value="cancelled" ${shift && shift.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Notes</label>
+                            <textarea id="shiftNotes" rows="2" class="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600" placeholder="Shift notes...">${shift ? escapeHtml(shift.notes || '') : ''}</textarea>
+                        </div>
+                    </div>
+                    <div class="p-4 border-t border-gray-700 flex justify-end gap-2">
+                        <button onclick="closeShiftModal()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded text-sm">Cancel</button>
+                        <button onclick="saveShift(${shift ? shift.id : 'null'})" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-semibold">${isEdit ? 'Update' : 'Create'} Shift</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        // Load events for dropdown
+        loadShiftEventOptions(shift ? shift.event_id : null);
+    }
+
+    function closeShiftModal() {
+        const modal = document.getElementById('shiftModal');
+        if (modal) modal.remove();
+    }
+
+    async function loadShiftEventOptions(selectedEventId = null) {
+        try {
+            const res = await fetch('/api/events?limit=100', { headers: getHeaders() });
+            const data = await res.json();
+            const events = data.events || data || [];
+            const select = document.getElementById('shiftEventId');
+            select.innerHTML = '<option value="">No event</option>' +
+                events.map(e => `<option value="${e.id}" ${selectedEventId === e.id ? 'selected' : ''}>${escapeHtml(e.event)} — ${e.date}</option>`).join('');
+        } catch (e) {
+            console.error('Error loading events for shift modal:', e);
+        }
+    }
+
+    async function saveShift(shiftId) {
+        const payload = {
+            staff_id: parseInt(document.getElementById('shiftStaffId').value),
+            event_id: document.getElementById('shiftEventId').value,
+            shift_date: document.getElementById('shiftDate').value,
+            start_time: document.getElementById('shiftStartTime').value,
+            end_time: document.getElementById('shiftEndTime').value,
+            role: document.getElementById('shiftRole').value,
+            hourly_rate: parseFloat(document.getElementById('shiftHourlyRate').value) || 0,
+            status: document.getElementById('shiftStatusSelect').value,
+            notes: document.getElementById('shiftNotes').value
+        };
+
+        if (!payload.staff_id || !payload.shift_date || !payload.start_time || !payload.end_time) {
+            showToast('Please fill in all required fields', 'error');
+            return;
+        }
+
+        try {
+            let res;
+            if (shiftId && shiftId !== 'null') {
+                res = await fetch(`/api/shifts/${shiftId}`, {
+                    method: 'PUT',
+                    headers: getHeaders(),
+                    body: JSON.stringify(payload)
+                });
+            } else {
+                res = await fetch('/api/shifts', {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify(payload)
+                });
+            }
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message, 'success');
+                closeShiftModal();
+                loadShifts();
+                loadShiftConflicts();
+            } else {
+                showToast(data.error || 'Failed to save shift', 'error');
+            }
+        } catch (e) {
+            showToast('Error saving shift: ' + e.message, 'error');
+        }
+    }
+
+    async function updateShiftStatus(shiftId, newStatus) {
+        try {
+            const res = await fetch(`/api/shifts/${shiftId}`, {
+                method: 'PUT',
+                headers: getHeaders(),
+                body: JSON.stringify({ status: newStatus })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Shift ${newStatus} ✓`, 'success');
+                loadShifts();
+            } else {
+                showToast(data.error || 'Failed to update status', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    function editShift(shiftId) {
+        const shift = allShifts.find(s => s.id === shiftId);
+        if (shift) openShiftModal(shift);
+    }
+
+    async function deleteShift(shiftId) {
+        if (!confirm('Are you sure you want to delete this shift?')) return;
+        try {
+            const res = await fetch(`/api/shifts/${shiftId}`, {
+                method: 'DELETE',
+                headers: getHeaders()
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Shift deleted', 'success');
+                loadShifts();
+                loadShiftConflicts();
+            } else {
+                showToast(data.error || 'Failed to delete', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
     }
 
 </body>

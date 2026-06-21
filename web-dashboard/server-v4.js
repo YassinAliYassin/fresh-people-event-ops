@@ -18,6 +18,14 @@ const CALENDAR_DIR = path.join(__dirname, '..', 'calendar-events');
 const BACKUP_DIR = path.join(__dirname, '..', 'backups');
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 
+// Helper: parse staff field that may be JSON array or semicolon/comma-separated string
+function parseStaff(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  try { const p = JSON.parse(val); if (Array.isArray(p)) return p; } catch(e) {}
+  return String(val).split(/[;,]/).map(s => s.trim()).filter(Boolean);
+}
+
 // Ensure upload directory exists
 fsSync.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -57,7 +65,7 @@ setInterval(() => {
 // Auth middleware - checks session token or allows public paths
 function authMiddleware(req, res, next) {
   // Public paths that don't require auth
-  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday', '/client-portal', '/feedback'];
+  const publicPaths = ['/login.html', '/api/auth/login', '/api/auth/register', '/api/auth/setup', '/ws', '/event-day', '/eventday', '/client-portal', '/feedback', '/api/health', '/api/system/health'];
   if (publicPaths.includes(req.path)) return next();
   if (req.path.startsWith('/feedback/')) return next();
   if (req.path.startsWith('/api/portal')) return next();
@@ -687,6 +695,36 @@ db.run(`CREATE TABLE IF NOT EXISTS event_day_status (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (event_id) REFERENCES events(id)
 )`);
+
+// ==================== STAFF SHIFT SCHEDULING ====================
+
+// Create staff_shifts table for shift management
+db.run(`CREATE TABLE IF NOT EXISTS staff_shifts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  staff_id INTEGER NOT NULL,
+  event_id TEXT DEFAULT '',
+  shift_date TEXT NOT NULL,
+  start_time TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  role TEXT DEFAULT 'general',
+  status TEXT DEFAULT 'scheduled',
+  notes TEXT DEFAULT '',
+  check_in_time TEXT DEFAULT '',
+  check_out_time TEXT DEFAULT '',
+  hours_worked REAL DEFAULT 0,
+  hourly_rate REAL DEFAULT 0,
+  shift_pay REAL DEFAULT 0,
+  created_by TEXT DEFAULT 'system',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (staff_id) REFERENCES staff(id),
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create index for shift lookups
+db.run(`CREATE INDEX IF NOT EXISTS idx_shifts_staff_date ON staff_shifts(staff_id, shift_date)`, () => {});
+db.run(`CREATE INDEX IF NOT EXISTS idx_shifts_event ON staff_shifts(event_id)`, () => {});
+db.run(`CREATE INDEX IF NOT EXISTS idx_shifts_date ON staff_shifts(shift_date)`, () => {});
 
 // Seed default timeline templates
 db.get(`SELECT COUNT(*) as count FROM event_day_timeline WHERE event_id = 'template'`, (err, row) => {
@@ -1728,7 +1766,7 @@ app.post('/api/events/:id/notify', (req, res) => {
     if (recipient_type === 'staff' || !recipient_type) {
       // Parse staff from event
       let staffNames = [];
-      try { staffNames = JSON.parse(event.staff || '[]'); } catch(e) { staffNames = []; }
+      staffNames = parseStaff(event.staff);
 
       if (staffNames.length > 0) {
         const placeholders = staffNames.map(() => '?').join(',');
@@ -2583,7 +2621,8 @@ app.put('/api/events/:id', (req, res) => {
     async function(err) {
       if (err) return res.status(500).json({error: err.message});
       if (this.changes === 0) return res.status(404).json({error: 'Event not found'});
-      const updatedEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, services, staff: JSON.parse(staffJSON), notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount, venue_id: venId};
+      let parsedStaff; try { parsedStaff = JSON.parse(staffJSON); } catch(e) { parsedStaff = staffJSON ? staffJSON.split(/[;,]/).map(s=>s.trim()).filter(Boolean) : []; }
+      const updatedEvent = {id, event, date, time, end_time: endTime, location, client, client_id: cliId, services, staff: parsedStaff, notes, estimated_cost: estCost, actual_cost: actCost, currency: curr, budget: evtBudget, guests: guestCount, venue_id: venId};
       const icsContent = generateICS(updatedEvent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.ics`), icsContent);
       await fs.writeFile(path.join(CALENDAR_DIR, `${id}.json`), JSON.stringify(updatedEvent, null, 2));
@@ -2811,7 +2850,7 @@ app.get('/api/conflicts', (req, res) => {
     const eventsByDate = {};
     const conflicts = [];
     rows.forEach(r => {
-      const staffList = JSON.parse(r.staff || '[]');
+      const staffList = parseStaff(r.staff);
       if (!eventsByDate[r.date]) eventsByDate[r.date] = [];
       eventsByDate[r.date].push({ id: r.id, event: r.event, time: r.time, location: r.location, staff: staffList });
     });
@@ -2842,7 +2881,7 @@ app.get('/api/alerts', (req, res) => {
     
     // Check for staff shortages
     rows.forEach(r => {
-      const staffList = JSON.parse(r.staff || '[]');
+      const staffList = parseStaff(r.staff);
       if (r.notes && r.notes.includes('Staff shortage')) {
         alerts.push({
           type: 'shortage',
@@ -2871,7 +2910,7 @@ app.get('/api/alerts', (req, res) => {
     // Check for conflicts
     const eventsByDate = {};
     rows.forEach(r => {
-      const staffList = JSON.parse(r.staff || '[]');
+      const staffList = parseStaff(r.staff);
       if (!eventsByDate[r.date]) eventsByDate[r.date] = [];
       eventsByDate[r.date].push({ id: r.id, event: r.event, time: r.time, location: r.location, staff: staffList });
     });
@@ -2967,7 +3006,7 @@ app.get('/api/analytics', (req, res) => {
     // Staff utilization (events per staff member)
     const staffEventCounts = {};
     events.forEach(e => {
-      const staffList = JSON.parse(e.staff || '[]');
+      const staffList = parseStaff(e.staff);
       staffList.forEach(s => { staffEventCounts[s] = (staffEventCounts[s] || 0) + 1; });
     });
     const staffUtilization = Object.entries(staffEventCounts).sort((a, b) => b[1] - a[1]);
@@ -3023,7 +3062,7 @@ app.get('/api/export/csv', (req, res) => {
     const headers = ['ID', 'Event', 'Date', 'Time', 'Location', 'Client', 'Services', 'Staff', 'Status', 'Notes'];
     const csvRows = [headers.join(',')];
     rows.forEach(r => {
-      const staffList = JSON.parse(r.staff || '[]').join('; ');
+      const staffList = parseStaff(r.staff).join('; ');
       const cols = [
         r.id,
         `"${(r.event || '').replace(/"/g, '""')}"`,
@@ -3087,7 +3126,7 @@ app.get('/api/export/pdf', (req, res) => {
     rows.forEach((r, idx) => {
       if (idx > 0) doc.addPage();
 
-      const staffList = JSON.parse(r.staff || '[]');
+      const staffList = parseStaff(r.staff);
       const statusLabel = (r.status || 'pending').toUpperCase();
 
       // Event header with status color
@@ -3140,7 +3179,7 @@ app.get('/api/staff-timeline', (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     const staffMap = {};
     rows.forEach(r => {
-      const staffList = JSON.parse(r.staff || '[]');
+      const staffList = parseStaff(r.staff);
       staffList.forEach(name => {
         if (!staffMap[name]) staffMap[name] = [];
         staffMap[name].push({
@@ -3267,10 +3306,11 @@ app.post('/api/events/:id/duplicate', async (req, res) => {
           [id, original.event, dateStr, original.time, original.location, original.client, original.services, staffJSON, original.notes || '', estCost, actCost, curr],
           function(err) {
             if (err) return reject(err);
+            let parsedStaff; try { parsedStaff = JSON.parse(staffJSON); } catch(e) { parsedStaff = staffJSON ? staffJSON.split(/[;,]/).map(s=>s.trim()).filter(Boolean) : []; }
             createdEvents.push({
-              id, event: original.event, date: dateStr, time: original.time,
-              location: original.location, client: original.client,
-              services: original.services, staff: JSON.parse(staffJSON),
+            id, event: original.event, date: dateStr, time: original.time,
+            location: original.location, client: original.client,
+            services: original.services, staff: parsedStaff,
               notes: original.notes
             });
             resolve();
@@ -4250,9 +4290,9 @@ app.get('/api/export/schema', (req, res) => {
 
 // GET /api/export/full-backup - Full JSON backup of all data
 app.get('/api/export/full-backup', (req, res) => {
-  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
+  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_shifts', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.41.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.43.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4463,7 +4503,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.41.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.43.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4472,7 +4512,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.41.0',
+    version: '4.43.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -4641,7 +4681,7 @@ app.get('/api/staff/conflicts', (req, res) => {
 
     events.forEach(evt => {
       let staffList = [];
-      try { staffList = JSON.parse(evt.staff) || []; } catch(e) { staffList = []; }
+      staffList = parseStaff(evt.staff);
       if (evt.leader) staffList.push(evt.leader);
 
       staffList.forEach(name => {
@@ -4671,6 +4711,200 @@ app.get('/api/staff/conflicts', (req, res) => {
     });
 
     res.json({ date: targetDate, conflicts, events: events.length });
+  });
+});
+
+// ==================== STAFF SHIFT SCHEDULING API ====================
+
+// GET /api/shifts - List shifts with filters
+app.get('/api/shifts', (req, res) => {
+  const { staff_id, event_id, date, start_date, end_date, status, limit = 100, offset = 0 } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (staff_id) { where.push('s.staff_id = ?'); params.push(staff_id); }
+  if (event_id) { where.push('s.event_id = ?'); params.push(event_id); }
+  if (date) { where.push('s.shift_date = ?'); params.push(date); }
+  if (start_date) { where.push('s.shift_date >= ?'); params.push(start_date); }
+  if (end_date) { where.push('s.shift_date <= ?'); params.push(end_date); }
+  if (status) { where.push('s.status = ?'); params.push(status); }
+  db.all(`SELECT s.*, st.name as staff_name, st.role as staff_role, st.phone as staff_phone, st.email as staff_email, e.event as event_name, e.location as event_location
+    FROM staff_shifts s
+    LEFT JOIN staff st ON s.staff_id = st.id
+    LEFT JOIN events e ON s.event_id = e.id
+    WHERE ${where.join(' AND ')}
+    ORDER BY s.shift_date DESC, s.start_time ASC LIMIT ? OFFSET ?`,
+    [...params, parseInt(limit), parseInt(offset)], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, data: rows || [], count: rows ? rows.length : 0 });
+    });
+});
+
+// POST /api/shifts - Create a shift
+app.post('/api/shifts', (req, res) => {
+  const { staff_id, event_id, shift_date, start_time, end_time, role, notes, hourly_rate } = req.body;
+  if (!staff_id || !shift_date || !start_time || !end_time) {
+    return res.status(400).json({ error: 'staff_id, shift_date, start_time, and end_time are required' });
+  }
+  // Calculate hours and pay
+  const startMin = parseInt(start_time.split(':')[0]) * 60 + parseInt(start_time.split(':')[1] || 0);
+  const endMin = parseInt(end_time.split(':')[0]) * 60 + parseInt(end_time.split(':')[1] || 0);
+  const hours = Math.max(0, (endMin - startMin) / 60);
+  const rate = hourly_rate || 0;
+  const pay = Math.round(hours * rate * 100) / 100;
+
+  db.run(`INSERT INTO staff_shifts (staff_id, event_id, shift_date, start_time, end_time, role, notes, hours_worked, hourly_rate, shift_pay, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    [staff_id, event_id || '', shift_date, start_time, end_time, role || 'general', notes || '', hours, rate, pay, 'scheduled'],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      const newId = this.lastID;
+      logAudit('create', 'shift', newId, `Shift ${shift_date} ${start_time}-${end_time}`, `Created shift for staff ${staff_id}`, req);
+      broadcast({ type: 'shift', action: 'created', data: { id: newId, staff_id, event_id, shift_date, start_time, end_time, role } });
+      res.json({ success: true, id: newId, message: 'Shift created', hours_worked: hours, shift_pay: pay });
+    });
+});
+
+// PUT /api/shifts/:id - Update a shift
+app.put('/api/shifts/:id', (req, res) => {
+  const { staff_id, event_id, shift_date, start_time, end_time, role, status, notes, check_in_time, check_out_time, hourly_rate } = req.body;
+  const updates = [];
+  const params = [];
+  if (staff_id !== undefined) { updates.push('staff_id = ?'); params.push(staff_id); }
+  if (event_id !== undefined) { updates.push('event_id = ?'); params.push(event_id); }
+  if (shift_date !== undefined) { updates.push('shift_date = ?'); params.push(shift_date); }
+  if (start_time !== undefined) { updates.push('start_time = ?'); params.push(start_time); }
+  if (end_time !== undefined) { updates.push('end_time = ?'); params.push(end_time); }
+  if (role !== undefined) { updates.push('role = ?'); params.push(role); }
+  if (status !== undefined) { updates.push('status = ?'); params.push(status); }
+  if (notes !== undefined) { updates.push('notes = ?'); params.push(notes); }
+  if (check_in_time !== undefined) { updates.push('check_in_time = ?'); params.push(check_in_time); }
+  if (check_out_time !== undefined) { updates.push('check_out_time = ?'); params.push(check_out_time); }
+  if (hourly_rate !== undefined) { updates.push('hourly_rate = ?'); params.push(hourly_rate); }
+
+  // Recalculate hours if times changed
+  if (start_time && end_time) {
+    const startMin = parseInt(start_time.split(':')[0]) * 60 + parseInt(start_time.split(':')[1] || 0);
+    const endMin = parseInt(end_time.split(':')[0]) * 60 + parseInt(end_time.split(':')[1] || 0);
+    const hours = Math.max(0, (endMin - startMin) / 60);
+    updates.push('hours_worked = ?'); params.push(hours);
+    if (hourly_rate) {
+      updates.push('shift_pay = ?'); params.push(Math.round(hours * hourly_rate * 100) / 100);
+    }
+  }
+
+  // Auto-calculate hours from check-in/check-out
+  if (check_in_time && check_out_time) {
+    const ciMin = parseInt(check_in_time.split(':')[0]) * 60 + parseInt(check_in_time.split(':')[1] || 0);
+    const coMin = parseInt(check_out_time.split(':')[0]) * 60 + parseInt(check_out_time.split(':')[1] || 0);
+    const actualHours = Math.max(0, (coMin - ciMin) / 60);
+    updates.push('hours_worked = ?'); params.push(actualHours);
+    const rate = hourly_rate || 0;
+    updates.push('shift_pay = ?'); params.push(Math.round(actualHours * rate * 100) / 100);
+  }
+
+  if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  updates.push('updated_at = CURRENT_TIMESTAMP');
+  params.push(req.params.id);
+
+  db.run(`UPDATE staff_shifts SET ${updates.join(', ')} WHERE id = ?`, params, function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Shift not found' });
+    logAudit('update', 'shift', req.params.id, `Shift ${shift_date || 'updated'}`, `Updated shift fields`, req);
+    broadcast({ type: 'shift', action: 'updated', data: { id: parseInt(req.params.id) } });
+    res.json({ success: true, message: 'Shift updated' });
+  });
+});
+
+// DELETE /api/shifts/:id - Delete a shift
+app.delete('/api/shifts/:id', (req, res) => {
+  db.run(`DELETE FROM staff_shifts WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Shift not found' });
+    logAudit('delete', 'shift', req.params.id, 'Shift deleted', 'Shift deleted', req);
+    res.json({ success: true, message: 'Shift deleted' });
+  });
+});
+
+// POST /api/shifts/bulk - Bulk create shifts for an event
+app.post('/api/shifts/bulk', (req, res) => {
+  const { event_id, shift_date, start_time, end_time, staff_ids, role, notes, hourly_rate } = req.body;
+  if (!event_id || !shift_date || !start_time || !end_time || !staff_ids || !Array.isArray(staff_ids)) {
+    return res.status(400).json({ error: 'event_id, shift_date, start_time, end_time, and staff_ids array are required' });
+  }
+
+  const startMin = parseInt(start_time.split(':')[0]) * 60 + parseInt(start_time.split(':')[1] || 0);
+  const endMin = parseInt(end_time.split(':')[0]) * 60 + parseInt(end_time.split(':')[1] || 0);
+  const hours = Math.max(0, (endMin - startMin) / 60);
+  const rate = hourly_rate || 0;
+  const pay = Math.round(hours * rate * 100) / 100;
+
+  let created = 0;
+  let errors = [];
+  let remaining = staff_ids.length;
+
+  staff_ids.forEach(sid => {
+    db.run(`INSERT INTO staff_shifts (staff_id, event_id, shift_date, start_time, end_time, role, notes, hours_worked, hourly_rate, shift_pay, status) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      [sid, event_id, shift_date, start_time, end_time, role || 'general', notes || '', hours, rate, pay, 'scheduled'],
+      function(err) {
+        if (err) errors.push({ staff_id: sid, error: err.message });
+        else created++;
+        remaining--;
+        if (remaining === 0) {
+          logAudit('bulk_create', 'shift', event_id, `Bulk shifts ${shift_date}`, `Created ${created} shifts for event ${event_id}`, req);
+          res.json({ success: true, created, errors: errors.length > 0 ? errors : undefined, message: `Created ${created} shifts` });
+        }
+      });
+  });
+});
+
+// GET /api/shifts/conflicts - Detect shift conflicts (overlapping shifts for same staff)
+app.get('/api/shifts/conflicts', (req, res) => {
+  const { date, staff_id } = req.query;
+  let where = ['1=1'];
+  const params = [];
+  if (date) { where.push('s1.shift_date = ?'); params.push(date); }
+  if (staff_id) { where.push('s1.staff_id = ?'); params.push(staff_id); }
+
+  db.all(`SELECT s1.id as shift1_id, s2.id as shift2_id,
+    s1.staff_id, st.name as staff_name,
+    s1.shift_date,
+    s1.start_time as start1, s1.end_time as end1, s1.event_id as event1_id, e1.event as event1_name,
+    s2.start_time as start2, s2.end_time as end2, s2.event_id as event2_id, e2.event as event2_name
+    FROM staff_shifts s1
+    INNER JOIN staff_shifts s2 ON s1.staff_id = s2.staff_id AND s1.shift_date = s2.shift_date AND s1.id < s2.id
+    LEFT JOIN staff st ON s1.staff_id = st.id
+    LEFT JOIN events e1 ON s1.event_id = e1.id
+    LEFT JOIN events e2 ON s2.event_id = e2.id
+    WHERE ${where.join(' AND ')}
+    AND s1.start_time < s2.end_time AND s2.start_time < s1.end_time
+    AND s1.status != 'cancelled' AND s2.status != 'cancelled'
+    ORDER BY s1.shift_date DESC, s1.start_time ASC`,
+    params, (err, conflicts) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ conflicts: conflicts || [], count: conflicts ? conflicts.length : 0 });
+    });
+});
+
+// GET /api/shifts/stats/summary - Shift statistics
+app.get('/api/shifts/stats/summary', (req, res) => {
+  const { start_date, end_date } = req.query;
+  let dateFilter = '';
+  const params = [];
+  if (start_date && end_date) {
+    dateFilter = 'WHERE shift_date >= ? AND shift_date <= ?';
+    params.push(start_date, end_date);
+  }
+  db.get(`SELECT
+    COUNT(*) as total_shifts,
+    COUNT(DISTINCT staff_id) as unique_staff,
+    SUM(hours_worked) as total_hours,
+    SUM(shift_pay) as total_pay,
+    SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as scheduled,
+    SUM(CASE WHEN status = 'checked_in' THEN 1 ELSE 0 END) as checked_in,
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+    FROM staff_shifts ${dateFilter}`, params, (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, stats: row });
   });
 });
 
@@ -4800,6 +5034,57 @@ app.get('/api/suppliers/stats/summary', (req, res) => {
     });
   });
 });
+
+// ==================== SUPPLIER PERFORMANCE ANALYTICS ====================
+
+app.get('/api/suppliers/performance', (req, res) => {
+  const { period = '12' } = req.query;
+  const months = parseInt(period);
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - months);
+  const cutoffStr = cutoff.toISOString().split('T')[0];
+
+  db.all(`SELECT s.id, s.name, s.company, s.category, s.rating, s.is_active,
+    COUNT(po.id) as total_orders,
+    COALESCE(SUM(po.total), 0) as total_spent,
+    COALESCE(AVG(po.total), 0) as avg_order_value,
+    SUM(CASE WHEN po.status = 'delivered' THEN 1 ELSE 0 END) as delivered_orders,
+    SUM(CASE WHEN po.payment_status = 'paid' THEN 1 ELSE 0 END) as paid_orders,
+    SUM(CASE WHEN po.payment_status = 'unpaid' THEN po.total ELSE 0 END) as outstanding,
+    MAX(po.order_date) as last_order
+    FROM suppliers s LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.order_date >= ?
+    GROUP BY s.id ORDER BY total_spent DESC`, [cutoffStr], (err, suppliers) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    db.get(`SELECT
+      COUNT(*) as total_pos,
+      COALESCE(SUM(total), 0) as total_spend,
+      COALESCE(AVG(total), 0) as avg_po_value,
+      SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+      SUM(CASE WHEN payment_status = 'paid' THEN 1 ELSE 0 END) as paid,
+      SUM(CASE WHEN payment_status = 'unpaid' THEN total ELSE 0 END) as unpaid_total,
+      COUNT(DISTINCT supplier_id) as active_suppliers
+      FROM purchase_orders WHERE order_date >= ?`, [cutoffStr], (err2, summary) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      // Category breakdown
+      db.all(`SELECT s.category, COUNT(po.id) as orders, COALESCE(SUM(po.total), 0) as spend
+        FROM suppliers s LEFT JOIN purchase_orders po ON s.id = po.supplier_id AND po.order_date >= ?
+        GROUP BY s.category ORDER BY spend DESC`, [cutoffStr], (err3, categories) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+
+        res.json({
+          period_months: months,
+          summary: summary || {},
+          suppliers: suppliers || [],
+          categories: categories || []
+        });
+      });
+    });
+  });
+});
+
+// ==================== SUPPLIER CRUD ====================
 
 // GET /api/suppliers/:id - Get single supplier with PO history
 app.get('/api/suppliers/:id', (req, res) => {
@@ -4988,6 +5273,125 @@ app.put('/api/purchase-orders/:id/items', (req, res) => {
         if (err3) return res.status(500).json({ error: err3.message });
         res.json({ success: true, subtotal, tax_amount: tax, total });
       });
+    });
+  });
+});
+
+// ==================== PURCHASE ORDER PDF EXPORT ====================
+
+app.get('/api/purchase-orders/:id/pdf', (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT po.*, s.name as supplier_name, s.company as supplier_company, s.email as supplier_email, s.phone as supplier_phone, s.address as supplier_address, s.city as supplier_city, e.event as event_name FROM purchase_orders po LEFT JOIN suppliers s ON po.supplier_id = s.id LEFT JOIN events e ON po.event_id = e.id WHERE po.id = ?`, [id], (err, po) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+    db.all(`SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY sort_order`, [id], (err2, items) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      const doc = new PDFDocument({ size: 'A4', margin: 50 });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${po.po_number}.pdf"`);
+      doc.pipe(res);
+
+      // Header
+      doc.fontSize(24).font('Helvetica-Bold').text('PURCHASE ORDER', { align: 'center' });
+      doc.moveDown(0.3);
+      doc.fontSize(14).font('Helvetica').text(po.po_number, { align: 'center' });
+      doc.moveDown(0.5);
+
+      // Status badge color
+      const statusColors = { draft: '#6b7280', sent: '#3b82f6', approved: '#10b981', delivered: '#059669', cancelled: '#ef4444' };
+      const statusColor = statusColors[po.status] || '#6b7280';
+      doc.fontSize(10).fillColor(statusColor).text(`Status: ${po.status.toUpperCase()}`, { align: 'center' });
+      doc.fillColor('#000000').moveDown(0.8);
+
+      // Two-column info
+      const col1 = 50, col2 = 310;
+      let y = doc.y;
+      doc.fontSize(11).font('Helvetica-Bold').text('Supplier:', col1, y);
+      doc.font('Helvetica').text(po.supplier_name || '—', col1 + 70, y);
+      doc.font('Helvetica-Bold').text('Order Date:', col2, y);
+      doc.font('Helvetica').text(po.order_date || '—', col2 + 80, y);
+      y += 20;
+      doc.font('Helvetica-Bold').text('Company:', col1, y);
+      doc.font('Helvetica').text(po.supplier_company || '—', col1 + 70, y);
+      doc.font('Helvetica-Bold').text('Delivery Date:', col2, y);
+      doc.font('Helvetica').text(po.delivery_date || '—', col2 + 80, y);
+      y += 20;
+      doc.font('Helvetica-Bold').text('Category:', col1, y);
+      doc.font('Helvetica').text(po.category || '—', col1 + 70, y);
+      doc.font('Helvetica-Bold').text('Payment:', col2, y);
+      doc.font('Helvetica').text(po.payment_status || '—', col2 + 80, y);
+      y += 20;
+      if (po.event_name) {
+        doc.font('Helvetica-Bold').text('Event:', col1, y);
+        doc.font('Helvetica').text(po.event_name, col1 + 70, y);
+        y += 20;
+      }
+      if (po.description) {
+        doc.font('Helvetica-Bold').text('Description:', col1, y);
+        doc.font('Helvetica').text(po.description, col1 + 70, y);
+        y += 20;
+      }
+      y += 10;
+
+      // Supplier address
+      if (po.supplier_address) {
+        doc.fontSize(10).font('Helvetica-Bold').text('Supplier Address:', col1, y);
+        y += 15;
+        doc.font('Helvetica').text(`${po.supplier_address}`, col1, y); y += 14;
+        if (po.supplier_city) { doc.text(`${po.supplier_city}`, col1, y); y += 14; }
+        if (po.supplier_email) { doc.text(`Email: ${po.supplier_email}`, col1, y); y += 14; }
+        if (po.supplier_phone) { doc.text(`Phone: ${po.supplier_phone}`, col1, y); y += 14; }
+        y += 10;
+      }
+
+      // Line items table
+      doc.fontSize(12).font('Helvetica-Bold').text('Line Items', col1, y);
+      y += 20;
+      const tableTop = y;
+      const colWidths = [35, 250, 50, 80, 80];
+      const headers = ['#', 'Description', 'Qty', 'Unit Price', 'Total'];
+      doc.fontSize(9).font('Helvetica-Bold');
+      let x = col1;
+      headers.forEach((h, i) => { doc.text(h, x, tableTop, { width: colWidths[i] }); x += colWidths[i]; });
+      y = tableTop + 16;
+      doc.moveTo(col1, y).lineTo(545, y).stroke();
+      y += 6;
+      doc.font('Helvetica');
+      (items || []).forEach((item, idx) => {
+        x = col1;
+        const vals = [String(idx + 1), item.description || '', String(item.quantity || 0), `R ${(item.unit_price || 0).toFixed(2)}`, `R ${(item.total_price || 0).toFixed(2)}`];
+        vals.forEach((v, i) => { doc.text(v, x, y, { width: colWidths[i] }); x += colWidths[i]; });
+        y += 16;
+      });
+      y += 10;
+      doc.moveTo(col1, y).lineTo(545, y).stroke();
+      y += 10;
+
+      // Totals
+      doc.fontSize(10).font('Helvetica-Bold');
+      const totalsX = 380;
+      doc.text('Subtotal:', totalsX, y);
+      doc.font('Helvetica').text(`R ${(po.subtotal || 0).toFixed(2)}`, totalsX + 80, y, { align: 'right' });
+      y += 18;
+      doc.font('Helvetica-Bold').text(`Tax (${po.tax_rate || 0}%):`, totalsX, y);
+      doc.font('Helvetica').text(`R ${(po.tax_amount || 0).toFixed(2)}`, totalsX + 80, y, { align: 'right' });
+      y += 18;
+      doc.fontSize(12).font('Helvetica-Bold').text('TOTAL:', totalsX, y);
+      doc.text(`R ${(po.total || 0).toFixed(2)}`, totalsX + 80, y, { align: 'right' });
+      y += 30;
+
+      // Notes
+      if (po.notes) {
+        doc.fontSize(10).font('Helvetica-Bold').text('Notes:', col1, y);
+        y += 15;
+        doc.font('Helvetica').text(po.notes, col1, y, { width: 495 });
+        y += 30;
+      }
+
+      // Footer
+      doc.fontSize(8).fillColor('#9ca3af').text(`Generated by Fresh People Event Ops v4.42 | ${new Date().toLocaleString()}`, col1, 780, { align: 'center' });
+
+      doc.end();
     });
   });
 });
@@ -6132,7 +6536,7 @@ app.get('/api/events/:id/runsheet', (req, res) => {
       // Parse staff JSON array and resolve staff details
       let staffNames = [];
       try {
-        staffNames = JSON.parse(event.staff || '[]');
+        staffNames = parseStaff(event.staff);
       } catch(e) {
         staffNames = [];
       }
@@ -6244,7 +6648,7 @@ app.get('/api/todays-events', (req, res) => {
       events = events.map(e => {
         let staffCount = 0;
         try {
-          staffCount = JSON.parse(e.staff || '[]').length;
+          staffCount = parseStaff(e.staff).length;
         } catch(_) {}
         return { ...e, staff_count: staffCount };
       });
@@ -6788,6 +7192,148 @@ async function seedBudgetsIfEmpty() {
   }
 }
 
+// ==================== SEED PURCHASE ORDERS ====================
+
+async function seedPurchaseOrdersIfEmpty() {
+  try {
+    const existing = await dbQuery(`SELECT COUNT(*) as count FROM purchase_orders`);
+    if (existing?.count > 0) return;
+
+    const pos = [
+      {
+        po_number: 'PO-2026-001',
+        supplier_id: 2, // Elegant Catering
+        event_id: '',
+        description: 'Catering for Corporate Gala',
+        category: 'catering',
+        status: 'delivered',
+        order_date: '2026-05-15',
+        delivery_date: '2026-05-20',
+        subtotal: 18500,
+        tax_rate: 15,
+        tax_amount: 2775,
+        total: 21275,
+        payment_status: 'paid',
+        payment_date: '2026-05-25',
+        notes: 'Full catering package including staff',
+        items: [
+          { description: 'Buffet menu (100 pax)', quantity: 1, unit_price: 12000 },
+          { description: 'Beverage package', quantity: 1, unit_price: 3500 },
+          { description: 'Service staff (4)', quantity: 4, unit_price: 750 },
+        ]
+      },
+      {
+        po_number: 'PO-2026-002',
+        supplier_id: 1, // Perfect Sound Audio
+        event_id: '',
+        description: 'Audio equipment for Music Festival',
+        category: 'audio',
+        status: 'approved',
+        order_date: '2026-06-01',
+        delivery_date: '2026-06-10',
+        subtotal: 24000,
+        tax_rate: 15,
+        tax_amount: 3600,
+        total: 27600,
+        payment_status: 'unpaid',
+        notes: 'Full PA system + stage monitors',
+        items: [
+          { description: 'PA system rental (2 days)', quantity: 2, unit_price: 8000 },
+          { description: 'Stage monitors', quantity: 4, unit_price: 1500 },
+          { description: 'Sound engineer', quantity: 2, unit_price: 2000 },
+        ]
+      },
+      {
+        po_number: 'PO-2026-003',
+        supplier_id: 5, // Tent & Structure Co
+        event_id: '',
+        description: 'Marquee and staging for outdoor event',
+        category: 'structures',
+        status: 'sent',
+        order_date: '2026-06-10',
+        delivery_date: '2026-06-18',
+        subtotal: 32000,
+        tax_rate: 15,
+        tax_amount: 4800,
+        total: 36800,
+        payment_status: 'partial',
+        payment_date: '2026-06-12',
+        notes: '20x30m marquee with flooring and lighting',
+        items: [
+          { description: 'Marquee 20x30m', quantity: 1, unit_price: 22000 },
+          { description: 'Flooring', quantity: 1, unit_price: 5000 },
+          { description: 'Setup crew', quantity: 1, unit_price: 5000 },
+        ]
+      },
+      {
+        po_number: 'PO-2026-004',
+        supplier_id: 6, // SafeGuard Security
+        event_id: '',
+        description: 'Security personnel for product launch',
+        category: 'security',
+        status: 'draft',
+        order_date: '2026-06-18',
+        delivery_date: '2026-06-25',
+        subtotal: 8000,
+        tax_rate: 15,
+        tax_amount: 1200,
+        total: 9200,
+        payment_status: 'unpaid',
+        notes: '6 security guards for 2-day event',
+        items: [
+          { description: 'Security guards (6)', quantity: 6, unit_price: 1000 },
+          { description: 'Radio equipment', quantity: 6, unit_price: 333.33 },
+        ]
+      },
+      {
+        po_number: 'PO-2026-005',
+        supplier_id: 3, // Bloom Florists
+        event_id: '',
+        description: 'Floral arrangements for gala dinner',
+        category: 'florist',
+        status: 'delivered',
+        order_date: '2026-04-20',
+        delivery_date: '2026-04-28',
+        subtotal: 5500,
+        tax_rate: 15,
+        tax_amount: 825,
+        total: 6325,
+        payment_status: 'paid',
+        payment_date: '2026-05-01',
+        notes: 'Table centerpieces and entrance arrangements',
+        items: [
+          { description: 'Table centerpieces (15)', quantity: 15, unit_price: 250 },
+          { description: 'Entrance arrangement', quantity: 1, unit_price: 1750 },
+        ]
+      },
+    ];
+
+    for (const po of pos) {
+      const res = await new Promise((resolve, reject) => {
+        db.run(
+          `INSERT INTO purchase_orders (po_number, supplier_id, event_id, description, category, status, order_date, delivery_date, subtotal, tax_rate, tax_amount, total, payment_status, payment_date, notes, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [po.po_number, po.supplier_id, po.event_id, po.description, po.category, po.status, po.order_date, po.delivery_date, po.subtotal, po.tax_rate, po.tax_amount, po.total, po.payment_status, po.payment_date, po.notes, 'system'],
+          function(err) { if (err) reject(err); else resolve(this.lastID); }
+        );
+      });
+      const poId = res;
+      if (po.items) {
+        for (let i = 0; i < po.items.length; i++) {
+          const item = po.items[i];
+          const itemTotal = Math.round(item.quantity * item.unit_price * 100) / 100;
+          await dbQuery(
+            `INSERT INTO purchase_order_items (po_id, description, quantity, unit_price, total_price, notes, sort_order) VALUES (?,?,?,?,?,?,?)`,
+            [poId, item.description, item.quantity, item.unit_price, itemTotal, '', i]
+          );
+        }
+      }
+    }
+    console.log(`Seeded ${pos.length} purchase orders`);
+  } catch (err) {
+    console.error('Purchase order seeding error:', err);
+  }
+}
+
 // ==================== SEED PAYROLL PERIODS ====================
 
 async function seedPayrollPeriodsIfEmpty() {
@@ -7113,9 +7659,10 @@ defaultPhones.forEach(p => {
   db.run(`UPDATE staff SET phone = ? WHERE name = ? AND (phone IS NULL OR phone = '' OR phone = 'N/A')`, [p.phone, p.name]);
 });
 
-// Seed budgets and payroll periods if empty
+// Seed budgets, payroll periods, and purchase orders if empty
 seedBudgetsIfEmpty();
 seedPayrollPeriodsIfEmpty();
+seedPurchaseOrdersIfEmpty();
 
 // ==================== PAYROLL PERIODS CRUD ====================
 
@@ -7299,6 +7846,6 @@ app.get('/api/events/benchmarks', (req, res) => {
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.41 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.43 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });
