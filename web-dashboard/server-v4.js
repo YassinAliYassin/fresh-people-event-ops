@@ -4252,7 +4252,7 @@ app.get('/api/export/schema', (req, res) => {
 app.get('/api/export/full-backup', (req, res) => {
   const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.40.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.41.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4463,7 +4463,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.40.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.41.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4472,7 +4472,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.40.0',
+    version: '4.41.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -5633,7 +5633,7 @@ app.get('/api/reports/:id/pdf', (req, res) => {
 
       // Footer
       doc.fontSize(8).font('Helvetica').text(
-        `Fresh People Event Ops v4.40 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
+        `Fresh People Event Ops v4.41 - Report #${row.id} - Generated ${new Date().toLocaleString('en-ZA')}`,
         { align: 'center' }
       );
 
@@ -5916,6 +5916,198 @@ app.get('/api/feedback/event/:id/summary', (req, res) => {
                 distribution: dist || [],
                 categories: cats || []
               });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// GET /api/feedback/analytics - Comprehensive feedback analytics dashboard data
+app.get('/api/feedback/analytics', (req, res) => {
+  const { period = '90' } = req.query;
+  const days = parseInt(period) || 90;
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().split('T')[0];
+
+  // Overall summary
+  db.get(
+    `SELECT
+       COUNT(*) as total_feedback,
+       AVG(rating) as avg_rating,
+       SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as promoters,
+       SUM(CASE WHEN rating = 3 THEN 1 ELSE 0 END) as passives,
+       SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as detractors,
+       COUNT(DISTINCT event_id) as events_with_feedback,
+       COUNT(DISTINCT CASE WHEN attendee_email != '' THEN attendee_email END) as unique_respondents
+     FROM attendee_feedback
+     WHERE created_at >= ?`,
+    [sinceStr],
+    (err, summary) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const total = summary?.total_feedback || 0;
+      const nps = total > 0
+        ? Math.round(((summary.promoters - summary.detractors) / total) * 100)
+        : 0;
+
+      // Category breakdown with avg rating
+      db.all(
+        `SELECT category,
+                COUNT(*) as count,
+                AVG(rating) as avg_rating,
+                SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as promoters,
+                SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as detractors
+         FROM attendee_feedback
+         WHERE created_at >= ?
+         GROUP BY category
+         ORDER BY count DESC`,
+        [sinceStr],
+        (err2, categoryBreakdown) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          // Rating distribution
+          db.all(
+            `SELECT rating, COUNT(*) as count
+             FROM attendee_feedback
+             WHERE created_at >= ?
+             GROUP BY rating
+             ORDER BY rating`,
+            [sinceStr],
+            (err3, distribution) => {
+              if (err3) return res.status(500).json({ error: err3.message });
+
+              // Monthly trend (last 6 months)
+              db.all(
+                `SELECT strftime('%Y-%m', created_at) as month,
+                       COUNT(*) as count,
+                       AVG(rating) as avg_rating,
+                       SUM(CASE WHEN rating >= 4 THEN 1 ELSE 0 END) as promoters,
+                       SUM(CASE WHEN rating <= 2 THEN 1 ELSE 0 END) as detractors
+                 FROM attendee_feedback
+                 WHERE created_at >= date('now', '-6 months')
+                 GROUP BY month
+                 ORDER BY month`,
+                [],
+                (err4, monthlyTrend) => {
+                  if (err4) return res.status(500).json({ error: err4.message });
+
+                  // Top rated events (min 2 feedbacks)
+                  db.all(
+                    `SELECT e.id, e.event, e.date, e.location,
+                            COUNT(f.id) as feedback_count,
+                            AVG(f.rating) as avg_rating,
+                            SUM(CASE WHEN f.rating >= 4 THEN 1 ELSE 0 END) as promoters,
+                            SUM(CASE WHEN f.rating <= 2 THEN 1 ELSE 0 END) as detractors
+                     FROM attendee_feedback f
+                     JOIN events e ON f.event_id = e.id
+                     WHERE f.created_at >= ?
+                     GROUP BY e.id
+                     HAVING feedback_count >= 2
+                     ORDER BY avg_rating DESC
+                     LIMIT 10`,
+                    [sinceStr],
+                    (err5, topEvents) => {
+                      if (err5) return res.status(500).json({ error: err5.message });
+
+                      // Lowest rated events (min 2 feedbacks)
+                      db.all(
+                        `SELECT e.id, e.event, e.date, e.location,
+                                COUNT(f.id) as feedback_count,
+                                AVG(f.rating) as avg_rating
+                         FROM attendee_feedback f
+                         JOIN events e ON f.event_id = e.id
+                         WHERE f.created_at >= ?
+                         GROUP BY e.id
+                         HAVING feedback_count >= 2
+                         ORDER BY avg_rating ASC
+                         LIMIT 5`,
+                        [sinceStr],
+                        (err6, lowEvents) => {
+                          if (err6) return res.status(500).json({ error: err6.message });
+
+                          // Word frequency from feedback text
+                          db.all(
+                            `SELECT feedback FROM attendee_feedback
+                             WHERE created_at >= ? AND feedback != ''`,
+                            [sinceStr],
+                            (err7, feedbackRows) => {
+                              if (err7) return res.status(500).json({ error: err7.message });
+
+                              // Simple word frequency analysis
+                              const wordFreq = {};
+                              const stopWords = new Set(['the','a','an','is','was','were','are','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','can','shall','to','of','in','for','on','with','at','by','from','as','into','through','during','before','after','above','below','between','out','off','over','under','again','further','then','once','here','there','when','where','why','how','all','each','every','both','few','more','most','other','some','such','no','nor','not','only','own','same','so','than','too','very','just','and','but','if','or','because','until','while','this','that','these','those','it','its','i','me','my','we','our','you','your','they','them','their','he','she','his','her','who','which','what']);
+
+                              (feedbackRows || []).forEach(row => {
+                                const words = (row.feedback || '').toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
+                                words.forEach(w => {
+                                  if (w.length > 3 && !stopWords.has(w)) {
+                                    wordFreq[w] = (wordFreq[w] || 0) + 1;
+                                  }
+                                });
+                              });
+
+                              const topWords = Object.entries(wordFreq)
+                                .sort((a, b) => b[1] - a[1])
+                                .slice(0, 20)
+                                .map(([word, count]) => ({ word, count }));
+
+                              // Response rate: events with feedback / total completed events
+                              db.get(
+                                `SELECT COUNT(*) as total_completed FROM events WHERE status = 'completed' AND archived_at IS NULL`,
+                                [],
+                                (err8, completed) => {
+                                  if (err8) return res.status(500).json({ error: err8.message });
+
+                                  const totalCompleted = completed?.total_completed || 0;
+                                  const responseRate = totalCompleted > 0
+                                    ? Math.round((summary?.events_with_feedback || 0) / totalCompleted * 100)
+                                    : 0;
+
+                                  res.json({
+                                    success: true,
+                                    period: days,
+                                    summary: {
+                                      total_feedback: total,
+                                      avg_rating: summary?.avg_rating ? Math.round(summary.avg_rating * 10) / 10 : 0,
+                                      nps,
+                                      promoters: summary?.promoters || 0,
+                                      passives: summary?.passives || 0,
+                                      detractors: summary?.detractors || 0,
+                                      promoter_pct: total > 0 ? Math.round(summary.promoters / total * 100) : 0,
+                                      passive_pct: total > 0 ? Math.round(summary.passives / total * 100) : 0,
+                                      detractor_pct: total > 0 ? Math.round(summary.detractors / total * 100) : 0,
+                                      events_with_feedback: summary?.events_with_feedback || 0,
+                                      unique_respondents: summary?.unique_respondents || 0,
+                                      response_rate: responseRate,
+                                      total_completed: totalCompleted
+                                    },
+                                    category_breakdown: categoryBreakdown || [],
+                                    distribution: distribution || [],
+                                    monthly_trend: monthlyTrend || [],
+                                    top_events: (topEvents || []).map(e => ({
+                                      ...e,
+                                      avg_rating: Math.round((e.avg_rating || 0) * 10) / 10,
+                                      nps: e.feedback_count > 0 ? Math.round(((e.promoters - e.detractors) / e.feedback_count) * 100) : 0
+                                    })),
+                                    lowest_events: (lowEvents || []).map(e => ({
+                                      ...e,
+                                      avg_rating: Math.round((e.avg_rating || 0) * 10) / 10
+                                    })),
+                                    top_words: topWords
+                                  });
+                                }
+                              );
+                            }
+                          );
+                        }
+                      );
+                    }
+                  );
+                }
+              );
             }
           );
         }
@@ -7107,6 +7299,6 @@ app.get('/api/events/benchmarks', (req, res) => {
 
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.40 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.41 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

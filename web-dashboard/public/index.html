@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.40</title>
+    <title>Fresh People Event Ops v4.41</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.40</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.41</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -135,6 +135,7 @@
             <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
             <button onclick="switchTab('event-templates')" id="tab-event-templates" class="pb-2 font-semibold tab-inactive">📋 Templates</button>
             <button onclick="switchTab('system')" id="tab-system" class="pb-2 font-semibold tab-inactive">⚙️ System</button>
+            <button onclick="switchTab('feedback-analytics')" id="tab-feedback-analytics" class="pb-2 font-semibold tab-inactive">📊 Feedback Analytics</button>
         </div>
 
         <!-- ==================== SYSTEM TAB ==================== -->
@@ -217,6 +218,108 @@
                 </button>
             </div>
             <div id="system-action-result" class="mt-3 text-sm hidden"></div>
+        </div>
+
+        <!-- ==================== FEEDBACK ANALYTICS TAB ==================== -->
+        <div id="view-feedback-analytics" class="hidden">
+            <div class="mb-4 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-white">📊 Feedback Analytics</h2>
+                <div class="flex gap-2">
+                    <select id="feedbackAnalyticsPeriod" onchange="loadFeedbackAnalytics()" class="bg-gray-700 text-white text-sm rounded px-3 py-1.5 border border-gray-600">
+                        <option value="30">Last 30 days</option>
+                        <option value="90" selected>Last 90 days</option>
+                        <option value="180">Last 6 months</option>
+                        <option value="365">Last year</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Total Feedback</div>
+                    <div class="text-2xl font-bold text-white" id="fa-total">-</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Avg Rating</div>
+                    <div class="text-2xl font-bold text-yellow-400" id="fa-avg-rating">-</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">NPS Score</div>
+                    <div class="text-2xl font-bold" id="fa-nps">-</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <div class="text-gray-400 text-xs">Response Rate</div>
+                    <div class="text-2xl font-bold text-blue-400" id="fa-response-rate">-</div>
+                </div>
+            </div>
+
+            <!-- NPS Breakdown + Rating Distribution Row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <!-- NPS Breakdown -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-3 text-sm">🎯 NPS Breakdown</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-sm"><span class="text-green-400">Promoters (4-5★)</span><span id="fa-promoters" class="text-green-400">0%</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="fa-promoters-bar" class="bg-green-500 h-2 rounded-full" style="width:0%"></div></div>
+                        <div class="flex justify-between text-sm"><span class="text-yellow-400">Passives (3★)</span><span id="fa-passives" class="text-yellow-400">0%</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="fa-passives-bar" class="bg-yellow-500 h-2 rounded-full" style="width:0%"></div></div>
+                        <div class="flex justify-between text-sm"><span class="text-red-400">Detractors (1-2★)</span><span id="fa-detractors" class="text-red-400">0%</span></div>
+                        <div class="w-full bg-gray-700 rounded-full h-2"><div id="fa-detractors-bar" class="bg-red-500 h-2 rounded-full" style="width:0%"></div></div>
+                    </div>
+                    <div class="mt-3 text-center"><span class="text-3xl font-bold" id="fa-nps-big">-</span><span class="text-gray-400 text-sm ml-1">NPS</span></div>
+                </div>
+
+                <!-- Rating Distribution -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-3 text-sm">⭐ Rating Distribution</h3>
+                    <div id="fa-distribution" class="space-y-2">
+                        <p class="text-gray-500 text-sm">Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <!-- Monthly Trend -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-3 text-sm">📈 Monthly Rating Trend</h3>
+                    <canvas id="faTrendChart" height="200"></canvas>
+                </div>
+
+                <!-- Category Breakdown -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-3 text-sm">📊 Category Breakdown</h3>
+                    <canvas id="faCategoryChart" height="200"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Words + Top Events Row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <!-- Top Words -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-3 text-sm">💬 Top Keywords in Feedback</h3>
+                    <div id="fa-top-words" class="flex flex-wrap gap-2">
+                        <p class="text-gray-500 text-sm">No feedback text yet</p>
+                    </div>
+                </div>
+
+                <!-- Top Rated Events -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                    <h3 class="font-semibold mb-3 text-sm">🏆 Top Rated Events</h3>
+                    <div id="fa-top-events" class="space-y-2">
+                        <p class="text-gray-500 text-sm">No events with enough feedback</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lowest Rated Events -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                <h3 class="font-semibold mb-3 text-sm">⚠️ Events Needing Attention</h3>
+                <div id="fa-low-events" class="space-y-2">
+                    <p class="text-gray-500 text-sm">No low-rated events</p>
+                </div>
+            </div>
         </div>
 
         <!-- ==================== ARCHIVE TAB ==================== -->
@@ -2686,7 +2789,7 @@
 
         // Tab switching
         function switchTab(tab) {
-            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'compare', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system', 'postreports'].forEach(t => {
+            ['dashboard', 'reports', 'recurring', 'timeline', 'autoassign', 'availability', 'budget', 'email', 'users', 'checkin', 'reviews', 'clients', 'inventory', 'tasks', 'dayops', 'venues', 'payroll', 'suppliers', 'documents', 'comms', 'calendar', 'compare', 'import-export', 'staff-schedule', 'archive', 'audit', 'event-templates', 'system', 'postreports', 'feedback-analytics'].forEach(t => {
                 const view = document.getElementById('view-' + t);
                 const tabBtn = document.getElementById('tab-' + t);
                 if (view) view.classList.add('hidden');
@@ -2798,6 +2901,9 @@
             if (tab === 'compare') {
                 loadCompareEvents();
                 loadBenchmarks();
+            }
+            if (tab === 'feedback-analytics') {
+                loadFeedbackAnalytics();
             }
         }
 
@@ -5992,6 +6098,177 @@
                 }
             } catch (err) {
                 console.error('Failed to load feedback trends:', err);
+            }
+        }
+
+        // ==================== FEEDBACK ANALYTICS ====================
+
+        let faTrendChart = null;
+        let faCategoryChart = null;
+
+        async function loadFeedbackAnalytics() {
+            try {
+                const period = document.getElementById('feedbackAnalyticsPeriod')?.value || '90';
+                const headers = getAuthHeadersNoJSON();
+                const res = await fetch(`${API}/feedback/analytics?period=${period}`, { headers });
+                const data = await res.json();
+                if (!data.success) return;
+
+                const s = data.summary;
+
+                // Summary cards
+                document.getElementById('fa-total').textContent = s.total_feedback || 0;
+                document.getElementById('fa-avg-rating').textContent = s.avg_rating > 0 ? '★ ' + s.avg_rating : '-';
+
+                const npsEl = document.getElementById('fa-nps');
+                npsEl.textContent = s.nps > 0 ? '+' + s.nps : s.nps;
+                npsEl.className = 'text-2xl font-bold ' + (s.nps >= 50 ? 'text-green-400' : s.nps >= 0 ? 'text-yellow-400' : 'text-red-400');
+
+                document.getElementById('fa-response-rate').textContent = s.response_rate + '%';
+
+                // NPS Breakdown
+                document.getElementById('fa-promoters').textContent = s.promoter_pct + '%';
+                document.getElementById('fa-promoters-bar').style.width = s.promoter_pct + '%';
+                document.getElementById('fa-passives').textContent = s.passive_pct + '%';
+                document.getElementById('fa-passives-bar').style.width = s.passive_pct + '%';
+                document.getElementById('fa-detractors').textContent = s.detractor_pct + '%';
+                document.getElementById('fa-detractors-bar').style.width = s.detractor_pct + '%';
+
+                const npsBigEl = document.getElementById('fa-nps-big');
+                npsBigEl.textContent = s.nps > 0 ? '+' + s.nps : s.nps;
+                npsBigEl.className = 'text-3xl font-bold ' + (s.nps >= 50 ? 'text-green-400' : s.nps >= 0 ? 'text-yellow-400' : 'text-red-400');
+
+                // Rating Distribution
+                const distContainer = document.getElementById('fa-distribution');
+                if (data.distribution?.length > 0) {
+                    const maxCount = Math.max(...data.distribution.map(d => d.count));
+                    distContainer.innerHTML = data.distribution.map(d => `
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm w-12">${d.rating}★</span>
+                            <div class="flex-1 bg-gray-700 rounded-full h-3"><div class="bg-yellow-500 h-3 rounded-full" style="width:${maxCount > 0 ? (d.count / maxCount * 100) : 0}%"></div></div>
+                            <span class="text-sm text-gray-400 w-8 text-right">${d.count}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    distContainer.innerHTML = '<p class="text-gray-500 text-sm">No feedback data yet</p>';
+                }
+
+                // Monthly Trend Chart
+                if (faTrendChart) faTrendChart.destroy();
+                const trendCtx = document.getElementById('faTrendChart')?.getContext('2d');
+                if (trendCtx && data.monthly_trend?.length > 0) {
+                    faTrendChart = new Chart(trendCtx, {
+                        type: 'line',
+                        data: {
+                            labels: data.monthly_trend.map(m => m.month),
+                            datasets: [{
+                                label: 'Avg Rating',
+                                data: data.monthly_trend.map(m => m.avg_rating ? Math.round(m.avg_rating * 10) / 10 : 0),
+                                borderColor: '#eab308',
+                                backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                yAxisID: 'y'
+                            }, {
+                                label: 'Feedback Count',
+                                data: data.monthly_trend.map(m => m.count),
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                yAxisID: 'y1'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            interaction: { mode: 'index', intersect: false },
+                            scales: {
+                                y: { type: 'linear', position: 'left', min: 0, max: 5, ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                                y1: { type: 'linear', position: 'right', min: 0, ticks: { color: '#9ca3af' }, grid: { drawOnChartArea: false } }
+                            },
+                            plugins: { legend: { labels: { color: '#d1d5db' } } }
+                        }
+                    });
+                }
+
+                // Category Breakdown Chart
+                if (faCategoryChart) faCategoryChart.destroy();
+                const catCtx = document.getElementById('faCategoryChart')?.getContext('2d');
+                if (catCtx && data.category_breakdown?.length > 0) {
+                    const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
+                    faCategoryChart = new Chart(catCtx, {
+                        type: 'doughnut',
+                        data: {
+                            labels: data.category_breakdown.map(c => c.category),
+                            datasets: [{
+                                data: data.category_breakdown.map(c => c.count),
+                                backgroundColor: colors.slice(0, data.category_breakdown.length),
+                                borderColor: '#1f2937',
+                                borderWidth: 2
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: { position: 'bottom', labels: { color: '#d1d5db', padding: 12 } }
+                            }
+                        }
+                    });
+                }
+
+                // Top Words
+                const wordsContainer = document.getElementById('fa-top-words');
+                if (data.top_words?.length > 0) {
+                    const maxWordCount = Math.max(...data.top_words.map(w => w.count));
+                    wordsContainer.innerHTML = data.top_words.map(w => {
+                        const size = 0.75 + (w.count / maxWordCount) * 0.75;
+                        return `<span class="inline-block bg-gray-700 text-gray-300 px-2.5 py-1 rounded-full" style="font-size:${size}rem">${w.word} <span class="text-gray-500">(${w.count})</span></span>`;
+                    }).join('');
+                } else {
+                    wordsContainer.innerHTML = '<p class="text-gray-500 text-sm">No feedback text yet</p>';
+                }
+
+                // Top Rated Events
+                const topEventsContainer = document.getElementById('fa-top-events');
+                if (data.top_events?.length > 0) {
+                    topEventsContainer.innerHTML = data.top_events.map(e => `
+                        <div class="flex items-center justify-between bg-gray-700 rounded-lg px-3 py-2">
+                            <div>
+                                <span class="text-sm font-medium">${e.event || 'Event'}</span>
+                                <span class="text-gray-500 text-xs ml-2">${e.date || ''}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-yellow-400 text-sm">★ ${e.avg_rating}</span>
+                                <span class="text-gray-500 text-xs">(${e.feedback_count})</span>
+                                <span class="text-xs px-1.5 py-0.5 rounded ${e.nps >= 50 ? 'bg-green-600' : e.nps >= 0 ? 'bg-yellow-600' : 'bg-red-600'}">${e.nps > 0 ? '+' : ''}${e.nps}</span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    topEventsContainer.innerHTML = '<p class="text-gray-500 text-sm">No events with enough feedback (min 2)</p>';
+                }
+
+                // Lowest Rated Events
+                const lowEventsContainer = document.getElementById('fa-low-events');
+                if (data.lowest_events?.length > 0) {
+                    lowEventsContainer.innerHTML = data.lowest_events.map(e => `
+                        <div class="flex items-center justify-between bg-red-900/20 border border-red-800/30 rounded-lg px-3 py-2">
+                            <div>
+                                <span class="text-sm font-medium text-red-300">${e.event || 'Event'}</span>
+                                <span class="text-gray-500 text-xs ml-2">${e.date || ''} · ${e.location || ''}</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-red-400 text-sm">★ ${e.avg_rating}</span>
+                                <span class="text-gray-500 text-xs">(${e.feedback_count})</span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    lowEventsContainer.innerHTML = '<p class="text-gray-500 text-sm">No low-rated events (min 2 feedbacks)</p>';
+                }
+
+            } catch (err) {
+                console.error('Failed to load feedback analytics:', err);
             }
         }
 
