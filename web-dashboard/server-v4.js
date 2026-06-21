@@ -994,6 +994,52 @@ db.run(`CREATE TABLE IF NOT EXISTS documents (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )`);
 
+// Create event_expenses table for per-event expense tracking
+db.run(`CREATE TABLE IF NOT EXISTS event_expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  category TEXT DEFAULT 'general',
+  description TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0,
+  currency TEXT DEFAULT 'ZAR',
+  vendor TEXT DEFAULT '',
+  receipt_path TEXT DEFAULT '',
+  is_billable INTEGER DEFAULT 1,
+  is_reimbursable INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'pending',
+  notes TEXT DEFAULT '',
+  recorded_by TEXT DEFAULT '',
+  expense_date TEXT DEFAULT '',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+)`);
+
+// Create indexes for event_expenses
+db.run(`CREATE INDEX IF NOT EXISTS idx_expenses_event ON event_expenses(event_id)`, () => {});
+db.run(`CREATE INDEX IF NOT EXISTS idx_expenses_category ON event_expenses(category)`, () => {});
+db.run(`CREATE INDEX IF NOT EXISTS idx_expenses_date ON event_expenses(expense_date)`, () => {});
+
+// Seed sample expenses
+db.get(`SELECT COUNT(*) as count FROM event_expenses`, (err, row) => {
+  if (!row || row.count === 0) {
+    const sampleExpenses = [
+      ['EVT-001', 'catering', 'Catering for corporate gala - 200 guests', 15000, 'ZAR', 'Gourmet Catering Co', 1, 0, 'approved', 'Full service catering with 3-course meal', 'system', '2026-06-15'],
+      ['EVT-001', 'transport', 'Staff transport to venue', 2500, 'ZAR', 'Quick Shuttle', 1, 0, 'approved', 'Round trip for 5 staff members', 'system', '2026-06-15'],
+      ['EVT-001', 'equipment', 'Sound system rental', 8000, 'ZAR', 'Audio Visual Hire', 1, 0, 'approved', 'PA system + 2 microphones', 'system', '2026-06-14'],
+      ['EVT-002', 'catering', 'Breakfast catering - 50 guests', 4500, 'ZAR', 'Morning Brew Catering', 1, 0, 'pending', 'Continental breakfast setup', 'system', '2026-06-20'],
+      ['EVT-002', 'venue', 'Venue deposit', 5000, 'ZAR', 'Sandton Convention Centre', 1, 0, 'approved', '50% deposit for venue booking', 'system', '2026-06-10'],
+      ['EVT-003', 'marketing', 'Event banners and signage', 3200, 'ZAR', 'Print Express', 1, 0, 'pending', 'Pull-up banners x 4, directional signs', 'system', '2026-06-18'],
+      ['EVT-001', 'staffing', 'Overtime pay - 3 staff', 3600, 'ZAR', '', 1, 0, 'approved', '2 hours overtime x 3 staff @ R600/hr', 'system', '2026-06-15'],
+      ['EVT-003', 'equipment', 'Table and chair rental', 6500, 'ZAR', 'Event Furnishings Ltd', 1, 0, 'pending', '20 tables + 100 chairs', 'system', '2026-06-22'],
+    ];
+    const stmt = db.prepare(`INSERT INTO event_expenses (event_id, category, description, amount, currency, vendor, is_billable, is_reimbursable, status, notes, recorded_by, expense_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+    sampleExpenses.forEach(e => stmt.run(e));
+    stmt.finalize();
+    console.log(`✅ Seeded ${sampleExpenses.length} sample expenses`);
+  }
+});
+
 // Seed sample documents
 db.get(`SELECT COUNT(*) as count FROM documents`, (err, row) => {
   if (!row || row.count === 0) {
@@ -1216,6 +1262,245 @@ async function initVapidKeys() {
   );
 }
 initVapidKeys().catch(console.error);
+
+// ==================== EVENT EXPENSE API ENDPOINTS ====================
+
+// GET /api/expenses - List/search/filter expenses
+app.get('/api/expenses', (req, res) => {
+  const { event_id, category, status, vendor, is_billable, search, sort, limit, offset } = req.query;
+  let sql = `SELECT e.*, ev.event as event_name, ev.date as event_date, ev.client as event_client
+    FROM event_expenses e
+    LEFT JOIN events ev ON e.event_id = ev.id
+    WHERE 1=1`;
+  const params = [];
+
+  if (event_id) { sql += ` AND e.event_id = ?`; params.push(event_id); }
+  if (category) { sql += ` AND e.category = ?`; params.push(category); }
+  if (status) { sql += ` AND e.status = ?`; params.push(status); }
+  if (vendor) { sql += ` AND e.vendor LIKE ?`; params.push(`%${vendor}%`); }
+  if (is_billable !== undefined) { sql += ` AND e.is_billable = ?`; params.push(is_billable); }
+  if (search) {
+    sql += ` AND (e.description LIKE ? OR e.vendor LIKE ? OR e.notes LIKE ? OR e.category LIKE ?)`;
+    const s = `%${search}%`;
+    params.push(s, s, s, s);
+  }
+
+  if (sort === 'amount_desc') sql += ` ORDER BY e.amount DESC`;
+  else if (sort === 'amount_asc') sql += ` ORDER BY e.amount ASC`;
+  else if (sort === 'date_desc') sql += ` ORDER BY e.expense_date DESC`;
+  else if (sort === 'date_asc') sql += ` ORDER BY e.expense_date ASC`;
+  else sql += ` ORDER BY e.created_at DESC`;
+
+  const lim = parseInt(limit) || 100;
+  const off = parseInt(offset) || 0;
+  sql += ` LIMIT ? OFFSET ?`;
+  params.push(lim, off);
+
+  db.all(sql, params, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, expenses: rows, count: rows.length });
+  });
+});
+
+// GET /api/expenses/categories - List unique expense categories
+app.get('/api/expenses/categories', (req, res) => {
+  db.all(`SELECT DISTINCT category FROM event_expenses ORDER BY category`, (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ success: true, categories: rows.map(r => r.category) });
+  });
+});
+
+// GET /api/expenses/stats/summary - Expense statistics summary
+app.get('/api/expenses/stats/summary', (req, res) => {
+  const { event_id, start_date, end_date } = req.query;
+  let where = 'WHERE 1=1';
+  const params = [];
+
+  if (event_id) { where += ` AND event_id = ?`; params.push(event_id); }
+  if (start_date) { where += ` AND expense_date >= ?`; params.push(start_date); }
+  if (end_date) { where += ` AND expense_date <= ?`; params.push(end_date); }
+
+  db.get(
+    `SELECT
+      COUNT(*) as total_expenses,
+      COALESCE(SUM(amount), 0) as total_amount,
+      COALESCE(SUM(CASE WHEN is_billable = 1 THEN amount ELSE 0 END), 0) as billable_amount,
+      COALESCE(SUM(CASE WHEN status = 'approved' THEN amount ELSE 0 END), 0) as approved_amount,
+      COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_amount,
+      COALESCE(SUM(CASE WHEN status = 'rejected' THEN amount ELSE 0 END), 0) as rejected_amount,
+      COALESCE(AVG(amount), 0) as avg_expense,
+      COALESCE(MAX(amount), 0) as max_expense,
+      COUNT(DISTINCT event_id) as events_with_expenses,
+      COUNT(DISTINCT category) as categories_used,
+      COUNT(DISTINCT vendor) as unique_vendors
+    FROM event_expenses ${where}`,
+    params,
+    (err, stats) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      // Get category breakdown
+      db.all(
+        `SELECT category, COUNT(*) as count, SUM(amount) as total
+         FROM event_expenses ${where}
+         GROUP BY category ORDER BY total DESC`,
+        params,
+        (err2, categories) => {
+          if (err2) return res.status(500).json({ error: err2.message });
+
+          // Get monthly trend
+          db.all(
+            `SELECT strftime('%Y-%m', expense_date) as month, COUNT(*) as count, SUM(amount) as total
+             FROM event_expenses ${where} AND expense_date != ''
+             GROUP BY month ORDER BY month DESC LIMIT 12`,
+            params,
+            (err3, monthly) => {
+              if (err3) return res.status(500).json({ error: err3.message });
+
+              res.json({
+                success: true,
+                stats: stats || {},
+                categories: categories || [],
+                monthly_trend: monthly || []
+              });
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// GET /api/expenses/:id - Get single expense
+app.get('/api/expenses/:id', (req, res) => {
+  db.get(
+    `SELECT e.*, ev.event as event_name, ev.date as event_date
+     FROM event_expenses e
+     LEFT JOIN events ev ON e.event_id = ev.id
+     WHERE e.id = ?`,
+    [req.params.id],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!row) return res.status(404).json({ error: 'Expense not found' });
+      res.json({ success: true, expense: row });
+    }
+  );
+});
+
+// POST /api/expenses - Create new expense
+app.post('/api/expenses', (req, res) => {
+  const { event_id, category, description, amount, currency, vendor, is_billable, is_reimbursable, status, notes, recorded_by, expense_date } = req.body;
+
+  if (!event_id || !description) {
+    return res.status(400).json({ error: 'event_id and description are required' });
+  }
+
+  db.run(
+    `INSERT INTO event_expenses (event_id, category, description, amount, currency, vendor, is_billable, is_reimbursable, status, notes, recorded_by, expense_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      event_id,
+      category || 'general',
+      description,
+      parseFloat(amount) || 0,
+      currency || 'ZAR',
+      vendor || '',
+      is_billable ? 1 : 0,
+      is_reimbursable ? 1 : 0,
+      status || 'pending',
+      notes || '',
+      recorded_by || '',
+      expense_date || new Date().toISOString().split('T')[0]
+    ],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true, id: this.lastID, message: 'Expense created' });
+    }
+  );
+});
+
+// PUT /api/expenses/:id - Update expense
+app.put('/api/expenses/:id', (req, res) => {
+  const { event_id, category, description, amount, currency, vendor, is_billable, is_reimbursable, status, notes, recorded_by, expense_date } = req.body;
+
+  db.run(
+    `UPDATE event_expenses SET
+      event_id = COALESCE(?, event_id),
+      category = COALESCE(?, category),
+      description = COALESCE(?, description),
+      amount = COALESCE(?, amount),
+      currency = COALESCE(?, currency),
+      vendor = COALESCE(?, vendor),
+      is_billable = COALESCE(?, is_billable),
+      is_reimbursable = COALESCE(?, is_reimbursable),
+      status = COALESCE(?, status),
+      notes = COALESCE(?, notes),
+      recorded_by = COALESCE(?, recorded_by),
+      expense_date = COALESCE(?, expense_date),
+      updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [
+      event_id, category, description, amount, currency, vendor,
+      is_billable !== undefined ? (is_billable ? 1 : 0) : null,
+      is_reimbursable !== undefined ? (is_reimbursable ? 1 : 0) : null,
+      status, notes, recorded_by, expense_date,
+      req.params.id
+    ],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Expense not found' });
+      res.json({ success: true, message: 'Expense updated' });
+    }
+  );
+});
+
+// DELETE /api/expenses/:id - Delete expense
+app.delete('/api/expenses/:id', (req, res) => {
+  db.run(`DELETE FROM event_expenses WHERE id = ?`, [req.params.id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Expense not found' });
+    res.json({ success: true, message: 'Expense deleted' });
+  });
+});
+
+// POST /api/expenses/bulk - Bulk create expenses for an event
+app.post('/api/expenses/bulk', (req, res) => {
+  const { event_id, expenses } = req.body;
+  if (!event_id || !expenses || !Array.isArray(expenses) || expenses.length === 0) {
+    return res.status(400).json({ error: 'event_id and expenses array are required' });
+  }
+
+  const stmt = db.prepare(
+    `INSERT INTO event_expenses (event_id, category, description, amount, currency, vendor, is_billable, is_reimbursable, status, notes, recorded_by, expense_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  let inserted = 0;
+  let errors = [];
+
+  expenses.forEach((exp) => {
+    stmt.run(
+      event_id,
+      exp.category || 'general',
+      exp.description || 'Unnamed expense',
+      parseFloat(exp.amount) || 0,
+      exp.currency || 'ZAR',
+      exp.vendor || '',
+      exp.is_billable ? 1 : 0,
+      exp.is_reimbursable ? 1 : 0,
+      exp.status || 'pending',
+      exp.notes || '',
+      exp.recorded_by || '',
+      exp.expense_date || new Date().toISOString().split('T')[0],
+      function(err) {
+        if (err) errors.push(err.message);
+        else inserted++;
+      }
+    );
+  });
+
+  stmt.finalize();
+  res.json({ success: true, inserted, errors: errors.length > 0 ? errors : undefined, message: `${inserted} expenses created` });
+});
 
 // ==================== VENUE API ENDPOINTS ====================
 
@@ -4290,9 +4575,9 @@ app.get('/api/export/schema', (req, res) => {
 
 // GET /api/export/full-backup - Full JSON backup of all data
 app.get('/api/export/full-backup', (req, res) => {
-  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_shifts', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
+  const tables = ['events', 'staff', 'clients', 'venues', 'equipment', 'documents', 'tasks', 'budgets', 'templates', 'event_templates', 'event_attachments', 'event_check_ins', 'event_equipment', 'event_expenses', 'event_notifications', 'event_day_timeline', 'event_day_status', 'staff_availability', 'staff_shifts', 'staff_timesheets', 'payroll_periods', 'purchase_orders', 'purchase_order_items', 'suppliers', 'client_communications', 'email_notifications', 'push_subscriptions', 'notification_center', 'announcements', 'attendee_feedback', 'event_reviews', 'task_templates', 'event_comments', 'users', 'email_settings', 'audit_log'];
   
-  const backup = { exported_at: new Date().toISOString(), version: '4.43.0', tables: {} };
+  const backup = { exported_at: new Date().toISOString(), version: '4.44.0', tables: {} };
   let remaining = tables.length;
   
   tables.forEach(table => {
@@ -4503,7 +4788,7 @@ app.get('/api/audit-log/stats', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.43.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', service: 'Fresh People Event Ops', version: '4.44.0', timestamp: new Date().toISOString() });
 });
 
 // ==================== SYSTEM HEALTH & DATA RETENTION ====================
@@ -4512,7 +4797,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/system/health', (req, res) => {
   const health = {
     status: 'ok',
-    version: '4.43.0',
+    version: '4.44.0',
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     timestamp: new Date().toISOString(),
@@ -7844,8 +8129,41 @@ app.get('/api/events/benchmarks', (req, res) => {
   });
 });
 
+
+// ******** Staffing Overview API ********
+app.get('/api/staffing/overview', (req, res) => {
+  const stmt = `SELECT 
+    s.id, s.name, s.hourly_rate AS hourlyRate,
+    COUNT(sh.id) AS shiftsCount,
+    SUM(sh.hours_worked) AS totalHours,
+    SUM(sh.shift_pay) AS totalPay
+  FROM staff s
+  LEFT JOIN staff_shifts sh ON sh.staff_id = s.id
+  GROUP BY s.id, s.name, s.hourly_rate`;
+  db.all(stmt, [], (err, rows) => {
+    if (err) return res.status(500).json({error: err.message});
+    res.json({success:true, data:rows});
+  });
+});
+
+// ******** Shift Calendar API ********
+app.get('/api/shifts/calendar', (req, res) => {
+  const month = req.query.month || new Date().toISOString().slice(0,7);
+  const start = `${month}-01`;
+  const end = new Date(new Date(start).getFullYear(), new Date(start).getMonth()+1, 0).toISOString().slice(0,10);
+  const stmt = `SELECT s.id AS staffId, s.name AS staffName, sh.*, e.event AS eventName, e.date AS eventDate
+    FROM staff_shifts sh
+    JOIN staff s ON sh.staff_id = s.id
+    JOIN events e ON sh.event_id = e.id
+    WHERE sh.shift_date BETWEEN ? AND ?`;
+  db.all(stmt, [start, end], (err, rows) => {
+    if (err) return res.status(500).json({error: err.message});
+    res.json({success:true, shifts: rows});
+  });
+});
+
 // Override server start to use HTTP server
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Fresh People Event Ops v4.43 running on http://0.0.0.0:${PORT}`);
+  console.log(`Fresh People Event Ops v4.44 running on http://0.0.0.0:${PORT}`);
   console.log(`WebSocket server listening on ws://0.0.0.0:${PORT}`);
 });

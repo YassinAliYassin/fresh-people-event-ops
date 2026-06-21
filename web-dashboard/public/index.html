@@ -10,7 +10,7 @@
     <meta name="description" content="Fresh People Event Operations - Event management, staff allocation, budget tracking">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icon-192.png">
-    <title>Fresh People Event Ops v4.43</title>
+    <title>Fresh People Event Ops v4.44</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -58,7 +58,7 @@
         <div class="flex items-center justify-between mb-6">
             <div>
                 <h1 class="text-2xl md:text-3xl font-bold">🎉 Fresh People Event Ops</h1>
-                <p class="text-gray-400 text-sm">Event management & analytics v4.43</p>
+                <p class="text-gray-400 text-sm">Event management & analytics v4.44</p>
             </div>
             <div class="text-right flex items-center gap-3">
                 <a href="/event-day" target="_blank" class="text-gray-400 hover:text-green-400 text-sm" title="Event Day App">📋 Event Day</a>
@@ -126,11 +126,13 @@
             <button onclick="switchTab('payroll')" id="tab-payroll" class="pb-2 font-semibold tab-inactive">💵 Payroll</button>
             <button onclick="switchTab('suppliers')" id="tab-suppliers" class="pb-2 font-semibold tab-inactive">🏪 Suppliers</button>
             <button onclick="switchTab('documents')" id="tab-documents" class="pb-2 font-semibold tab-inactive">📄 Documents</button>
+            <button onclick="switchTab('expenses')" id="tab-expenses" class="pb-2 font-semibold tab-inactive">💸 Expenses</button>
             <button onclick="switchTab('comms')" id="tab-comms" class="pb-2 font-semibold tab-inactive">💬 Comms</button>
             <button onclick="switchTab('calendar')" id="tab-calendar" class="pb-2 font-semibold tab-inactive">📅 Calendar</button>
             <button onclick="switchTab('compare')" id="tab-compare" class="pb-2 font-semibold tab-inactive">⚖️ Compare</button>
             <button onclick="switchTab('import-export')" id="tab-import-export" class="pb-2 font-semibold tab-inactive">📦 Import/Export</button>
             <button onclick="switchTab('staff-schedule')" id="tab-staff-schedule" class="pb-2 font-semibold tab-inactive">📆 Staff Schedule</button>
+            <button onclick=\"switchTab(\'staffing\')\" id=\"tab-staffing\" class=\"pb-2 font-semibold tab-inactive\">👥 Staffing</button>
             <button onclick="switchTab('shifts')" id="tab-shifts" class="pb-2 font-semibold tab-inactive">🕐 Shifts</button>
             <button onclick="switchTab('archive')" id="tab-archive" class="pb-2 font-semibold tab-inactive">🗃️ Archive</button>
             <button onclick="switchTab('audit')" id="tab-audit" class="pb-2 font-semibold tab-inactive">🔍 Audit Log</button>
@@ -545,6 +547,311 @@
         </div>
 
         <!-- ==================== CALENDAR TAB ==================== -->
+                <div id="view-staffing" class="hidden">
+            <div class="max-w-4xl mx-auto">
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                    <h2 class="text-xl font-bold mb-2">👥 Staffing Overview</h2>
+                    <p class="text-gray-400 text-sm mb-6">View staff workload, shift calendar, and event staffing status.</p>
+                    
+                    <!-- Tabs within Staffing: Overview, Calendar, Workload -->
+                    <div class="flex gap-4 mb-6 border-b border-gray-700 pb-2 tab-nav">
+                        <button onclick="switchStaffingSubTab('overview')" id="staffing-tab-overview" class="pb-2 font-semibold tab-active">Overview</button>
+                        <button onclick="switchStaffingSubTab('calendar')" id="staffing-tab-calendar" class="pb-2 font-semibold tab-inactive">Calendar</button>
+                        <button onclick="switchStaffingSubTab('workload')" id="staffing-tab-workload" class="pb-2 font-semibold tab-inactive">Workload</button>
+                    </div>
+                    
+                    <!-- Overview Tab -->
+                    <div id="staffing-view-overview" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                <h3 class="text-lg font-bold mb-2">Total Staff</h3>
+                                <p class="text-2xl font-bold text-blue-400" id="staffing-total-staff">0</p>
+                            </div>
+                            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                <h3 class="text-lg font-bold mb-2">Total Shifts</h3>
+                                <p class="text-2xl font-bold text-purple-400" id="staffing-total-shifts">0</p>
+                            </div>
+                            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                <h3 class="text-lg font-bold mb-2">Total Hours</h3>
+                                <p class="text-2xl font-bold text-green-400" id="staffing-total-hours">0</p>
+                            </div>
+                            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                <h3 class="text-lg font-bold mb-2">Total Pay</h3>
+                                <p class="text-2xl font-bold text-yellow-400" id="staffing-total-pay">R 0</p>
+                            </div>
+                            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                <h3 class="text-lg font-bold mb-2">Avg Shifts/Staff</h3>
+                                <p class="text-2xl font-bold text-indigo-400" id="staffing-avg-shifts">0</p>
+                            </div>
+                            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                                <h3 class="text-lg font-bold mb-2">Avg Hours/Staff</h3>
+                                <p class="text-2xl font-bold text-pink-400" id="staffing-avg-hours">0</p>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                            <h3 class="text-lg font-bold mb-4">Staff Workload Distribution</h3>
+                            <div class="bg-gray-700 rounded-lg p-4" id="staffing-workload-chart-container">
+                                <canvas id="staffingWorkloadChart" height="80"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Calendar Tab -->
+                    <div id="staffing-view-calendar" class="hidden">
+                        <div class="mb-4 flex flex-wrap justify-between items-center gap-3">
+                            <h2 class="text-xl font-bold text-white">📅 Shift Calendar</h2>
+                            <div class="flex gap-2 items-center flex-wrap">
+                                <input type="month" id="staffingCalendarMonth" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffingCalendar()" value="2026-06">
+                                <button onclick="loadStaffingCalendar()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm">🔄 Refresh</button>
+                                <button onclick="prevStaffingMonth()" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm">◀ Prev</button>
+                                <button onclick="nextStaffingMonth()" class="bg-gray-600 hover:bg-gray-500 text-white px-3 py-1 rounded text-sm">Next ▶</button>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-700">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left">Staff</th>
+                                            <th class="px-4 py-2 text-left">Mon</th>
+                                            <th class="px-4 py-2 text-left">Tue</th>
+                                            <th class="px-4 py-2 text-left">Wed</th>
+                                            <th class="px-4 py-2 text-left">Thu</th>
+                                            <th class="px-4 py-2 text-left">Fri</th>
+                                            <th class="px-4 py-2 text-left">Sat</th>
+                                            <th class="px-4 py-2 text-left">Sun</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="staffingCalendarBody">
+                                        <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Loading calendar...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Workload Tab -->
+                    <div id="staffing-view-workload" class="hidden">
+                        <div class="mb-4 flex flex-wrap justify-between items-center gap-3">
+                            <h2 class="text-xl font-bold text-white">⚖️ Staff Workload Details</h2>
+                            <div class="flex gap-2 items-center flex-wrap">
+                                <select id="workloadStaffSelect" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffWorkload()">
+                                    <option value="">Select Staff Member</option>
+                                </select>
+                                <input type="date" id="workloadStartDate" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffWorkload()" value="2026-06-01">
+                                <input type="date" id="workloadEndDate" class="bg-gray-700 text-white px-3 py-1 rounded text-sm border border-gray-600" onchange="loadStaffWorkload()" value="2026-06-30">
+                                <button onclick="loadStaffWorkload()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm">🔄 Load</button>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-gray-700">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left">Date</th>
+                                            <th class="px-4 py-2 text-left">Event</th>
+                                            <th class="px-4 py-2 text-left">Shift</th>
+                                            <th class="px-4 py-2 text-left">Role</th>
+                                            <th class="px-4 py-2 text-right">Hours</th>
+                                            <th class="px-4 py-2 text-right">Pay</th>
+                                            <th class="px-4 py-2 text-center">Status</th>
+                                            <th class="px-4 py-2 text-center">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="staffingWorkloadBody">
+                                        <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Select staff and date range to view workload</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+<!-- ==================== EXPENSES TAB ==================== -->
+        <div id="view-expenses" class="hidden">
+            <div class="max-w-6xl mx-auto">
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-xl font-bold">💸 Event Expenses</h2>
+                        <button onclick="openExpenseModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold">+ Add Expense</button>
+                    </div>
+                    <p class="text-gray-400 text-sm">Track event expenses, manage budgets, and monitor spending.</p>
+                </div>
+
+                <!-- Expense Stats -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <p class="text-gray-400 text-xs uppercase">Total Expenses</p>
+                        <p class="text-2xl font-bold text-white" id="exp-total-count">0</p>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <p class="text-gray-400 text-xs uppercase">Total Amount</p>
+                        <p class="text-2xl font-bold text-yellow-400" id="exp-total-amount">R 0</p>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <p class="text-gray-400 text-xs uppercase">Billable</p>
+                        <p class="text-2xl font-bold text-green-400" id="exp-billable-amount">R 0</p>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                        <p class="text-gray-400 text-xs uppercase">Pending</p>
+                        <p class="text-2xl font-bold text-orange-400" id="exp-pending-amount">R 0</p>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 mb-6">
+                    <div class="flex flex-wrap gap-3 items-end">
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Event</label>
+                            <select id="expFilterEvent" class="bg-gray-700 text-white px-3 py-2 rounded text-sm border border-gray-600" onchange="loadExpenses()">
+                                <option value="">All Events</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Category</label>
+                            <select id="expFilterCategory" class="bg-gray-700 text-white px-3 py-2 rounded text-sm border border-gray-600" onchange="loadExpenses()">
+                                <option value="">All Categories</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Status</label>
+                            <select id="expFilterStatus" class="bg-gray-700 text-white px-3 py-2 rounded text-sm border border-gray-600" onchange="loadExpenses()">
+                                <option value="">All Statuses</option>
+                                <option value="pending">Pending</option>
+                                <option value="approved">Approved</option>
+                                <option value="rejected">Rejected</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-gray-400 text-xs block mb-1">Search</label>
+                            <input type="text" id="expFilterSearch" class="bg-gray-700 text-white px-3 py-2 rounded text-sm border border-gray-600" placeholder="Search expenses..." oninput="debounceLoadExpenses()">
+                        </div>
+                        <button onclick="loadExpenses()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <!-- Expenses Table -->
+                <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-700">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">Date</th>
+                                    <th class="px-4 py-3 text-left">Event</th>
+                                    <th class="px-4 py-3 text-left">Category</th>
+                                    <th class="px-4 py-3 text-left">Description</th>
+                                    <th class="px-4 py-3 text-left">Vendor</th>
+                                    <th class="px-4 py-3 text-right">Amount</th>
+                                    <th class="px-4 py-3 text-center">Billable</th>
+                                    <th class="px-4 py-3 text-center">Status</th>
+                                    <th class="px-4 py-3 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="expensesTableBody">
+                                <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Loading expenses...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Category Breakdown Chart -->
+                <div class="bg-gray-800 rounded-lg p-6 border border-gray-700 mt-6">
+                    <h3 class="text-lg font-bold mb-4">Spending by Category</h3>
+                    <canvas id="expenseCategoryChart" height="80"></canvas>
+                </div>
+            </div>
+
+            <!-- Expense Modal -->
+            <div id="expenseModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+                <div class="bg-gray-800 rounded-lg p-6 w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-bold" id="expenseModalTitle">Add Expense</h3>
+                        <button onclick="closeExpenseModal()" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                    </div>
+                    <form id="expenseForm" onsubmit="saveExpense(event)">
+                        <input type="hidden" id="expenseId">
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Event *</label>
+                                <select id="expenseEventId" required class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600">
+                                    <option value="">Select Event</option>
+                                </select>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-gray-400 text-xs block mb-1">Category</label>
+                                    <input type="text" id="expenseCategory" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600" placeholder="e.g., catering, transport, staffing" list="expenseCategoryList">
+                                    <datalist id="expenseCategoryList">
+                                        <option value="catering">
+                                        <option value="transport">
+                                        <option value="staffing">
+                                        <option value="equipment">
+                                        <option value="venue">
+                                        <option value="marketing">
+                                        <option value="general">
+                                    </datalist>
+                                </div>
+                                <div>
+                                    <label class="text-gray-400 text-xs block mb-1">Amount (ZAR) *</label>
+                                    <input type="number" id="expenseAmount" step="0.01" min="0" required class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600" placeholder="0.00">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Description *</label>
+                                <input type="text" id="expenseDescription" required class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600" placeholder="Expense description">
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-gray-400 text-xs block mb-1">Vendor</label>
+                                    <input type="text" id="expenseVendor" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600" placeholder="Vendor name">
+                                </div>
+                                <div>
+                                    <label class="text-gray-400 text-xs block mb-1">Date</label>
+                                    <input type="date" id="expenseDate" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="text-gray-400 text-xs block mb-1">Status</label>
+                                    <select id="expenseStatus" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600">
+                                        <option value="pending">Pending</option>
+                                        <option value="approved">Approved</option>
+                                        <option value="rejected">Rejected</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-gray-400 text-xs block mb-1">Recorded By</label>
+                                    <input type="text" id="expenseRecordedBy" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600" placeholder="Your name">
+                                </div>
+                            </div>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-2 text-sm text-gray-300">
+                                    <input type="checkbox" id="expenseBillable" checked class="rounded"> Billable
+                                </label>
+                                <label class="flex items-center gap-2 text-sm text-gray-300">
+                                    <input type="checkbox" id="expenseReimbursable" class="rounded"> Reimbursable
+                                </label>
+                            </div>
+                            <div>
+                                <label class="text-gray-400 text-xs block mb-1">Notes</label>
+                                <textarea id="expenseNotes" rows="2" class="w-full bg-gray-700 text-white px-3 py-2 rounded border border-gray-600" placeholder="Additional notes..."></textarea>
+                            </div>
+                        </div>
+                        <div class="flex gap-3 mt-6">
+                            <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded font-semibold">Save Expense</button>
+                            <button type="button" onclick="closeExpenseModal()" class="flex-1 bg-gray-600 hover:bg-gray-500 text-white py-2 rounded font-semibold">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
         <div id="view-calendar" class="hidden">
             <!-- Calendar Header -->
             <div class="flex items-center justify-between mb-6">
@@ -12621,6 +12928,512 @@ async function runOptimize() {
             showToast('Error: ' + e.message, 'error');
         }
     }
+
+    // ==================== EXPENSES TAB ====================
+    let expenseCategoryChart = null;
+    let expenseDebounceTimer = null;
+
+    function debounceLoadExpenses() {
+        clearTimeout(expenseDebounceTimer);
+        expenseDebounceTimer = setTimeout(loadExpenses, 300);
+    }
+
+    async function loadExpenseFilterOptions() {
+        try {
+            // Load events for filter
+            const eventsRes = await fetch('/api/events?limit=500');
+            const eventsData = await eventsRes.json();
+            if (eventsData.success) {
+                const eventSelect = document.getElementById('expFilterEvent');
+                const modalEventSelect = document.getElementById('expenseEventId');
+                const currentFilter = eventSelect.value;
+                const currentModal = modalEventSelect.value;
+                eventSelect.innerHTML = '<option value="">All Events</option>';
+                modalEventSelect.innerHTML = '<option value="">Select Event</option>';
+                (eventsData.events || []).forEach(ev => {
+                    eventSelect.innerHTML += `<option value="${ev.id}">${ev.event} (${ev.date})</option>`;
+                    modalEventSelect.innerHTML += `<option value="${ev.id}">${ev.event} (${ev.date})</option>`;
+                });
+                eventSelect.value = currentFilter;
+                modalEventSelect.value = currentModal;
+            }
+            // Load categories for filter
+            const catRes = await fetch('/api/expenses/categories');
+            const catData = await catRes.json();
+            if (catData.success) {
+                const catSelect = document.getElementById('expFilterCategory');
+                const currentCat = catSelect.value;
+                catSelect.innerHTML = '<option value="">All Categories</option>';
+                (catData.categories || []).forEach(c => {
+                    catSelect.innerHTML += `<option value="${c}">${c}</option>`;
+                });
+                catSelect.value = currentCat;
+            }
+        } catch (e) { console.error('Error loading expense filters:', e); }
+    }
+
+    async function loadExpenseStats() {
+        try {
+            const params = new URLSearchParams();
+            const eventId = document.getElementById('expFilterEvent').value;
+            if (eventId) params.set('event_id', eventId);
+            const res = await fetch(`/api/expenses/stats/summary?${params}`);
+            const data = await res.json();
+            if (data.success && data.stats) {
+                const s = data.stats;
+                document.getElementById('exp-total-count').textContent = s.total_expenses || 0;
+                document.getElementById('exp-total-amount').textContent = 'R ' + parseFloat(s.total_amount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2});
+                document.getElementById('exp-billable-amount').textContent = 'R ' + parseFloat(s.billable_amount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2});
+                document.getElementById('exp-pending-amount').textContent = 'R ' + parseFloat(s.pending_amount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2});
+
+                // Render category chart
+                if (data.categories && data.categories.length > 0) {
+                    renderExpenseCategoryChart(data.categories);
+                }
+            }
+        } catch (e) { console.error('Error loading expense stats:', e); }
+    }
+
+    function renderExpenseCategoryChart(categories) {
+        const ctx = document.getElementById('expenseCategoryChart');
+        if (!ctx) return;
+        if (expenseCategoryChart) expenseCategoryChart.destroy();
+        expenseCategoryChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: categories.map(c => c.category),
+                datasets: [{
+                    data: categories.map(c => parseFloat(c.total)),
+                    backgroundColor: [
+                        '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+                        '#EC4899', '#06B6D4', '#84CC16', '#F97316', '#6366F1'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'right', labels: { color: '#9CA3AF' } }
+                }
+            }
+        });
+    }
+
+    async function loadExpenses() {
+        try {
+            await Promise.all([loadExpenseFilterOptions(), loadExpenseStats()]);
+            const params = new URLSearchParams();
+            const eventId = document.getElementById('expFilterEvent').value;
+            const category = document.getElementById('expFilterCategory').value;
+            const status = document.getElementById('expFilterStatus').value;
+            const search = document.getElementById('expFilterSearch').value;
+            if (eventId) params.set('event_id', eventId);
+            if (category) params.set('category', category);
+            if (status) params.set('status', status);
+            if (search) params.set('search', search);
+            params.set('limit', '200');
+
+            const res = await fetch(`/api/expenses?${params}`);
+            const data = await res.json();
+            if (data.success) {
+                renderExpensesTable(data.expenses || []);
+            } else {
+                document.getElementById('expensesTableBody').innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-red-400">${data.error || 'Error loading expenses'}</td></tr>`;
+            }
+        } catch (e) {
+            document.getElementById('expensesTableBody').innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-red-400">Error: ${e.message}</td></tr>`;
+        }
+    }
+
+    function renderExpensesTable(expenses) {
+        const tbody = document.getElementById('expensesTableBody');
+        if (!expenses || expenses.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">No expenses found. Add your first expense!</td></tr>';
+            return;
+        }
+        tbody.innerHTML = expenses.map(exp => `
+            <tr class="border-b border-gray-700 hover:bg-gray-750">
+                <td class="px-4 py-3 text-gray-300">${exp.expense_date || '-'}</td>
+                <td class="px-4 py-3 text-white">${exp.event_name || exp.event_id || '-'}</td>
+                <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs bg-gray-700 text-gray-300">${exp.category || 'general'}</span></td>
+                <td class="px-4 py-3 text-white">${exp.description}</td>
+                <td class="px-4 py-3 text-gray-400">${exp.vendor || '-'}</td>
+                <td class="px-4 py-3 text-right font-mono text-yellow-400">R ${parseFloat(exp.amount).toLocaleString('en-ZA', {minimumFractionDigits: 2})}</td>
+                <td class="px-4 py-3 text-center">${exp.is_billable ? '✅' : '❌'}</td>
+                <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded text-xs ${exp.status === 'approved' ? 'bg-green-900 text-green-300' : exp.status === 'rejected' ? 'bg-red-900 text-red-300' : 'bg-yellow-900 text-yellow-300'}">${exp.status || 'pending'}</span></td>
+                <td class="px-4 py-3 text-center">
+                    <button onclick="editExpense(${exp.id})" class="text-blue-400 hover:text-blue-300 text-xs mr-2">✏️</button>
+                    <button onclick="updateExpenseStatus(${exp.id}, 'approved')" class="text-green-400 hover:text-green-300 text-xs mr-2">✅</button>
+                    <button onclick="updateExpenseStatus(${exp.id}, 'rejected')" class="text-red-400 hover:text-red-300 text-xs mr-2">❌</button>
+                    <button onclick="deleteExpense(${exp.id})" class="text-red-400 hover:text-red-300 text-xs">🗑️</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function openExpenseModal(expense = null) {
+        document.getElementById('expenseModal').classList.remove('hidden');
+        document.getElementById('expenseModalTitle').textContent = expense ? 'Edit Expense' : 'Add Expense';
+        document.getElementById('expenseId').value = expense ? expense.id : '';
+        document.getElementById('expenseEventId').value = expense ? expense.event_id : '';
+        document.getElementById('expenseCategory').value = expense ? (expense.category || '') : '';
+        document.getElementById('expenseDescription').value = expense ? expense.description : '';
+        document.getElementById('expenseAmount').value = expense ? expense.amount : '';
+        document.getElementById('expenseVendor').value = expense ? (expense.vendor || '') : '';
+        document.getElementById('expenseDate').value = expense ? (expense.expense_date || '') : new Date().toISOString().split('T')[0];
+        document.getElementById('expenseStatus').value = expense ? (expense.status || 'pending') : 'pending';
+        document.getElementById('expenseRecordedBy').value = expense ? (expense.recorded_by || '') : '';
+        document.getElementById('expenseBillable').checked = expense ? !!expense.is_billable : true;
+        document.getElementById('expenseReimbursable').checked = expense ? !!expense.is_reimbursable : false;
+        document.getElementById('expenseNotes').value = expense ? (expense.notes || '') : '';
+        loadExpenseFilterOptions();
+    }
+
+    function closeExpenseModal() {
+        document.getElementById('expenseModal').classList.add('hidden');
+        document.getElementById('expenseForm').reset();
+    }
+
+    async function saveExpense(e) {
+        e.preventDefault();
+        const id = document.getElementById('expenseId').value;
+        const body = {
+            event_id: document.getElementById('expenseEventId').value,
+            category: document.getElementById('expenseCategory').value,
+            description: document.getElementById('expenseDescription').value,
+            amount: parseFloat(document.getElementById('expenseAmount').value) || 0,
+            vendor: document.getElementById('expenseVendor').value,
+            expense_date: document.getElementById('expenseDate').value,
+            status: document.getElementById('expenseStatus').value,
+            recorded_by: document.getElementById('expenseRecordedBy').value,
+            is_billable: document.getElementById('expenseBillable').checked,
+            is_reimbursable: document.getElementById('expenseReimbursable').checked,
+            notes: document.getElementById('expenseNotes').value
+        };
+        try {
+            const res = await fetch(id ? `/api/expenses/${id}` : '/api/expenses', {
+                method: id ? 'PUT' : 'POST',
+                headers: getHeaders(),
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(id ? 'Expense updated ✓' : 'Expense created ✓', 'success');
+                closeExpenseModal();
+                loadExpenses();
+            } else {
+                showToast(data.error || 'Failed to save expense', 'error');
+            }
+        } catch (err) {
+            showToast('Error: ' + err.message, 'error');
+        }
+    }
+
+    async function editExpense(id) {
+        try {
+            const res = await fetch(`/api/expenses/${id}`);
+            const data = await res.json();
+            if (data.success && data.expense) {
+                openExpenseModal(data.expense);
+            } else {
+                showToast('Expense not found', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function updateExpenseStatus(id, status) {
+        try {
+            const res = await fetch(`/api/expenses/${id}`, {
+                method: 'PUT',
+                headers: getHeaders(),
+                body: JSON.stringify({ status })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Expense ${status} ✓`, 'success');
+                loadExpenses();
+            } else {
+                showToast(data.error || 'Failed to update status', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    async function deleteExpense(id) {
+        if (!confirm('Are you sure you want to delete this expense?')) return;
+        try {
+            const res = await fetch(`/api/expenses/${id}`, {
+                method: 'DELETE',
+                headers: getHeaders()
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('Expense deleted ✓', 'success');
+                loadExpenses();
+            } else {
+                showToast(data.error || 'Failed to delete', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    // ==================== STAFFING TAB ====================
+    let staffingWorkloadChart = null;
+
+    function switchStaffingSubTab(subTab) {
+        ['overview', 'calendar', 'workload'].forEach(t => {
+            const view = document.getElementById(`staffing-view-${t}`);
+            const tab = document.getElementById(`staffing-tab-${t}`);
+            if (view) view.classList.add('hidden');
+            if (tab) {
+                tab.classList.remove('tab-active');
+                tab.classList.add('tab-inactive');
+            }
+        });
+        const activeView = document.getElementById(`staffing-view-${subTab}`);
+        const activeTab = document.getElementById(`staffing-tab-${subTab}`);
+        if (activeView) activeView.classList.remove('hidden');
+        if (activeTab) {
+            activeTab.classList.remove('tab-inactive');
+            activeTab.classList.add('tab-active');
+        }
+        if (subTab === 'overview') loadStaffingOverview();
+        if (subTab === 'calendar') loadStaffingCalendar();
+        if (subTab === 'workload') loadStaffWorkload();
+    }
+
+    async function loadStaffingOverview() {
+        try {
+            const res = await fetch('/api/staffing/overview');
+            const data = await res.json();
+            if (data.success && data.data) {
+                const staff = data.data;
+                const totalStaff = staff.length;
+                const totalShifts = staff.reduce((s, r) => s + (r.shiftsCount || 0), 0);
+                const totalHours = staff.reduce((s, r) => s + (r.totalHours || 0), 0);
+                const totalPay = staff.reduce((s, r) => s + (r.totalPay || 0), 0);
+                const avgShifts = totalStaff > 0 ? (totalShifts / totalStaff).toFixed(1) : 0;
+                const avgHours = totalStaff > 0 ? (totalHours / totalStaff).toFixed(1) : 0;
+
+                document.getElementById('staffing-total-staff').textContent = totalStaff;
+                document.getElementById('staffing-total-shifts').textContent = totalShifts;
+                document.getElementById('staffing-total-hours').textContent = totalHours.toFixed(1);
+                document.getElementById('staffing-total-pay').textContent = 'R ' + totalPay.toLocaleString('en-ZA', {minimumFractionDigits: 2});
+                document.getElementById('staffing-avg-shifts').textContent = avgShifts;
+                document.getElementById('staffing-avg-hours').textContent = avgHours;
+
+                // Render workload chart
+                const ctx = document.getElementById('staffingWorkloadChart');
+                if (ctx) {
+                    if (staffingWorkloadChart) staffingWorkloadChart.destroy();
+                    staffingWorkloadChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: staff.map(s => s.name),
+                            datasets: [
+                                {
+                                    label: 'Hours',
+                                    data: staff.map(s => parseFloat(s.totalHours || 0)),
+                                    backgroundColor: '#3B82F6'
+                                },
+                                {
+                                    label: 'Shifts',
+                                    data: staff.map(s => parseInt(s.shiftsCount || 0)),
+                                    backgroundColor: '#8B5CF6'
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                x: { ticks: { color: '#9CA3AF' }, grid: { color: '#374151' } },
+                                y: { ticks: { color: '#9CA3AF' }, grid: { color: '#374151' } }
+                            },
+                            plugins: { legend: { labels: { color: '#9CA3AF' } } }
+                        }
+                    });
+                }
+            }
+        } catch (e) { console.error('Error loading staffing overview:', e); }
+    }
+
+    async function loadStaffingCalendar() {
+        const month = document.getElementById('staffingCalendarMonth').value || new Date().toISOString().slice(0, 7);
+        try {
+            const res = await fetch(`/api/shifts/calendar?month=${month}`);
+            const data = await res.json();
+            if (data.success) {
+                renderStaffingCalendar(data.shifts || [], month);
+            }
+        } catch (e) {
+            document.getElementById('staffingCalendarBody').innerHTML = `<tr><td colspan="9" class="px-4 py-8 text-center text-red-400">Error: ${e.message}</td></tr>`;
+        }
+    }
+
+    function renderStaffingCalendar(shifts, month) {
+        const tbody = document.getElementById('staffingCalendarBody');
+        if (!shifts || shifts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">No shifts scheduled for this month.</td></tr>';
+            return;
+        }
+
+        // Group shifts by staff
+        const staffMap = {};
+        shifts.forEach(sh => {
+            if (!staffMap[sh.staffId]) staffMap[sh.staffId] = { name: sh.staffName, days: {} };
+            const day = parseInt(sh.shift_date.slice(8, 10));
+            if (!staffMap[sh.staffId].days[day]) staffMap[sh.staffId].days[day] = [];
+            staffMap[sh.staffId].days[day].push(sh);
+        });
+
+        // Get days in month
+        const [y, m] = month.split('-').map(Number);
+        const daysInMonth = new Date(y, m, 0).getDate();
+        const firstDayOfWeek = new Date(y, m - 1, 1).getDay(); // 0=Sun
+
+        // Build calendar grid: weeks x 7 days
+        const weeks = [];
+        let week = new Array(7).fill(null);
+        let day = 1;
+        // Fill first week
+        for (let i = firstDayOfWeek; i < 7 && day <= daysInMonth; i++) {
+            week[i] = day++;
+        }
+        weeks.push(week);
+        // Fill remaining weeks
+        while (day <= daysInMonth) {
+            week = new Array(7).fill(null);
+            for (let i = 0; i < 7 && day <= daysInMonth; i++) {
+                week[i] = day++;
+            }
+            weeks.push(week);
+        }
+
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const staffIds = Object.keys(staffMap);
+
+        let html = '';
+        staffIds.forEach(sid => {
+            const s = staffMap[sid];
+            html += `<tr class="border-b border-gray-700"><td colspan="8" class="px-4 py-2 bg-gray-750 font-bold text-white">${s.name}</td></tr>`;
+            weeks.forEach(w => {
+                html += '<tr class="border-b border-gray-700">';
+                w.forEach((d, i) => {
+                    if (d === null) {
+                        html += '<td class="px-2 py-1 text-gray-600">-</td>';
+                    } else {
+                        const dayShifts = (s.days[d] || []);
+                        if (dayShifts.length > 0) {
+                            const shiftInfo = dayShifts.map(sh =>
+                                `<div class="text-xs px-1 py-0.5 mb-0.5 rounded ${sh.status === 'completed' ? 'bg-green-900 text-green-300' : sh.status === 'checked_in' ? 'bg-blue-900 text-blue-300' : 'bg-gray-700 text-gray-300'}" title="${sh.eventName || ''}: ${sh.role || ''}">${sh.eventName ? sh.eventName.substring(0, 12) : 'Shift'}</div>`
+                            ).join('');
+                            html += `<td class="px-1 py-1 align-top">${shiftInfo}</td>`;
+                        } else {
+                            html += '<td class="px-2 py-1 text-gray-600">-</td>';
+                        }
+                    }
+                });
+                html += '</tr>';
+            });
+        });
+
+        // Update header to show day names
+        const headerHtml = dayNames.map(d => `<th class="px-4 py-2 text-left">${d}</th>`).join('');
+        const headerRow = tbody.closest('table').querySelector('thead tr');
+        if (headerRow) {
+            headerRow.innerHTML = '<th class="px-4 py-2 text-left">Staff</th>' + headerHtml;
+        }
+
+        tbody.innerHTML = html || '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No shifts found.</td></tr>';
+    }
+
+    function prevStaffingMonth() {
+        const input = document.getElementById('staffingCalendarMonth');
+        const d = new Date(input.value + '-01');
+        d.setMonth(d.getMonth() - 1);
+        input.value = d.toISOString().slice(0, 7);
+        loadStaffingCalendar();
+    }
+
+    function nextStaffingMonth() {
+        const input = document.getElementById('staffingCalendarMonth');
+        const d = new Date(input.value + '-01');
+        d.setMonth(d.getMonth() + 1);
+        input.value = d.toISOString().slice(0, 7);
+        loadStaffingCalendar();
+    }
+
+    async function loadStaffWorkload() {
+        const staffSelect = document.getElementById('workloadStaffSelect');
+        const startDate = document.getElementById('workloadStartDate').value;
+        const endDate = document.getElementById('workloadEndDate').value;
+        const tbody = document.getElementById('staffingWorkloadBody');
+
+        // Populate staff dropdown if empty
+        if (staffSelect.options.length <= 1) {
+            try {
+                const res = await fetch('/api/staff');
+                const data = await res.json();
+                if (data.success && data.staff) {
+                    data.staff.forEach(s => {
+                        staffSelect.innerHTML += `<option value="${s.id}">${s.name}</option>`;
+                    });
+                }
+            } catch (e) { console.error('Error loading staff:', e); }
+        }
+
+        if (!staffSelect.value) {
+            tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Select a staff member to view workload.</td></tr>';
+            return;
+        }
+
+        try {
+            let url = `/api/shifts?staff_id=${staffSelect.value}`;
+            if (startDate) url += `&start_date=${startDate}`;
+            if (endDate) url += `&end_date=${endDate}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.success && data.shifts && data.shifts.length > 0) {
+                tbody.innerHTML = data.shifts.map(sh => `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="px-4 py-3 text-gray-300">${sh.shift_date}</td>
+                        <td class="px-4 py-3 text-white">${sh.event_name || sh.event_id || '-'}</td>
+                        <td class="px-4 py-3 text-gray-300">${sh.start_time || '-'} - ${sh.end_time || '-'}</td>
+                        <td class="px-4 py-3"><span class="px-2 py-1 rounded text-xs bg-gray-700 text-gray-300">${sh.role || '-'}</span></td>
+                        <td class="px-4 py-3 text-right font-mono">${parseFloat(sh.hours_worked || 0).toFixed(1)}</td>
+                        <td class="px-4 py-3 text-right font-mono text-yellow-400">R ${parseFloat(sh.shift_pay || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2})}</td>
+                        <td class="px-4 py-3 text-center"><span class="px-2 py-1 rounded text-xs ${sh.status === 'completed' ? 'bg-green-900 text-green-300' : sh.status === 'checked_in' ? 'bg-blue-900 text-blue-300' : 'bg-yellow-900 text-yellow-300'}">${sh.status || 'scheduled'}</span></td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="updateShiftStatus(${sh.id}, 'completed')" class="text-green-400 hover:text-green-300 text-xs mr-1" title="Mark complete">✅</button>
+                            <button onclick="editShift(${sh.id})" class="text-blue-400 hover:text-blue-300 text-xs mr-1" title="Edit">✏️</button>
+                            <button onclick="deleteShift(${sh.id})" class="text-red-400 hover:text-red-300 text-xs" title="Delete">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">No shifts found for selected criteria.</td></tr>';
+            }
+        } catch (e) {
+            tbody.innerHTML = `<tr><td colspan="8" class="px-4 py-8 text-center text-red-400">Error: ${e.message}</td></tr>`;
+        }
+    }
+
+    // Auto-load expenses and staffing when their tabs are switched
+    const _origSwitchTab = switchTab;
+    switchTab = function(tab) {
+        _origSwitchTab(tab);
+        if (tab === 'expenses') {
+            loadExpenseFilterOptions();
+            loadExpenses();
+        }
+        if (tab === 'staffing') {
+            switchStaffingSubTab('overview');
+        }
+    };
 
 </body>
 </html>
