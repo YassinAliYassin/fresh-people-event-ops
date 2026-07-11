@@ -1,0 +1,88 @@
+name: Build & Health
+
+# Equivalent of test/build for this Node project (package.json has no
+# test scripts). Guards against the regressions we already hit:
+#   - a broken npm entry point (whatsapp-bot.js never existed)
+#   - missing web-dashboard deps on a clean clone
+#   - any JS file that no longer parses
+#   - a service that fails to boot
+#
+# Runs on every push and PR, plus manual dispatch.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web-dashboard/package-lock.json
+
+      - name: Syntax-check all tracked JS (excluding vendored node_modules)
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r f; do
+            case "$f" in node_modules/*|*/node_modules/*) continue;; esac
+            case "$f" in *.js) ;; *) continue;; esac
+            if ! node --check "$f"; then
+              echo "::error file=$f::Syntax error"
+              fail=1
+            fi
+          done < <(git ls-files)
+          [ "$fail" -eq 0 ] && echo "All tracked JS parses."
+
+      - name: Verify npm entry point resolves to a real file
+        run: |
+          set -euo pipefail
+          node -e "const p=require('./package.json'); const fs=require('fs'); const m=p.main; if(!m||!fs.existsSync(m)){console.error('::error::package.json main (\"'+m+'\") does not exist'); process.exit(1);} console.log('main ->', m, 'OK'); const s=p.scripts||{}; for(const k of ['start','bot']){ if(s[k] && !fs.existsSync(s[k].replace(/^node /,''))){console.error('::error::script '+k+' target missing: '+s[k]); process.exit(1);} } console.log('start/bot scripts resolve OK');"
+
+      - name: Reproducible install of web-dashboard (catches missing deps)
+        working-directory: web-dashboard
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          echo "web-dashboard npm ci succeeded."
+
+      - name: Boot-smoke-test the three services
+        run: |
+          set -euo pipefail
+          export PROJECT_ROOT="$PWD"
+
+          # WhatsApp bot
+          PORT=3011 WA_ACCESS_TOKEN=x WA_PHONE_NUMBER_ID=y nohup node whatsapp-api-bot.js > /tmp/bot.log 2>&1 &
+          BOT=$!
+
+          # API
+          PORT=3010 nohup node server.js > /tmp/api.log 2>&1 &
+          API=$!
+
+          # Dashboard (canonical server-v4.js)
+          (cd web-dashboard && PORT=3012 nohup node server-v4.js > /tmp/dash.log 2>&1 &)
+          DASH=$!
+
+          # give them a moment to bind
+          sleep 6
+
+          kill $BOT $API $DASH 2>/dev/null || true
+
+          echo "=== bot.log ==="; cat /tmp/bot.log
+          echo "=== api.log ==="; cat /tmp/api.log
+          echo "=== dash.log ==="; cat /tmp/dash.log
+
+          # Require each to have printed its listen banner
+          grep -q "WhatsApp API Bot running on port 3011" /tmp/bot.log || { echo "::error::WhatsApp bot did not boot"; exit 1; }
+          grep -q "Fresh People Event Ops running on port 3010" /tmp/api.log || { echo "::error::API did not boot"; exit 1; }
+          grep -q "v4.45 running on" /tmp/dash.log || { echo "::error::Dashboard did not boot"; exit 1; }
+          echo "All three services booted successfully."
