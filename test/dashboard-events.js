@@ -53,6 +53,7 @@ function request(method, route, body, headers = {}) {
       }
     );
     req.on('error', reject);
+    req.setTimeout(8000, () => req.destroy(new Error('request socket timeout')));
     if (data) req.write(data);
     req.end();
   });

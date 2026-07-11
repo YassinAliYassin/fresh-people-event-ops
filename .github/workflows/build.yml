@@ -96,3 +96,8 @@ jobs:
         run: |
           set -euo pipefail
           TEST_PORT=3014 node test/dashboard-events.js
+
+      - name: Integration test — dashboard Expense CRUD (fresh SQLite DB)
+        run: |
+          set -euo pipefail
+          TEST_PORT=3015 node test/dashboard-expenses.js
