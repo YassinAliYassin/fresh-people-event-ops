@@ -1,73 +1,78 @@
-# Fresh People Event Operations System v2.0
+# Fresh People Event Operations System
 
 ## Overview
 Automated event management system for Fresh People events with:
-- SQLite database backend
-- Web dashboard (3-col X-style design)
+- SQLite database backend (`events.db`)
+- Web dashboard (used by staff + client self-service portal)
 - Auto staff assignment
 - Calendar export (.ics)
 - WhatsApp API integration (Meta)
 
+The canonical dashboard server is **`server-v4.js`** (v4.45). It is
+env-driven: it honours `PORT`, `PROJECT_ROOT`, `EVENTS_DB`, and
+`CALENDAR_EVENTS_DIR` with safe defaults, and resolves credentials from
+the environment (no secrets in source).
+
 ## Features
 ✅ Event creation with auto-staff assignment
-✅ Staff pool management (8 default staff)
+✅ Staff pool management
 ✅ Calendar export (.ics files)
-✅ SQLite database (events + staff tables)
-✅ REST API (events, staff endpoints)
-✅ Web dashboard with stats
+✅ SQLite database (events + staff + shifts tables)
+✅ REST API (events, staff, shifts, reports endpoints)
+✅ Web dashboard with stats + live WebSocket updates
 ✅ Auto event ID generation (FP-YYYYMMDD-NNN)
 ✅ Arrival time calculation (1hr before event)
+✅ Client self-service portal + deployment messages
+✅ Report scheduling & post-event reports (PDF)
 
 ## Access
-- **Web Dashboard**: http://197.185.136.142:3004
-- **API Base**: http://197.185.136.142:3004/api/
+- **Web Dashboard**: `http://localhost:${PORT}` (default `PORT=3004`)
+- **API Base**: `http://localhost:3004/api/`
 
-## API Endpoints
-- `GET /api/events` - List all events
+Set `DASHBOARD_USER` / `DASHBOARD_PASS` (or rely on the env default and
+override via env) for the basic-auth login.
+
+## API Endpoints (subset)
+- `GET  /api/events` - List all events
 - `POST /api/events` - Create new event
-- `GET /api/staff` - List active staff
+- `GET  /api/staff` - List active staff
+- `GET  /api/staffing/overview` - Staffing overview
+- `GET  /api/shifts/calendar` - Shift calendar
 
 ## File Structure
 ```
 web-dashboard/
-├── server-v2.js (main server with SQLite)
+├── server-v4.js        (canonical dashboard server, v4.45)
 ├── public/
-│   └── index.html (web dashboard)
+│   ├── index.html      (web dashboard)
+│   ├── login.html
+│   ├── event-day.html
+│   └── client-portal.html
 ├── package.json
-└── node_modules/
+└── node_modules/       (gitignored; install via `npm ci`)
 
-calendar-events/
-├── *.json (event data)
-└── *.ics (calendar files)
-
-events.db (SQLite database)
+../events.db              (SQLite database, gitignored)
+../calendar-events/       (generated .ics/.json, gitignored)
 ```
 
 ## Start/Stop
-```bash
-# Start
-cd /home/yassin/fresh-people-event-ops/web-dashboard
-node server-v2.js
+The dashboard is started by the repo's orchestration scripts:
+- `../start-event-ops.sh` (launches `server-v4.js` on `PORT=3004`)
+- `../ecosystem.config.js` (PM2: dashboard + API + WhatsApp bot)
 
-# Or use PM2 (recommended)
-pm2 start server-v2.js --name fresh-people-ops
+Manual start:
+```bash
+cd web-dashboard
+PORT=3004 npm start          # resolves to node server-v4.js
+# or directly:
+node server-v4.js
 ```
 
-## Next Steps (v2.1+)
-- [ ] Event editing/deletion
-- [ ] Staff management UI
-- [ ] WhatsApp notifications (when API fixed)
-- [ ] Email notifications (when auth fixed)
-- [ ] Calendar view
-- [ ] Event search/filter
-- [ ] Nginx reverse proxy
-- [ ] PM2 process management
-- [ ] Mobile PWA support
-
-## Status
-✅ Production ready (core features)
-⚠️ WhatsApp API (blocked by security policy)
-⚠️ Email (auth issues)
-⚠️ Nginx (blocked by security policy)
+## Notes
+- Older server variants (`server.js`, `server-v2.js`, `server-v3.js`)
+  are deprecated/orphaned and are not launched by any script or config.
+  `server-v4.js` is the only supported dashboard entry point.
+- `web-dashboard` is a separate npm project; install deps with
+  `npm ci` (reproducible) in this directory.
 
 Built autonomously by Hermes AI.
