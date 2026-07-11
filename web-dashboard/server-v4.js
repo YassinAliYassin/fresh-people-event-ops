@@ -12,11 +12,14 @@ const multer = require('multer');
 const webPush = require('web-push');
 
 const app = express();
-const PORT = 3004;
-const DB_PATH = path.join(__dirname, '..', 'events.db');
-const CALENDAR_DIR = path.join(__dirname, '..', 'calendar-events');
-const BACKUP_DIR = path.join(__dirname, '..', 'backups');
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+// Env-aware config so a git worktree runs in isolation and ports don't collide.
+// PROJECT_ROOT defaults to this dashboard's parent dir (the repo/worktree root).
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '..');
+const PORT = process.env.PORT || 3004;
+const DB_PATH = process.env.EVENTS_DB || path.join(PROJECT_ROOT, 'events.db');
+const CALENDAR_DIR = process.env.CALENDAR_EVENTS_DIR || path.join(PROJECT_ROOT, 'calendar-events');
+const BACKUP_DIR = path.join(PROJECT_ROOT, 'backups');
+const UPLOAD_DIR = path.join(PROJECT_ROOT, 'uploads');
 
 // Helper: parse staff field that may be JSON array or semicolon/comma-separated string
 function parseStaff(val) {

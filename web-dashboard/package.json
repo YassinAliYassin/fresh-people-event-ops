@@ -13,6 +13,7 @@
     "acorn": "^8.17.0",
     "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.2",
+    "content-type": "^1.0.5",
     "express": "^5.2.1",
     "express-basic-auth": "^1.2.1",
     "multer": "^2.2.0",
