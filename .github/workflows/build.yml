@@ -86,3 +86,8 @@ jobs:
           grep -q "Fresh People Event Ops running on port 3010" /tmp/api.log || { echo "::error::API did not boot"; exit 1; }
           grep -q "v4.45 running on" /tmp/dash.log || { echo "::error::Dashboard did not boot"; exit 1; }
           echo "All three services booted successfully."
+
+      - name: Integration test — core booking flow (POST /process-booking)
+        run: |
+          set -euo pipefail
+          TEST_PORT=3013 node test/integration.js
