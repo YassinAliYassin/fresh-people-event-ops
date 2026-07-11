@@ -1,26 +1,38 @@
 #!/bin/bash
 # Fresh People Event Ops - Complete Startup Script
-# Starts all services needed for event operations
+# Starts all services needed for event operations.
+#
+# Resolves the repo root from PROJECT_ROOT (env) or this script's location,
+# matching the convention used by ecosystem.config.js (PM2). This keeps the
+# script safe to run from a git worktree, not just the canonical checkout.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$SCRIPT_DIR}"
 
 echo "🚀 Starting Fresh People Event Operations System..."
+echo "   Repo root: $PROJECT_ROOT"
 
-# Kill existing processes
-pkill -f "node server.js" 2>/dev/null
+# Kill existing processes.
+# Note: the canonical dashboard is server-v4.js (matches PM2/ecosystem.config.js
+# on PORT 3004). We also kill the legacy web-dashboard/server.js to avoid a
+# port-3004 collision if it was started by an older script.
+pkill -f "node.*server-v4.js" 2>/dev/null
+pkill -f "node.*web-dashboard/server.js" 2>/dev/null
 pkill -f "whatsapp-api-bot.js" 2>/dev/null
 sleep 2
 
 # Start WhatsApp API Bot (Meta API based)
 echo "📱 Starting WhatsApp API Bot..."
-cd /home/yassin/fresh-people-event-ops
+cd "$PROJECT_ROOT"
 nohup node whatsapp-api-bot.js > /tmp/whatsapp-api-bot.log 2>&1 &
 echo "   ✓ WhatsApp Bot PID: $!"
 
-# Start Event Ops Web Dashboard
+# Start Event Ops Web Dashboard (canonical server-v4.js, PORT 3004)
 echo "🌐 Starting Web Dashboard..."
-cd /home/yassin/fresh-people-event-ops/web-dashboard
-nohup node server.js > /tmp/event-ops-web.log 2>&1 &
+cd "$PROJECT_ROOT/web-dashboard"
+PORT=3004 nohup node server-v4.js > /tmp/event-ops-web.log 2>&1 &
 echo "   ✓ Web Dashboard PID: $!"
-echo "   → URL: http://197.185.136.142:3004"
+echo "   → URL: http://localhost:3004"
 
 sleep 3
 
@@ -43,10 +55,10 @@ echo ""
 echo "✅ Fresh People Event Ops System is READY!"
 echo ""
 echo "📋 Access Points:"
-echo "   • Web Dashboard: http://197.185.136.142:3004"
-echo "   • WhatsApp Bot: http://197.185.136.142:3003"
+echo "   • Web Dashboard: http://localhost:3004"
+echo "   • WhatsApp Bot: http://localhost:3003"
 echo ""
 echo "📱 To link WhatsApp Bot:"
 echo "   1. Configure webhook in Meta Dashboard"
-echo "   2. Webhook URL: http://197.185.136.142:3003/webhook"
+echo "   2. Webhook URL: http://YOUR_SERVER:3003/webhook"
 echo "   3. Verify Token: fresh_people_webhook_verify_2026"
