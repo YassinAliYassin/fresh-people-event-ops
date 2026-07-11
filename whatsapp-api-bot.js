@@ -3,14 +3,17 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// CONFIG — Fill these after getting token
-const ACCESS_TOKEN = 'EAAvYl97Mh2QBRu6ZBrhFzaxUmjTmSqazv7RskpKvdar5GLy7v0ZAHtuOnwjPf9irD7zhYF2Du4EbdIheD7pUx7lUnZAZCI5iuOmQZAd0nR6HZBoZAifKvCkxBwzQFpbnyJ1OeLZBmsLylYQqz4R1gUdr5LJVMPMlihTW2u8v06Hb9zXMZC8RSauZCZARpQ4fgnuQE0etQZDZD';
-const PHONE_NUMBER_ID = '1190600000792870'; // From send-whatsapp.sh (WORKING)
+// CONFIG — resolve from environment (no secrets in source control).
+// Set WA_ACCESS_TOKEN, WA_PHONE_NUMBER_ID, WA_VERIFY_TOKEN via env/.env.
+// PROJECT_ROOT defaults to this script's directory so a worktree runs in isolation.
+const PROJECT_ROOT = process.env.PROJECT_ROOT || __dirname;
+const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN || 'PASTE_YOUR_TOKEN_HERE';
+const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID || 'PASTE_YOUR_PHONE_NUMBER_ID';
 // Display Phone Number: +27 67 296 1272 (Fresh People Business Number)
-const VERIFY_TOKEN = 'fresh_people_webhook_verify_2026';
+const VERIFY_TOKEN = process.env.WA_VERIFY_TOKEN || 'fresh_people_webhook_verify_2026';
 
-const EVENT_PROCESSOR = '/home/yassin/fresh-people-event-ops/event_processor.py';
-const PORT = 3003;
+const EVENT_PROCESSOR = process.env.EVENT_PROCESSOR || path.join(PROJECT_ROOT, 'event_processor.py');
+const PORT = process.env.PORT || 3003;
 
 const express = require('express');
 const app = express();

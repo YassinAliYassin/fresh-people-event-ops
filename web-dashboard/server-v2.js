@@ -34,8 +34,10 @@ db.serialize(() => {
     });
 });
 
-const WHATSAPP_TOKEN = "EAAW5l0R09ZCkBRtnTRodFTZAUZACZCct6XY91O1oAmOYMaoFhmrAp1ROJOiSnGwEKCMSFTHXNoULbBw3CuKb60oZCVA8d5dTNGKD5oiW89NfjTAAQmE9ysbMsod6RS4V8mUwzYm0DZBSQ1rYhVk8fXG9yoAD57BK2JzO7PC3qNM8Md2lM1Rz1Va8DRKTHqbqIZD";
-const PHONE_NUMBER_ID = "106073502372079";
+// WhatsApp Cloud API creds are read from the environment (no secrets in source).
+// Set WA_ACCESS_TOKEN / WA_PHONE_NUMBER_ID via env or .env (see .env.example).
+const WHATSAPP_TOKEN = process.env.WA_ACCESS_TOKEN || 'PASTE_YOUR_TOKEN_HERE';
+const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID || 'PASTE_YOUR_PHONE_NUMBER_ID';
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));

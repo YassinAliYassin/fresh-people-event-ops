@@ -6,3 +6,5 @@ uploads/
 node_modules/
 .pm2/
 vapid-keys.json
+.env
+.env.local
