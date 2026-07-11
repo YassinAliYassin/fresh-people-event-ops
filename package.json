@@ -8,7 +8,7 @@
     "bot": "node whatsapp-api-bot.js",
     "api": "node server.js",
     "dashboard": "node web-dashboard/server-v4.js",
-    "test": "node test/integration.js && node test/dashboard-events.js && node test/dashboard-expenses.js"
+    "test": "node test/integration.js && node test/dashboard-events.js && node test/dashboard-expenses.js && node test/dashboard-staff.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
