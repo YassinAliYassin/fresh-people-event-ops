@@ -1,11 +1,13 @@
 {
   "name": "fresh-people-event-ops",
   "version": "1.0.0",
-  "description": "Standalone WhatsApp Bot for Fresh People Event Ops - Baileys based, no Chrome needed",
-  "main": "whatsapp-bot.js",
+  "description": "WhatsApp Business API bot + Express API and web dashboard for Fresh People Event Ops",
+  "main": "whatsapp-api-bot.js",
   "scripts": {
-    "start": "node whatsapp-bot.js",
-    "bot": "node whatsapp-bot.js"
+    "start": "node whatsapp-api-bot.js",
+    "bot": "node whatsapp-api-bot.js",
+    "api": "node server.js",
+    "dashboard": "node web-dashboard/server-v4.js"
   },
   "dependencies": {
     "@hapi/boom": "^10.0.1",
