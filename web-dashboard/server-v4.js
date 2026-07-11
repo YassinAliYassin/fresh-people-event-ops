@@ -174,6 +174,12 @@ fs.mkdir(BACKUP_DIR, { recursive: true }).catch(() => {});
 fs.mkdir(UPLOAD_DIR, { recursive: true }).catch(() => {});
 
 // ==================== DB MIGRATIONS ====================
+// Wrap all schema DDL + seed statements in db.serialize() so they execute in
+// source order. Without this, on a FRESH database a staff/event-touching
+// statement can run before its table exists (the code assumed the shipped
+// events.db was pre-seeded), crashing the process with "no such table".
+
+db.serialize(() => {
 
 // Create users table for multi-user auth
 db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -219,6 +225,46 @@ db.run(`CREATE TABLE IF NOT EXISTS staff_availability (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (staff_id) REFERENCES staff(id),
   UNIQUE(staff_id, date)
+)`);
+
+// Base tables. The code and the ALTER migrations below assume `events` and
+// `staff` already exist (production's events.db was seeded externally), but a
+// fresh clone must cold-start cleanly. Create them first if absent; the ALTER
+// migrations then add any columns not present here.
+db.run(`CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  event TEXT DEFAULT '',
+  date TEXT DEFAULT '',
+  time TEXT DEFAULT '',
+  end_time TEXT DEFAULT '',
+  location TEXT DEFAULT '',
+  client TEXT DEFAULT '',
+  client_id INTEGER DEFAULT 0,
+  client_email TEXT DEFAULT '',
+  services TEXT DEFAULT '',
+  staff TEXT DEFAULT '[]',
+  notes TEXT DEFAULT '',
+  estimated_cost REAL DEFAULT 0,
+  actual_cost REAL DEFAULT 0,
+  currency TEXT DEFAULT 'ZAR',
+  budget REAL DEFAULT 0,
+  guests INTEGER DEFAULT 0,
+  venue_id INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)`);
+
+db.run(`CREATE TABLE IF NOT EXISTS staff (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT DEFAULT '',
+  role TEXT DEFAULT 'staff',
+  email TEXT DEFAULT '',
+  active INTEGER DEFAULT 1,
+  skills TEXT DEFAULT '[]',
+  pay_type TEXT DEFAULT 'hourly',
+  hourly_rate REAL DEFAULT 0,
+  overtime_rate REAL DEFAULT 0
 )`);
 
 // Add cost columns to events table (migration)
@@ -1106,6 +1152,12 @@ db.get(`SELECT COUNT(*) as count FROM documents`, (err, row) => {
     stmt.finalize();
     console.log(`Seeded ${sampleDocs.length} default documents`);
   }
+});
+
+// ==================== END DB MIGRATIONS / SEEDS ====================
+// (schema DDL + seed statements above run inside db.serialize() so a fresh
+// database cold-starts correctly. The multer/upload config below is NOT a db
+// operation and must stay in module scope so the routes can reference it.)
 });
 
 // Ensure documents upload directory exists
