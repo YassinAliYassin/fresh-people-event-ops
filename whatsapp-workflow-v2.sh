@@ -1,8 +1,12 @@
 #!/bin/bash
 # Fresh People WhatsApp Workflow - WITH STAFF NOTIFICATIONS
-TOKEN="EAAvYl97Mh2QBRu6ZBrhFzaxUmjTmSqazv7RskpKvdar5GLy7v0ZAHtuOnwjPf9irD7zhYF2Du4EbdIheD7pUx7lUnZAZCI5iuOmQZAd0nR6HZBoZAifKvCkxBwzQFpbnyJ1OeLZBmsLylYQqz4R1gUdr5LJVMPMlihTW2u8v06Hb9zXMZC8RSauZCZARpQ4fgnuQE0etQZDZD"
-PHONE_NUMBER_ID="1190600000792870"
-EVENT_PROCESSOR="/home/yassin/fresh-people-event-ops/event_processor.py"
+# SECURITY: load credentials from environment (no secrets in source control).
+#   export WA_ACCESS_TOKEN="EAAv..." WA_PHONE_NUMBER_ID="1190600000792870"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$SCRIPT_DIR}"
+TOKEN="${WA_ACCESS_TOKEN:-PASTE_YOUR_TOKEN_HERE}"
+PHONE_NUMBER_ID="${WA_PHONE_NUMBER_ID:-1190600000792870}"
+EVENT_PROCESSOR="${EVENT_PROCESSOR:-$PROJECT_ROOT/event_processor.py}"
 
 BOOKING_MSG="$1"
 

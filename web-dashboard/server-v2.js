@@ -6,8 +6,8 @@ const sqlite3 = require("sqlite3").verbose();
 const fetch = require("node-fetch");
 
 const app = express();
-const PORT = 3004;
-const EVENTS_DB = "/home/yassin/fresh-people-event-ops/events.db";
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '..');
+const EVENTS_DB = process.env.EVENTS_DB || path.join(PROJECT_ROOT, 'events.db');
 
 // Initialize SQLite DB
 const db = new sqlite3.Database(EVENTS_DB, (err) => {
@@ -34,8 +34,10 @@ db.serialize(() => {
     });
 });
 
-const WHATSAPP_TOKEN = "EAAW5l0R09ZCkBRtnTRodFTZAUZACZCct6XY91O1oAmOYMaoFhmrAp1ROJOiSnGwEKCMSFTHXNoULbBw3CuKb60oZCVA8d5dTNGKD5oiW89NfjTAAQmE9ysbMsod6RS4V8mUwzYm0DZBSQ1rYhVk8fXG9yoAD57BK2JzO7PC3qNM8Md2lM1Rz1Va8DRKTHqbqIZD";
-const PHONE_NUMBER_ID = "106073502372079";
+// WhatsApp Cloud API creds are read from the environment (no secrets in source).
+// Set WA_ACCESS_TOKEN / WA_PHONE_NUMBER_ID via env or .env (see .env.example).
+const WHATSAPP_TOKEN = process.env.WA_ACCESS_TOKEN || 'PASTE_YOUR_TOKEN_HERE';
+const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID || 'PASTE_YOUR_PHONE_NUMBER_ID';
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -98,7 +100,8 @@ app.post("/api/events", async (req, res) => {
             [id, event, client, date, time, location, ev.services, ev.staff, ev.leader, arrival, ev.created_at, ev.status]);
         
         const ics = generateICS(ev);
-        await fs.writeFile(`/home/yassin/fresh-people-event-ops/calendar-events/${id}.ics`, ics);
+        const icsDir = process.env.CALENDAR_EVENTS_DIR || path.join(PROJECT_ROOT, 'calendar-events');
+        await fs.writeFile(`${icsDir}/${id}.ics`, ics);
         
         res.json({ success: true, event: ev });
     } catch(e) {

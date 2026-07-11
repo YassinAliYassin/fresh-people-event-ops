@@ -2,6 +2,10 @@
 # Fresh People Event Ops - Auto-Start Script
 # Run both servers in background
 
+# Resolve repo root from this script's location (works inside a git worktree too)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$SCRIPT_DIR}"
+
 echo "🚀 Starting Fresh People Event Ops..."
 
 # Kill any existing processes
@@ -10,7 +14,7 @@ pkill -f "node.*whatsapp-api-bot.js" 2>/dev/null
 sleep 1
 
 # Start main server on port 5555
-cd /home/yassin/fresh-people-event-ops
+cd "$PROJECT_ROOT"
 PORT=5555 nohup node server.js > /tmp/fresh-ops-main.log 2>&1 &
 echo "✅ Main server starting on port 5555"
 

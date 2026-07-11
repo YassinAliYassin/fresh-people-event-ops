@@ -1,9 +1,15 @@
+const path = require('path');
+
+// Resolve repo root (works inside a git worktree when PROJECT_ROOT is set,
+// otherwise falls back to this config file's directory).
+const PROJECT_ROOT = process.env.PROJECT_ROOT || __dirname;
+
 module.exports = {
   apps: [
     {
       name: 'fresh-people-dashboard',
       script: 'server-v4.js',
-      cwd: '/home/yassin/fresh-people-event-ops/web-dashboard',
+      cwd: path.join(PROJECT_ROOT, 'web-dashboard'),
       instances: 1,
       autorestart: true,
       watch: false,
@@ -11,8 +17,9 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3004,
-        DASHBOARD_USER: 'admin',
-        DASHBOARD_PASS: 'freshpeople2026'
+        PROJECT_ROOT: PROJECT_ROOT,
+        DASHBOARD_USER: process.env.DASHBOARD_USER || 'admin',
+        DASHBOARD_PASS: process.env.DASHBOARD_PASS || 'CHANGE_ME_VIA_ENV'
       },
       error_file: '/home/yassin/.hermes/logs/fresh-people-dashboard-error.log',
       out_file: '/home/yassin/.hermes/logs/fresh-people-dashboard-out.log',
@@ -21,14 +28,15 @@ module.exports = {
     {
       name: 'fresh-people-api',
       script: 'server.js',
-      cwd: '/home/yassin/fresh-people-event-ops',
+      cwd: PROJECT_ROOT,
       instances: 1,
       autorestart: true,
       watch: false,
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3000,
+        PROJECT_ROOT: PROJECT_ROOT
       },
       error_file: '/home/yassin/.hermes/logs/fresh-people-api-error.log',
       out_file: '/home/yassin/.hermes/logs/fresh-people-api-out.log',
@@ -37,14 +45,15 @@ module.exports = {
     {
       name: 'fresh-people-whatsapp',
       script: 'whatsapp-api-bot.js',
-      cwd: '/home/yassin/fresh-people-event-ops',
+      cwd: PROJECT_ROOT,
       instances: 1,
       autorestart: true,
       watch: false,
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3003
+        PORT: 3003,
+        PROJECT_ROOT: PROJECT_ROOT
       },
       error_file: '/home/yassin/.hermes/logs/fresh-people-whatsapp-error.log',
       out_file: '/home/yassin/.hermes/logs/fresh-people-whatsapp-out.log',
