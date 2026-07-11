@@ -1,9 +1,15 @@
+const path = require('path');
+
+// Resolve repo root (works inside a git worktree when PROJECT_ROOT is set,
+// otherwise falls back to this config file's directory).
+const PROJECT_ROOT = process.env.PROJECT_ROOT || __dirname;
+
 module.exports = {
   apps: [
     {
       name: 'fresh-people-dashboard',
       script: 'server-v4.js',
-      cwd: '/home/yassin/fresh-people-event-ops/web-dashboard',
+      cwd: path.join(PROJECT_ROOT, 'web-dashboard'),
       instances: 1,
       autorestart: true,
       watch: false,
@@ -21,7 +27,7 @@ module.exports = {
     {
       name: 'fresh-people-api',
       script: 'server.js',
-      cwd: '/home/yassin/fresh-people-event-ops',
+      cwd: PROJECT_ROOT,
       instances: 1,
       autorestart: true,
       watch: false,
@@ -37,7 +43,7 @@ module.exports = {
     {
       name: 'fresh-people-whatsapp',
       script: 'whatsapp-api-bot.js',
-      cwd: '/home/yassin/fresh-people-event-ops',
+      cwd: PROJECT_ROOT,
       instances: 1,
       autorestart: true,
       watch: false,

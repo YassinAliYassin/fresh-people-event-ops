@@ -6,8 +6,8 @@ const sqlite3 = require("sqlite3").verbose();
 const fetch = require("node-fetch");
 
 const app = express();
-const PORT = 3004;
-const EVENTS_DB = "/home/yassin/fresh-people-event-ops/events.db";
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.resolve(__dirname, '..');
+const EVENTS_DB = process.env.EVENTS_DB || path.join(PROJECT_ROOT, 'events.db');
 
 // Initialize SQLite DB
 const db = new sqlite3.Database(EVENTS_DB, (err) => {
@@ -98,7 +98,8 @@ app.post("/api/events", async (req, res) => {
             [id, event, client, date, time, location, ev.services, ev.staff, ev.leader, arrival, ev.created_at, ev.status]);
         
         const ics = generateICS(ev);
-        await fs.writeFile(`/home/yassin/fresh-people-event-ops/calendar-events/${id}.ics`, ics);
+        const icsDir = process.env.CALENDAR_EVENTS_DIR || path.join(PROJECT_ROOT, 'calendar-events');
+        await fs.writeFile(`${icsDir}/${id}.ics`, ics);
         
         res.json({ success: true, event: ev });
     } catch(e) {
