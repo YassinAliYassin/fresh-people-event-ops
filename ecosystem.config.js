@@ -17,8 +17,9 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3004,
-        DASHBOARD_USER: 'admin',
-        DASHBOARD_PASS: 'freshpeople2026'
+        PROJECT_ROOT: PROJECT_ROOT,
+        DASHBOARD_USER: process.env.DASHBOARD_USER || 'admin',
+        DASHBOARD_PASS: process.env.DASHBOARD_PASS || 'CHANGE_ME_VIA_ENV'
       },
       error_file: '/home/yassin/.hermes/logs/fresh-people-dashboard-error.log',
       out_file: '/home/yassin/.hermes/logs/fresh-people-dashboard-out.log',
@@ -34,7 +35,8 @@ module.exports = {
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3000
+        PORT: 3000,
+        PROJECT_ROOT: PROJECT_ROOT
       },
       error_file: '/home/yassin/.hermes/logs/fresh-people-api-error.log',
       out_file: '/home/yassin/.hermes/logs/fresh-people-api-out.log',
@@ -50,7 +52,8 @@ module.exports = {
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        PORT: 3003
+        PORT: 3003,
+        PROJECT_ROOT: PROJECT_ROOT
       },
       error_file: '/home/yassin/.hermes/logs/fresh-people-whatsapp-error.log',
       out_file: '/home/yassin/.hermes/logs/fresh-people-whatsapp-out.log',
