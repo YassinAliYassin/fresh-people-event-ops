@@ -48,6 +48,12 @@ jobs:
           set -euo pipefail
           node -e "const p=require('./package.json'); const fs=require('fs'); const m=p.main; if(!m||!fs.existsSync(m)){console.error('::error::package.json main (\"'+m+'\") does not exist'); process.exit(1);} console.log('main ->', m, 'OK'); const s=p.scripts||{}; for(const k of ['start','bot']){ if(s[k] && !fs.existsSync(s[k].replace(/^node /,''))){console.error('::error::script '+k+' target missing: '+s[k]); process.exit(1);} } console.log('start/bot scripts resolve OK');"
 
+      - name: Install root dependencies (bot, API, and dashboard test harness)
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund
+          echo "root npm ci succeeded."
+
       - name: Reproducible install of web-dashboard (catches missing deps)
         working-directory: web-dashboard
         run: |
