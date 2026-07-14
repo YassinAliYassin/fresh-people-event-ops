@@ -14,10 +14,17 @@
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^6.7.2",
     "axios": "^1.16.1",
+    "bcryptjs": "^2.4.3",
     "express": "^4.18.2",
     "express-validator": "^7.0.1",
+    "multer": "^1.4.5-lts.1",
     "node-telegram-bot-api": "^0.67.0",
-    "qrcode": "^1.5.4"
+    "nodemailer": "^6.9.13",
+    "pdfkit": "^0.15.0",
+    "qrcode": "^1.5.4",
+    "sqlite3": "^5.1.7",
+    "uuid": "^9.0.1",
+    "web-push": "^3.6.7"
   },
   "keywords": [
     "fresh-people",
