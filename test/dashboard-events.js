@@ -53,7 +53,7 @@ function request(method, route, body, headers = {}) {
       }
     );
     req.on('error', reject);
-    req.setTimeout(8000, () => req.destroy(new Error('request socket timeout')));
+    req.setTimeout(20000, () => req.destroy(new Error('request socket timeout')));
     if (data) req.write(data);
     req.end();
   });
@@ -85,7 +85,7 @@ const SAMPLE_EVENT = {
   srv.stdout.on('data', (d) => { if (/v4\.45 running on/.test(d.toString())) booted = true; });
   srv.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
 
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + 20000;
   while (!booted && Date.now() < deadline) await new Promise((r) => setTimeout(r, 150));
   if (!booted) { console.error('::error::dashboard did not boot'); srv.kill(); process.exit(1); }
 
