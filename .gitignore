@@ -1,10 +1,38 @@
+# Logs
 *.log
+npm-debug.log*
+yarn-error.log*
+
+# Dependencies
+node_modules/
+web-dashboard/node_modules/
+
+# Runtime data
 events.db
+*.db
 backups/
 calendar-events/
 uploads/
-node_modules/
 .pm2/
-vapid-keys.json
+
+# Secrets / env
 .env
 .env.local
+.env.*.local
+vapid-keys.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Build output
+dist/
+build/
+coverage/
+
+# Temp
+*.tmp
+__pycache__/
