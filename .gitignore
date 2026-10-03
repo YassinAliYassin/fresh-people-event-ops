@@ -36,3 +36,6 @@ coverage/
 # Temp
 *.tmp
 __pycache__/
+
+# Local git worktrees
+.worktrees/

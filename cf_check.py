@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import urllib.request, json, ssl, re
 
-TOKEN = "cfat...E_ID = "5e3c1a3b5e4cd3b67545feeb1136fb62"
+TOKEN = "cfat..."
+ZONE_ID = "5e3c1a3b5e4cd3b67545feeb1136fb62"
 DOMAIN = "fresh-people.co.za"
 
 headers = {
