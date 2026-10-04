@@ -2,42 +2,79 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { exec } = require('child_process');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs').promises;
+const os = require('os');
+const crypto = require('crypto');
+const { promisify } = require('util');
+
+const execAsync = promisify(exec);
 
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.disable('x-powered-by');
+
+// --- Basic security headers (no extra dependencies) ---
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
+// --- Simple in-memory rate limiter (no extra dependency) ---
+function createRateLimiter({ windowMs, max }) {
+  const hits = new Map();
+  const cleanup = setInterval(() => {
+    const now = Date.now();
+    for (const [key, rec] of hits) if (rec.reset < now) hits.delete(key);
+  }, windowMs).unref();
+  return (req, res, next) => {
+    const key = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    const rec = hits.get(key) || { count: 0, reset: now + windowMs };
+    if (rec.reset < now) { rec.count = 0; rec.reset = now + windowMs; }
+    rec.count += 1;
+    hits.set(key, rec);
+    if (rec.count > max) {
+      return res.status(429).json({ error: 'Too many requests, please slow down.' });
+    }
+    next();
+  };
+}
+
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
 const PORT = process.env.PORT || 3000;
 const EVENT_PROCESSOR = path.join(__dirname, 'event_processor.py');
 
 // Process WhatsApp booking message
 app.post('/process-booking', [
-    body('message').notEmpty().withMessage('Message is required')
-], (req, res) => {
+  body('message').notEmpty().withMessage('Message is required')
+    .isString().withMessage('Message must be a string')
+    .isLength({ max: 20000 }).withMessage('Message is too long (max 20,000 chars)')
+], createRateLimiter({ windowMs: 60 * 1000, max: 60 }), async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
         return res.status(400).json({ errors: errors.array() });
     }
 
     const { message } = req.body;
-    const tempFile = '/tmp/fresh_people_booking.txt';
-    
-    fs.writeFileSync(tempFile, message);
-    
-    exec(`python3 ${EVENT_PROCESSOR} ${tempFile}`, (error, stdout, stderr) => {
-        if (error) {
-            return res.status(500).json({ 
-                error: 'Processing failed', 
-                details: stderr 
-            });
-        }
-        
-        res.json({ 
-            success: true,
-            result: stdout 
+    const tempFile = path.join(os.tmpdir(), `fresh_people_booking_${crypto.randomBytes(8).toString('hex')}.txt`);
+
+    try {
+        await fs.writeFile(tempFile, message, 'utf8');
+        // Pass the file path via argv (no shell interpolation of user content).
+        const { stdout } = await execAsync(`python3 "${EVENT_PROCESSOR}" "${tempFile}"`);
+        res.json({ success: true, result: stdout });
+    } catch (err) {
+        return res.status(500).json({
+            error: 'Processing failed',
+            details: (err.stderr || err.message || 'unknown error').toString()
         });
-    });
+    } finally {
+        fs.unlink(tempFile).catch(() => {});
+    }
 });
 
 // Web form for manual paste
